@@ -1,6 +1,7 @@
 package ech0.server;
 
 import ech0.codec.ProtocolCodec;
+import ech0.model.ServerConfig;
 import ech0.queue.SimpleQueue;
 import io.vertx.mutiny.core.net.NetServer;
 import lombok.RequiredArgsConstructor;
@@ -15,18 +16,20 @@ public class TcpMessageServer {
   private final SimpleQueue<ProtocolCodec.DecodedMessage> queue;
 
   public void start(int port) {
-    server.connectHandler(socket -> {
+    server.connectHandler(socket ->
         socket.handler(buffer -> {
           val msg = ProtocolCodec.decode(buffer);
-          log.info("Received message: {}", msg);
+          log.atInfo().log("Received message: {}", msg);
           queue.push(msg); // 推入队列
-        });
-      })
+        })
+      )
       .listen(port)
-      .await()
-      .indefinitely();
+      .subscribe()
+      .with(
+        server -> log.atInfo().log("TCP Server started on {}", server.actualPort()),
+        (t) -> log.atError().log(t.getMessage(), t));
     queue.start();
-    log.info("TCP Server listening on {}", port);
+    log.atInfo().log("TCP Server listening on {}", port);
   }
 
   public void stop() {

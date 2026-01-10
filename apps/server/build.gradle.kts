@@ -21,10 +21,7 @@ dependencies {
   annotationProcessor(libs.avaje.inject.processor)
 
   // Config
-  implementation(libs.gestalt.core)
-  implementation(libs.gestalt.toml)
-  implementation(libs.gestalt.json)
-  implementation(libs.gestalt.yaml)
+  implementation(libs.bundles.config)
 
   implementation(libs.slf4j.jul.bridge)
   implementation(libs.logback.classic)

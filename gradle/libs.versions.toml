@@ -73,3 +73,14 @@ mapstruct-annotation-processor = { group = "org.mapstruct", name = "mapstruct-pr
 record-builder-processor = { group = "io.soabase.record-builder", name = "record-builder-processor", version.ref = "record-builder" }
 record-builder-core = { group = "io.soabase.record-builder", name = "record-builder-core", version.ref = "record-builder" }
 
+h2-mvstore = { group = 'com.h2database', name = 'h2-mvstore', version = "2.4.240" }
+dotenv = { group = 'io.github.cdimascio', name = 'dotenv-java', version = "3.2.0" }
+
+[bundles]
+config = [
+  'gestalt-core',
+  'gestalt-json',
+  'gestalt-toml',
+  'gestalt-yaml',
+  'dotenv'
+]

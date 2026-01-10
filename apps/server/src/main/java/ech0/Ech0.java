@@ -3,13 +3,16 @@ package ech0;
 import ech0.arch.Lifecycle;
 import ech0.codec.ProtocolCodec;
 import ech0.instance.DI;
+import ech0.model.ServerConfig;
 import ech0.queue.SimpleQueue;
 import ech0.server.TcpMessageServer;
 import io.smallrye.mutiny.Uni;
 import io.vertx.mutiny.core.net.NetServer;
 import jakarta.inject.Singleton;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
+import org.github.gestalt.config.Gestalt;
 
 @Slf4j
 @Singleton
@@ -19,13 +22,18 @@ public class Ech0 implements Lifecycle {
 
   private final TcpMessageServer server;
 
-  public Ech0(NetServer netServer) {
+  private final ServerConfig serverConfig;
+
+  @SneakyThrows
+  public Ech0(NetServer netServer, ServerConfig serverConfig) {
+    this.serverConfig = serverConfig;
     val queue = new SimpleQueue<>(this::processMessage);
     this.server = new TcpMessageServer(netServer, queue);
   }
 
   public void start() {
-    server.start(8987);
+    log.atInfo().log("Start");
+    server.start(serverConfig.port());
     Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
     log.info("Application started, PID={}", ProcessHandle.current().pid());
   }

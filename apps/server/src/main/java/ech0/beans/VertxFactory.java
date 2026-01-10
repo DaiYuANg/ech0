@@ -23,7 +23,8 @@ public class VertxFactory {
 
   @Bean
   Vertx vertx(ClusterManager clusterManager) {
-    return Vertx.builder().withClusterManager(clusterManager).buildClusteredAndAwait();
+//    return Vertx.builder().withClusterManager(clusterManager).buildClusteredAndAwait();
+    return Vertx.builder().build();
   }
 
   @Bean
