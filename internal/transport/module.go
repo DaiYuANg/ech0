@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/DaiYuANg/ech0/internal/broker"
 	"github.com/panjf2000/gnet/v2"
 	"github.com/samber/oops"
 	"go.uber.org/fx"
@@ -12,8 +13,8 @@ import (
 
 var Module = fx.Module(
 	"gnet",
-	fx.Provide(func(logger *slog.Logger) gnet.EventHandler {
-		return newEchoServer(fmt.Sprintf("tcp://:%d", 8080), logger)
+	fx.Provide(func(logger *slog.Logger, b *broker.Broker) gnet.EventHandler {
+		return newEchoServer(fmt.Sprintf("tcp://:%d", 8080), logger, b)
 	}),
 	fx.Invoke(func(lc fx.Lifecycle, server gnet.EventHandler, logger *slog.Logger) {
 		lc.Append(fx.Hook{

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/DaiYuANg/ech0/internal/broker"
 	"github.com/panjf2000/gnet/v2"
 	"github.com/samber/oops"
 )
@@ -14,12 +15,14 @@ type ech0Server struct {
 	addr      string
 	multicore bool
 	logger    *slog.Logger
+	broker    *broker.Broker
 }
 
-func newEchoServer(addr string, logger *slog.Logger) *ech0Server {
+func newEchoServer(addr string, logger *slog.Logger, b *broker.Broker) *ech0Server {
 	return &ech0Server{
 		addr:   addr,
 		logger: logger,
+		broker: b,
 	}
 }
 
