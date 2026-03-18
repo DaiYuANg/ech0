@@ -1,0 +1,8 @@
+[package]
+name = "direct"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+store.workspace = true
+queue = { path = "../queue" }

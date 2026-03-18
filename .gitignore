@@ -263,3 +263,9 @@ $RECYCLE.BIN/
 # env file
 .env
 
+
+
+# Added by cargo
+
+/target
+data
