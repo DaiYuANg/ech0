@@ -78,6 +78,7 @@ pub struct BrokerConfig {
   pub node_id: u64,
   pub cluster_name: String,
   pub data_dir: String,
+  pub bind_addr: String,
 }
 
 impl Default for BrokerConfig {
@@ -86,6 +87,7 @@ impl Default for BrokerConfig {
       node_id: 1,
       cluster_name: "ech0-dev".to_owned(),
       data_dir: "./data".to_owned(),
+      bind_addr: "127.0.0.1:9090".to_owned(),
     }
   }
 }

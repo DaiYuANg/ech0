@@ -2,6 +2,7 @@
 node_id = 1
 cluster_name = "ech0-dev"
 data_dir = "./data"
+bind_addr = "127.0.0.1:9090"
 
 [storage]
 segments_dir = "segments"

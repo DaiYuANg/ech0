@@ -6,6 +6,8 @@ edition.workspace = true
 [dependencies]
 bytes.workspace = true
 store.workspace = true
+protocol = { path = "../protocol" }
+transport = { path = "../transport" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -5,12 +5,13 @@ use bytes::Bytes;
 use crate::{
   Result, StoreError,
   model::{Record, TopicConfig, TopicPartition},
-  traits::{MessageLogStore, MutablePartitionLogStore, OffsetStore},
+  traits::{MessageLogStore, MutablePartitionLogStore, OffsetStore, TopicCatalogStore},
 };
 
 #[derive(Debug, Default)]
 pub struct InMemoryStore {
   topics: RwLock<HashMap<TopicPartition, Vec<Record>>>,
+  topic_configs: RwLock<HashMap<String, TopicConfig>>,
   consumer_offsets: RwLock<HashMap<(String, TopicPartition), u64>>,
 }
 
@@ -26,9 +27,14 @@ impl MessageLogStore for InMemoryStore {
     if (0..topic.partitions).any(|partition| topics.contains_key(&topic.partition(partition))) {
       return Err(StoreError::TopicAlreadyExists(topic.name));
     }
+    let topic_name = topic.name.clone();
     for partition in 0..topic.partitions {
       topics.insert(topic.partition(partition), Vec::new());
     }
+    drop(topics);
+
+    let mut topic_configs = self.topic_configs.write().expect("poisoned topic_configs lock");
+    topic_configs.insert(topic_name, topic);
     Ok(())
   }
 
@@ -145,5 +151,26 @@ impl MutablePartitionLogStore for InMemoryStore {
       topic_partition.clone(),
       last_offset,
     ))
+  }
+}
+
+
+impl TopicCatalogStore for InMemoryStore {
+  fn save_topic_config(&self, topic: &TopicConfig) -> Result<()> {
+    let mut topic_configs = self.topic_configs.write().expect("poisoned topic_configs lock");
+    topic_configs.insert(topic.name.clone(), topic.clone());
+    Ok(())
+  }
+
+  fn load_topic_config(&self, topic: &str) -> Result<Option<TopicConfig>> {
+    let topic_configs = self.topic_configs.read().expect("poisoned topic_configs lock");
+    Ok(topic_configs.get(topic).cloned())
+  }
+
+  fn list_topics(&self) -> Result<Vec<TopicConfig>> {
+    let topic_configs = self.topic_configs.read().expect("poisoned topic_configs lock");
+    let mut topics: Vec<_> = topic_configs.values().cloned().collect();
+    topics.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(topics)
   }
 }
