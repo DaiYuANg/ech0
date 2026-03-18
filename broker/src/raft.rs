@@ -2,14 +2,25 @@ use std::{collections::BTreeMap, io::Cursor, sync::Arc};
 
 use openraft::{BasicNode, Config as OpenRaftConfig};
 use serde::{Deserialize, Serialize};
-use store::{AppliedPartitionCommand, PartitionStateMachine, ReplicatedPartitionCommandEnvelope};
+use store::{
+  AppliedPartitionCommand, ApplyResult, PartitionStateMachine, ReplicatedPartitionCommandEnvelope,
+  TopicConfig, TopicPartition,
+};
 
-use crate::config::{AppConfig, RaftPeerConfig};
+use crate::config::{AppConfig, RaftPeerConfig, RaftReadPolicy};
+
+mod network;
+mod runtime;
+mod storage;
+#[cfg(test)]
+mod tests;
+
+pub use runtime::BrokerRaftRuntime;
 
 openraft::declare_raft_types!(
     pub EchoRaftTypeConfig:
-        D = ReplicatedPartitionCommandEnvelope,
-        R = store::ApplyResult,
+        D = BrokerRaftRequest,
+        R = BrokerRaftResponse,
         NodeId = u64,
         Node = BasicNode,
         Entry = openraft::Entry<EchoRaftTypeConfig>,
@@ -42,6 +53,8 @@ impl RaftNodeDescriptor {
 #[derive(Debug, Clone)]
 pub struct OpenRaftRuntimeConfig {
   pub node_id: u64,
+  pub bind_addr: String,
+  pub read_policy: RaftReadPolicy,
   pub config: Arc<OpenRaftConfig>,
   pub known_nodes: BTreeMap<u64, BasicNode>,
 }
@@ -68,9 +81,19 @@ impl OpenRaftRuntimeConfig {
 
     Ok(Self {
       node_id: app.broker.node_id,
+      bind_addr: app.raft.bind_addr.clone(),
+      read_policy: app.raft.read_policy,
       config: Arc::new(config),
       known_nodes,
     })
+  }
+
+  pub fn network_enabled(&self) -> bool {
+    self.known_nodes.len() > 1
+  }
+
+  pub fn consensus_group(&self) -> String {
+    format!("raft:{}", self.config.cluster_name)
   }
 }
 
@@ -125,64 +148,26 @@ impl OpenRaftEntryPayload {
   }
 }
 
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use crate::config::AppConfig;
-  use store::{
-    CommandSource, InMemoryStore, LocalPartitionCommand, LocalPartitionCommandExecutor,
-    LocalPartitionStateMachine, PartitionStateMachine, TopicConfig, TopicPartition,
-  };
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BrokerRaftRequest {
+  EnsureTopic {
+    topic: TopicConfig,
+  },
+  ApplyPartition {
+    envelope: ReplicatedPartitionCommandEnvelope,
+  },
+  SaveConsumerOffset {
+    consumer: String,
+    topic_partition: TopicPartition,
+    next_offset: u64,
+  },
+}
 
-  #[test]
-  fn openraft_runtime_config_maps_cluster_nodes() {
-    let mut app = AppConfig::default();
-    app.broker.node_id = 2;
-    app.raft.cluster = vec![
-      crate::config::RaftPeerConfig {
-        node_id: 1,
-        addr: "127.0.0.1:3210".to_owned(),
-      },
-      crate::config::RaftPeerConfig {
-        node_id: 2,
-        addr: "127.0.0.1:3211".to_owned(),
-      },
-    ];
-
-    let runtime = OpenRaftRuntimeConfig::from_app_config(&app).unwrap();
-    assert_eq!(runtime.node_id, 2);
-    assert_eq!(runtime.known_nodes.len(), 2);
-    assert_eq!(runtime.known_nodes.get(&1).unwrap().addr, "127.0.0.1:3210");
-  }
-
-  #[test]
-  fn replicated_entry_payload_round_trip_and_apply() {
-    let log = InMemoryStore::new();
-    let state = InMemoryStore::new();
-    log.create_topic(TopicConfig::new("orders")).unwrap();
-    let machine = LocalPartitionStateMachine::new(LocalPartitionCommandExecutor::new(log, state));
-    let adapter = OpenRaftPartitionStateMachineAdapter::new(machine);
-    let tp = TopicPartition::new("orders", 0);
-
-    let local = store::PartitionCommandEnvelope::new(
-      LocalPartitionCommand::Append {
-        topic_partition: tp.clone(),
-        payload: b"hello".to_vec(),
-      },
-      CommandSource::Consensus,
-    );
-    let replicated = local.replicated_command().unwrap();
-    let payload = OpenRaftEntryPayload {
-      envelope: replicated,
-    };
-    let wire = payload.encode_json().unwrap();
-    let decoded = OpenRaftEntryPayload::decode_json(&wire).unwrap();
-    let applied = adapter.apply_replicated_entry(decoded.envelope).unwrap();
-
-    assert_eq!(applied.topic_partition, tp);
-    assert_eq!(
-      applied.result,
-      store::ApplyResult::Appended { next_offset: 1 }
-    );
-  }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BrokerRaftResponse {
+  Noop,
+  MembershipChanged,
+  TopicEnsured,
+  PartitionApplied { result: ApplyResult },
+  ConsumerOffsetSaved,
 }

@@ -158,6 +158,7 @@ pub enum LogRotation {
 pub struct RaftConfig {
   pub enabled: bool,
   pub bind_addr: String,
+  pub read_policy: RaftReadPolicy,
   pub metrics_interval_ms: u64,
   pub heartbeat_interval_ms: u64,
   pub election_timeout_min_ms: u64,
@@ -171,6 +172,7 @@ impl Default for RaftConfig {
     Self {
       enabled: true,
       bind_addr: "127.0.0.1:3210".to_owned(),
+      read_policy: RaftReadPolicy::Local,
       metrics_interval_ms: 1_000,
       heartbeat_interval_ms: 150,
       election_timeout_min_ms: 300,
@@ -179,6 +181,14 @@ impl Default for RaftConfig {
       cluster: vec![RaftPeerConfig::default()],
     }
   }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RaftReadPolicy {
+  Local,
+  Leader,
+  Linearizable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

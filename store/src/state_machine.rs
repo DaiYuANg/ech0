@@ -145,7 +145,7 @@ fn replicated_to_local(command: ReplicatedPartitionCommand) -> LocalPartitionCom
 mod tests {
   use crate::{
     CommandSource, InMemoryStore, LocalPartitionCommand, LocalPartitionCommandExecutor,
-    PartitionAvailability, PartitionCommandEnvelope, TopicConfig, TopicPartition,
+    MessageLogStore, PartitionAvailability, PartitionCommandEnvelope, TopicConfig, TopicPartition,
   };
 
   use super::{LocalPartitionStateMachine, PartitionStateMachine};

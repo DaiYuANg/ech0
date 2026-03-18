@@ -26,6 +26,6 @@ pub use state_machine::{
   AppliedPartitionCommand, LocalPartitionStateMachine, PartitionApplyContext, PartitionStateMachine,
 };
 pub use traits::{
-  BrokerStateStore, ConsensusLogStore, LocalPartitionStateStore, MessageLogStore,
-  MutablePartitionLogStore, OffsetStore, TopicCatalogStore,
+  BrokerStateStore, ConsensusLogStore, ConsensusMetadataStore, LocalPartitionStateStore,
+  MessageLogStore, MutablePartitionLogStore, OffsetStore, TopicCatalogStore,
 };

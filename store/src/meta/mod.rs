@@ -1,15 +1,23 @@
+mod catalog;
+mod consensus;
+#[cfg(test)]
+mod tests;
+
 use std::{
   fs,
   marker::PhantomData,
   path::{Path, PathBuf},
 };
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{Database, TableDefinition};
 
 use crate::{
   Codec, JsonCodec, Result,
   model::{BrokerState, LocalPartitionState, TopicConfig, TopicPartition},
-  traits::{BrokerStateStore, LocalPartitionStateStore, OffsetStore, TopicCatalogStore},
+  traits::{
+    BrokerStateStore, ConsensusLogStore, ConsensusMetadataStore, LocalPartitionStateStore,
+    OffsetStore, TopicCatalogStore,
+  },
 };
 
 const CONSUMER_OFFSETS: TableDefinition<&str, u64> = TableDefinition::new("consumer_offsets");
@@ -17,10 +25,18 @@ const TOPIC_CONFIGS: TableDefinition<&str, &[u8]> = TableDefinition::new("topic_
 const BROKER_STATE: TableDefinition<&str, &[u8]> = TableDefinition::new("broker_state");
 const LOCAL_PARTITION_STATES: TableDefinition<&str, &[u8]> =
   TableDefinition::new("local_partition_states");
+const CONSENSUS_METADATA: TableDefinition<&str, &[u8]> = TableDefinition::new("consensus_metadata");
+const CONSENSUS_LOGS: TableDefinition<&str, &[u8]> = TableDefinition::new("consensus_logs");
 const LOCAL_STATE_KEY: &str = "local";
+const CONSENSUS_PURGED_INDEX_KEY: &str = "purged_index";
 
 pub trait MetadataStore:
-  OffsetStore + TopicCatalogStore + BrokerStateStore + LocalPartitionStateStore
+  OffsetStore
+  + TopicCatalogStore
+  + BrokerStateStore
+  + LocalPartitionStateStore
+  + ConsensusLogStore
+  + ConsensusMetadataStore
 {
 }
 
@@ -75,6 +91,8 @@ where
       write_txn.open_table(TOPIC_CONFIGS)?;
       write_txn.open_table(BROKER_STATE)?;
       write_txn.open_table(LOCAL_PARTITION_STATES)?;
+      write_txn.open_table(CONSENSUS_METADATA)?;
+      write_txn.open_table(CONSENSUS_LOGS)?;
       write_txn.commit()?;
     }
 
@@ -102,159 +120,28 @@ where
   fn partition_state_key(topic_partition: &TopicPartition) -> String {
     format!("{}:{}", topic_partition.topic, topic_partition.partition)
   }
-}
 
-impl<TopicCodec, BrokerCodec, PartitionCodec> OffsetStore
-  for RedbMetadataStore<TopicCodec, BrokerCodec, PartitionCodec>
-where
-  TopicCodec: Codec<TopicConfig>,
-  BrokerCodec: Codec<BrokerState>,
-  PartitionCodec: Codec<LocalPartitionState>,
-{
-  fn load_consumer_offset(
-    &self,
-    consumer: &str,
-    topic_partition: &TopicPartition,
-  ) -> Result<Option<u64>> {
-    let read_txn = self.db.begin_read()?;
-    let table = read_txn.open_table(CONSUMER_OFFSETS)?;
-    let key = Self::offset_key(consumer, topic_partition);
-    Ok(table.get(key.as_str())?.map(|value| value.value()))
+  fn consensus_metadata_key(group: &str, key: &str) -> String {
+    format!("{group}\u{1f}{key}")
   }
 
-  fn save_consumer_offset(
-    &self,
-    consumer: &str,
-    topic_partition: &TopicPartition,
-    next_offset: u64,
-  ) -> Result<()> {
-    let write_txn = self.db.begin_write()?;
-    {
-      let mut table = write_txn.open_table(CONSUMER_OFFSETS)?;
-      let key = Self::offset_key(consumer, topic_partition);
-      table.insert(key.as_str(), next_offset)?;
-    }
-    write_txn.commit()?;
-    Ok(())
-  }
-}
-
-impl<TopicCodec, BrokerCodec, PartitionCodec> TopicCatalogStore
-  for RedbMetadataStore<TopicCodec, BrokerCodec, PartitionCodec>
-where
-  TopicCodec: Codec<TopicConfig>,
-  BrokerCodec: Codec<BrokerState>,
-  PartitionCodec: Codec<LocalPartitionState>,
-{
-  fn save_topic_config(&self, topic: &TopicConfig) -> Result<()> {
-    let bytes = self.topic_codec.encode(topic)?;
-    let write_txn = self.db.begin_write()?;
-    {
-      let mut table = write_txn.open_table(TOPIC_CONFIGS)?;
-      table.insert(topic.name.as_str(), bytes.as_slice())?;
-    }
-    write_txn.commit()?;
-    Ok(())
+  fn consensus_log_prefix(group: &str) -> String {
+    format!("{group}\u{1f}")
   }
 
-  fn load_topic_config(&self, topic: &str) -> Result<Option<TopicConfig>> {
-    let read_txn = self.db.begin_read()?;
-    let table = read_txn.open_table(TOPIC_CONFIGS)?;
-    let Some(value) = table.get(topic)? else {
+  fn consensus_log_key(group: &str, index: u64) -> String {
+    format!("{}{index:020}", Self::consensus_log_prefix(group))
+  }
+
+  fn parse_consensus_log_index(group: &str, key: &str) -> Result<Option<u64>> {
+    let Some(suffix) = key.strip_prefix(Self::consensus_log_prefix(group).as_str()) else {
       return Ok(None);
     };
-    self.topic_codec.decode(value.value()).map(Some)
-  }
-
-  fn list_topics(&self) -> Result<Vec<TopicConfig>> {
-    let read_txn = self.db.begin_read()?;
-    let table = read_txn.open_table(TOPIC_CONFIGS)?;
-    let mut topics = Vec::new();
-    for entry in table.iter()? {
-      let (_key, value) = entry?;
-      topics.push(self.topic_codec.decode(value.value())?);
-    }
-    topics.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(topics)
-  }
-}
-
-impl<TopicCodec, BrokerCodec, PartitionCodec> BrokerStateStore
-  for RedbMetadataStore<TopicCodec, BrokerCodec, PartitionCodec>
-where
-  TopicCodec: Codec<TopicConfig>,
-  BrokerCodec: Codec<BrokerState>,
-  PartitionCodec: Codec<LocalPartitionState>,
-{
-  fn save_broker_state(&self, state: &BrokerState) -> Result<()> {
-    let bytes = self.broker_codec.encode(state)?;
-    let write_txn = self.db.begin_write()?;
-    {
-      let mut table = write_txn.open_table(BROKER_STATE)?;
-      table.insert(LOCAL_STATE_KEY, bytes.as_slice())?;
-    }
-    write_txn.commit()?;
-    Ok(())
-  }
-
-  fn load_broker_state(&self) -> Result<Option<BrokerState>> {
-    let read_txn = self.db.begin_read()?;
-    let table = read_txn.open_table(BROKER_STATE)?;
-    let Some(value) = table.get(LOCAL_STATE_KEY)? else {
-      return Ok(None);
-    };
-    self.broker_codec.decode(value.value()).map(Some)
-  }
-}
-
-impl<TopicCodec, BrokerCodec, PartitionCodec> LocalPartitionStateStore
-  for RedbMetadataStore<TopicCodec, BrokerCodec, PartitionCodec>
-where
-  TopicCodec: Codec<TopicConfig>,
-  BrokerCodec: Codec<BrokerState>,
-  PartitionCodec: Codec<LocalPartitionState>,
-{
-  fn save_local_partition_state(&self, state: &LocalPartitionState) -> Result<()> {
-    let bytes = self.partition_codec.encode(state)?;
-    let write_txn = self.db.begin_write()?;
-    {
-      let mut table = write_txn.open_table(LOCAL_PARTITION_STATES)?;
-      let key = Self::partition_state_key(&state.topic_partition);
-      table.insert(key.as_str(), bytes.as_slice())?;
-    }
-    write_txn.commit()?;
-    Ok(())
-  }
-
-  fn load_local_partition_state(
-    &self,
-    topic_partition: &TopicPartition,
-  ) -> Result<Option<LocalPartitionState>> {
-    let read_txn = self.db.begin_read()?;
-    let table = read_txn.open_table(LOCAL_PARTITION_STATES)?;
-    let key = Self::partition_state_key(topic_partition);
-    let Some(value) = table.get(key.as_str())? else {
-      return Ok(None);
-    };
-    self.partition_codec.decode(value.value()).map(Some)
-  }
-
-  fn list_local_partition_states(&self) -> Result<Vec<LocalPartitionState>> {
-    let read_txn = self.db.begin_read()?;
-    let table = read_txn.open_table(LOCAL_PARTITION_STATES)?;
-    let mut states = Vec::new();
-    for entry in table.iter()? {
-      let (_key, value) = entry?;
-      states.push(self.partition_codec.decode(value.value())?);
-    }
-    states.sort_by(|a, b| {
-      a.topic_partition.topic.cmp(&b.topic_partition.topic).then(
-        a.topic_partition
-          .partition
-          .cmp(&b.topic_partition.partition),
-      )
-    });
-    Ok(states)
+    suffix.parse::<u64>().map(Some).map_err(|err| {
+      crate::StoreError::Corruption(format!(
+        "invalid consensus log key {key:?}: failed to parse index: {err}"
+      ))
+    })
   }
 }
 
@@ -265,48 +152,4 @@ where
   BrokerCodec: Codec<BrokerState>,
   PartitionCodec: Codec<LocalPartitionState>,
 {
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use crate::model::{PartitionAvailability, PartitionState};
-  use std::time::{SystemTime, UNIX_EPOCH};
-
-  fn temp_path(name: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-      .duration_since(UNIX_EPOCH)
-      .unwrap_or_default()
-      .as_nanos();
-    std::env::temp_dir().join(format!("ech0-meta-{name}-{nanos}.redb"))
-  }
-
-  #[test]
-  fn local_partition_states_round_trip_in_sorted_order() {
-    let path = temp_path("local-partition-state");
-    let store = RedbMetadataStore::create(path).unwrap();
-
-    let second = LocalPartitionState {
-      topic_partition: TopicPartition::new("orders", 1),
-      availability: PartitionAvailability::Recovering,
-      state: PartitionState {
-        leader_epoch: 3,
-        high_watermark: Some(8),
-        last_appended_offset: Some(10),
-      },
-    };
-    let first = LocalPartitionState::online(TopicPartition::new("orders", 0), Some(4));
-
-    store.save_local_partition_state(&second).unwrap();
-    store.save_local_partition_state(&first).unwrap();
-
-    let listed = store.list_local_partition_states().unwrap();
-    assert_eq!(listed, vec![first.clone(), second.clone()]);
-    assert_eq!(
-      store
-        .load_local_partition_state(&TopicPartition::new("orders", 1))
-        .unwrap(),
-      Some(second)
-    );
-  }
 }

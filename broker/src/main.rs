@@ -9,7 +9,7 @@ use tracing::{info, warn};
 use config::AppConfig;
 use raft::OpenRaftRuntimeConfig;
 use server::{TcpBrokerServer, TcpServerConfig};
-use service::{BrokerIdentity, BrokerService};
+use service::{BrokerIdentity, BrokerRuntimeMode, BrokerService};
 use store::{
   BrokerState, BrokerStateStore, MessageLogStore, RedbMetadataStore, Result, SegmentLog,
   SegmentLogOptions, TopicCatalogStore, TopicConfig,
@@ -27,7 +27,9 @@ async fn main() -> Result<()> {
   let log = SegmentLog::open(SegmentLogOptions::new(app.segments_dir()))?;
   let meta = RedbMetadataStore::create(app.metadata_path())?;
 
-  ensure_bootstrap_topic(&log, &meta)?;
+  if !app.raft.enabled {
+    ensure_bootstrap_topic(&log, &meta)?;
+  }
   validate_topics(&log, &meta)?;
 
   meta.save_broker_state(&BrokerState {
@@ -35,29 +37,32 @@ async fn main() -> Result<()> {
     epoch: 1,
   })?;
 
-  let raft_runtime = if app.raft.enabled {
-    Some(OpenRaftRuntimeConfig::from_app_config(&app).map_err(|err| {
-      store::StoreError::Codec(format!("failed to build openraft config: {err}"))
-    })?)
-  } else {
-    None
-  };
+  let raft_runtime =
+    if app.raft.enabled {
+      Some(OpenRaftRuntimeConfig::from_app_config(&app).map_err(|err| {
+        store::StoreError::Codec(format!("failed to build openraft config: {err}"))
+      })?)
+    } else {
+      None
+    };
 
   info!(
     raft_enabled = app.raft.enabled,
     raft_runtime = ?raft_runtime.as_ref().map(|cfg| (&cfg.node_id, cfg.known_nodes.len())),
+    runtime_mode = %BrokerRuntimeMode::from_raft_runtime(raft_runtime.clone()).label(),
     bind_addr = %app.broker.bind_addr,
     "broker bootstrap completed"
   );
 
-  let service = std::sync::Arc::new(BrokerService::new(
+  let service = std::sync::Arc::new(BrokerService::new_with_mode(
     BrokerIdentity {
       node_id: app.broker.node_id,
       cluster_name: app.broker.cluster_name.clone(),
     },
     log,
     meta,
-  ));
+    BrokerRuntimeMode::from_raft_runtime(raft_runtime),
+  )?);
   let server = TcpBrokerServer::new(
     TcpServerConfig {
       bind_addr: app.broker.bind_addr.clone(),

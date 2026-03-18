@@ -34,6 +34,8 @@ pub enum StoreError {
   Corruption(String),
   #[error("codec error: {0}")]
   Codec(String),
+  #[error("node is not the raft leader; current leader: {leader_id:?}")]
+  NotLeader { leader_id: Option<u64> },
   #[error("unsupported operation: {0}")]
   Unsupported(&'static str),
 }

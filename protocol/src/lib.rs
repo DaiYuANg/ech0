@@ -9,6 +9,9 @@ pub const CMD_PRODUCE_REQUEST: u16 = 4;
 pub const CMD_FETCH_REQUEST: u16 = 5;
 pub const CMD_COMMIT_OFFSET_REQUEST: u16 = 6;
 pub const CMD_LIST_TOPICS_REQUEST: u16 = 7;
+pub const CMD_SEND_DIRECT_REQUEST: u16 = 8;
+pub const CMD_FETCH_INBOX_REQUEST: u16 = 9;
+pub const CMD_ACK_DIRECT_REQUEST: u16 = 10;
 
 pub const CMD_HANDSHAKE_RESPONSE: u16 = 101;
 pub const CMD_PING_RESPONSE: u16 = 102;
@@ -17,6 +20,9 @@ pub const CMD_PRODUCE_RESPONSE: u16 = 104;
 pub const CMD_FETCH_RESPONSE: u16 = 105;
 pub const CMD_COMMIT_OFFSET_RESPONSE: u16 = 106;
 pub const CMD_LIST_TOPICS_RESPONSE: u16 = 107;
+pub const CMD_SEND_DIRECT_RESPONSE: u16 = 108;
+pub const CMD_FETCH_INBOX_RESPONSE: u16 = 109;
+pub const CMD_ACK_DIRECT_RESPONSE: u16 = 110;
 pub const CMD_ERROR_RESPONSE: u16 = 500;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -115,6 +121,59 @@ pub struct TopicMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ListTopicsResponse {
   pub topics: Vec<TopicMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SendDirectRequest {
+  pub sender: String,
+  pub recipient: String,
+  pub conversation_id: Option<String>,
+  pub payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SendDirectResponse {
+  pub message_id: String,
+  pub conversation_id: String,
+  pub offset: u64,
+  pub next_offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchInboxRequest {
+  pub recipient: String,
+  pub max_records: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DirectMessageRecord {
+  pub offset: u64,
+  pub message_id: String,
+  pub conversation_id: String,
+  pub sender: String,
+  pub recipient: String,
+  pub timestamp_ms: u64,
+  pub payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchInboxResponse {
+  pub recipient: String,
+  pub records: Vec<DirectMessageRecord>,
+  pub next_offset: u64,
+  pub high_watermark: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AckDirectRequest {
+  pub recipient: String,
+  pub next_offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AckDirectResponse {
+  pub recipient: String,
+  pub next_offset: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

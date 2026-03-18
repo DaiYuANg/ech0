@@ -27,4 +27,4 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt", "jso
 tracing-appender = "0.2.4"
 figment2 = { version = "0.11.4", features = ["toml", "env"] }
 dotenvy = "0.15.7"
-openraft = { version = "0.9.21", features = ["serde"] }
+openraft = { version = "0.9.21", features = ["serde", "storage-v2"] }

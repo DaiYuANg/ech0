@@ -6,3 +6,5 @@ edition.workspace = true
 [dependencies]
 store.workspace = true
 queue = { path = "../queue" }
+serde.workspace = true
+serde_json.workspace = true
