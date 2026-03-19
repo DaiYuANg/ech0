@@ -22,6 +22,12 @@ impl SegmentLog {
   }
 
   pub(super) fn write_record(file: &mut File, record: &Record) -> Result<usize> {
+    let n = Self::write_record_no_flush(file, record)?;
+    file.flush()?;
+    Ok(n)
+  }
+
+  pub(super) fn write_record_no_flush(file: &mut File, record: &Record) -> Result<usize> {
     let checksum = Self::checksum(record.offset, record.timestamp_ms, record.payload.as_ref());
     file.write_all(&[CURRENT_VERSION])?;
     file.write_all(&record.offset.to_le_bytes())?;
@@ -29,7 +35,6 @@ impl SegmentLog {
     file.write_all(&(record.payload.len() as u32).to_le_bytes())?;
     file.write_all(&checksum.to_le_bytes())?;
     file.write_all(record.payload.as_ref())?;
-    file.flush()?;
     Ok(RECORD_HEADER_LEN + record.payload.len())
   }
 

@@ -12,7 +12,11 @@ use store::{
 
 static DIRECT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-pub const INTERNAL_INBOX_TOPIC_PREFIX: &str = "__direct.inbox.";
+pub const INTERNAL_INBOX_TOPIC_PREFIX: &str = "__direct.inbox";
+pub const INBOX_SHARD_COUNT: u32 = 256;
+/// Segment max size for inbox topics. Smaller than MQ default to reduce space waste.
+pub const INBOX_SEGMENT_MAX_BYTES: u64 = 1024 * 1024; // 1MB
+pub const INBOX_INDEX_INTERVAL_BYTES: u64 = 1024;     // 1KB
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DirectMessage {
@@ -126,7 +130,7 @@ where
 
   fn ensure_inbox(&self, recipient: &str) -> Result<()> {
     let topic_name = inbox_topic(recipient);
-    let topic = TopicConfig::new(topic_name.clone());
+    let topic = inbox_topic_config(topic_name.clone());
     if self.runtime.stores().0.topic_exists(&topic_name)? {
       self.runtime.stores().1.save_topic_config(&topic)?;
       return Ok(());
@@ -182,7 +186,15 @@ where
 }
 
 pub fn is_internal_topic_name(topic: &str) -> bool {
-  topic.starts_with(INTERNAL_INBOX_TOPIC_PREFIX)
+  topic.starts_with(INTERNAL_INBOX_TOPIC_PREFIX) && (topic == INTERNAL_INBOX_TOPIC_PREFIX || topic.as_bytes().get(INTERNAL_INBOX_TOPIC_PREFIX.len()) == Some(&b'.') || topic.as_bytes().get(INTERNAL_INBOX_TOPIC_PREFIX.len()) == Some(&b'/'))
+}
+
+fn shard(recipient: &str) -> u8 {
+  let mut hash: u64 = 0;
+  for b in recipient.bytes() {
+    hash = hash.wrapping_mul(31).wrapping_add(b as u64);
+  }
+  (hash % INBOX_SHARD_COUNT as u64) as u8
 }
 
 fn decode_inbox_record(record: Record) -> Result<InboxMessage> {
@@ -195,7 +207,19 @@ fn decode_inbox_record(record: Record) -> Result<InboxMessage> {
 }
 
 fn inbox_topic(recipient: &str) -> String {
-  format!("{INTERNAL_INBOX_TOPIC_PREFIX}{}", hex_encode(recipient))
+  format!(
+    "{}/{:02x}/{}",
+    INTERNAL_INBOX_TOPIC_PREFIX,
+    shard(recipient),
+    hex_encode(recipient)
+  )
+}
+
+fn inbox_topic_config(topic_name: String) -> TopicConfig {
+  let mut config = TopicConfig::new(topic_name);
+  config.segment_max_bytes = INBOX_SEGMENT_MAX_BYTES;
+  config.index_interval_bytes = INBOX_INDEX_INTERVAL_BYTES;
+  config
 }
 
 fn consumer_name(recipient: &str) -> String {

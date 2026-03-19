@@ -7,6 +7,16 @@ pub trait MessageLogStore: Send + Sync {
   fn create_topic(&self, topic: TopicConfig) -> Result<()>;
   fn topic_exists(&self, topic: &str) -> Result<bool>;
   fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record>;
+  fn append_batch(
+    &self,
+    topic_partition: &TopicPartition,
+    payloads: &[Vec<u8>],
+  ) -> Result<Vec<Record>> {
+    payloads
+      .iter()
+      .map(|p| self.append(topic_partition, p.as_slice()))
+      .collect()
+  }
   fn read_from(
     &self,
     topic_partition: &TopicPartition,

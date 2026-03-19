@@ -6,12 +6,12 @@ mod recovery;
 mod tests;
 
 use std::{
-  collections::HashMap,
   fs::{self, File, OpenOptions},
   io::{self, Read, Seek, SeekFrom, Write},
   path::{Path, PathBuf},
-  sync::Mutex,
 };
+
+use dashmap::DashMap;
 
 use bytes::Bytes;
 use crc32fast::Hasher;
@@ -23,6 +23,7 @@ use crate::{
 };
 
 const LOG_SUFFIX: &str = ".log";
+const INBOX_TOPIC_PREFIX: &str = "__direct.inbox";
 const INDEX_SUFFIX: &str = ".idx";
 const CHECKPOINT_FILE: &str = "checkpoint";
 const TOPIC_CONFIG_FILE: &str = "topic.json";
@@ -30,11 +31,17 @@ const CURRENT_VERSION: u8 = 1;
 const RECORD_HEADER_LEN: usize = 1 + 8 + 8 + 4 + 4;
 const INDEX_ENTRY_LEN: usize = 8 + 8;
 
+/// Number of appends between checkpoint writes. Higher values reduce fsync frequency
+/// but may cause more replay work on recovery.
+pub const DEFAULT_CHECKPOINT_INTERVAL: u64 = 100;
+
 #[derive(Debug, Clone)]
 pub struct SegmentLogOptions {
   pub root_dir: PathBuf,
   pub default_segment_max_bytes: u64,
   pub default_index_interval_bytes: u64,
+  /// Write checkpoint to disk every N appends. 1 = every append (original behavior).
+  pub checkpoint_interval: u64,
 }
 
 impl SegmentLogOptions {
@@ -43,6 +50,7 @@ impl SegmentLogOptions {
       root_dir: root_dir.into(),
       default_segment_max_bytes: 16 * 1024 * 1024,
       default_index_interval_bytes: 4 * 1024,
+      checkpoint_interval: DEFAULT_CHECKPOINT_INTERVAL,
     }
   }
 }
@@ -62,13 +70,14 @@ struct TopicRuntime {
   config: TopicConfig,
   segments: Vec<SegmentDescriptor>,
   next_offset: u64,
+  appends_since_checkpoint: u64,
 }
 
 #[derive(Debug)]
 pub struct SegmentLog {
   root_dir: PathBuf,
   options: SegmentLogOptions,
-  state: Mutex<HashMap<TopicPartition, TopicRuntime>>,
+  state: DashMap<TopicPartition, TopicRuntime>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -89,7 +98,7 @@ impl SegmentLog {
     Ok(Self {
       root_dir: options.root_dir.clone(),
       options,
-      state: Mutex::new(HashMap::new()),
+      state: DashMap::new(),
     })
   }
 
@@ -136,12 +145,33 @@ impl SegmentLog {
 
   fn discover_topics(&self) -> Result<Vec<String>> {
     let mut topics = Vec::new();
+    let inbox_root = self.root_dir.join(INBOX_TOPIC_PREFIX);
     for entry in fs::read_dir(&self.root_dir)? {
       let entry = entry?;
       if !entry.file_type()?.is_dir() {
         continue;
       }
-      topics.push(entry.file_name().to_string_lossy().into_owned());
+      let name = entry.file_name().to_string_lossy().into_owned();
+      if name == INBOX_TOPIC_PREFIX && inbox_root.exists() {
+        for shard_entry in fs::read_dir(&inbox_root)? {
+          let shard_entry = shard_entry?;
+          if !shard_entry.file_type()?.is_dir() {
+            continue;
+          }
+          let shard = shard_entry.file_name().to_string_lossy().into_owned();
+          let shard_path = inbox_root.join(&shard);
+          for recipient_entry in fs::read_dir(&shard_path)? {
+            let recipient_entry = recipient_entry?;
+            if !recipient_entry.file_type()?.is_dir() {
+              continue;
+            }
+            let recipient = recipient_entry.file_name().to_string_lossy().into_owned();
+            topics.push(format!("{INBOX_TOPIC_PREFIX}/{shard}/{recipient}"));
+          }
+        }
+      } else {
+        topics.push(name);
+      }
     }
     topics.sort();
     Ok(topics)
@@ -204,18 +234,18 @@ impl SegmentLog {
     topic_partition: &TopicPartition,
     f: impl FnOnce(&mut TopicRuntime) -> Result<T>,
   ) -> Result<T> {
-    let mut guard = self.state.lock().expect("poisoned segment state lock");
     let key = topic_partition.clone();
-    if !guard.contains_key(&key) {
+    if !self.state.contains_key(&key) {
       let runtime = self.hydrate_runtime(topic_partition)?;
-      guard.insert(key.clone(), runtime);
+      self.state.insert(key.clone(), runtime);
     }
-    let runtime = guard
+    let mut entry = self
+      .state
       .get_mut(&key)
       .ok_or_else(|| StoreError::PartitionNotFound {
         topic: topic_partition.topic.clone(),
         partition: topic_partition.partition,
       })?;
-    f(runtime)
+    f(entry.value_mut())
   }
 }

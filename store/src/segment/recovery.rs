@@ -48,6 +48,7 @@ impl SegmentLog {
       config,
       segments,
       next_offset,
+      appends_since_checkpoint: 0,
     })
   }
 

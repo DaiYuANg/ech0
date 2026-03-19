@@ -124,6 +124,7 @@ impl SegmentLog {
       config: config.clone(),
       segments,
       next_offset,
+      appends_since_checkpoint: 0,
     })
   }
 
@@ -149,16 +150,16 @@ impl SegmentLog {
     truncate_offset: u64,
   ) -> Result<()> {
     let config = self.validate_partition(topic_partition)?;
-    let mut guard = self.state.lock().expect("poisoned segment state lock");
     let key = topic_partition.clone();
-    if !guard.contains_key(&key) {
+    if !self.state.contains_key(&key) {
       let runtime = self.hydrate_runtime(topic_partition)?;
-      guard.insert(key.clone(), runtime);
+      self.state.insert(key.clone(), runtime);
     }
 
-    let runtime = guard
+    let runtime = self
+      .state
       .get(&key)
-      .cloned()
+      .map(|e| e.value().clone())
       .ok_or_else(|| StoreError::PartitionNotFound {
         topic: topic_partition.topic.clone(),
         partition: topic_partition.partition,
@@ -174,7 +175,7 @@ impl SegmentLog {
 
     let preserved = Self::collect_records_before_offset(&runtime, truncate_offset)?;
     let rebuilt = self.rebuild_partition_from_records(topic_partition, &config, &preserved)?;
-    guard.insert(key, rebuilt);
+    self.state.insert(key, rebuilt);
     Ok(())
   }
 

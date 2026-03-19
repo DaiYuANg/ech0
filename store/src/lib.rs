@@ -22,7 +22,7 @@ pub use model::{
   GroupPartitionAssignment, LocalPartitionState, PartitionAvailability, PartitionState, PollResult,
   Record, TopicConfig, TopicPartition, TopicValidationIssue,
 };
-pub use segment::{SegmentLog, SegmentLogOptions};
+pub use segment::{DEFAULT_CHECKPOINT_INTERVAL, SegmentLog, SegmentLogOptions};
 pub use state_machine::{
   AppliedPartitionCommand, LocalPartitionStateMachine, PartitionApplyContext, PartitionStateMachine,
 };
