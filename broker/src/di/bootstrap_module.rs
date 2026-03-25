@@ -29,6 +29,7 @@ impl BootstrapModule {
   pub fn configure_runtime_limits(&self) {
     configure_handler_limits(HandlerLimits {
       max_payload_bytes: self.app.broker.max_payload_bytes,
+      max_batch_payload_bytes: self.app.broker.max_batch_payload_bytes,
       max_fetch_records: self.app.broker.max_fetch_records,
     });
   }

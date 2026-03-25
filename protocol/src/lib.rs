@@ -16,6 +16,8 @@ pub const CMD_JOIN_CONSUMER_GROUP_REQUEST: u16 = 11;
 pub const CMD_HEARTBEAT_CONSUMER_GROUP_REQUEST: u16 = 12;
 pub const CMD_REBALANCE_CONSUMER_GROUP_REQUEST: u16 = 13;
 pub const CMD_GET_CONSUMER_GROUP_ASSIGNMENT_REQUEST: u16 = 14;
+pub const CMD_PRODUCE_BATCH_REQUEST: u16 = 15;
+pub const CMD_FETCH_BATCH_REQUEST: u16 = 16;
 
 pub const CMD_HANDSHAKE_RESPONSE: u16 = 101;
 pub const CMD_PING_RESPONSE: u16 = 102;
@@ -31,6 +33,8 @@ pub const CMD_JOIN_CONSUMER_GROUP_RESPONSE: u16 = 111;
 pub const CMD_HEARTBEAT_CONSUMER_GROUP_RESPONSE: u16 = 112;
 pub const CMD_REBALANCE_CONSUMER_GROUP_RESPONSE: u16 = 113;
 pub const CMD_GET_CONSUMER_GROUP_ASSIGNMENT_RESPONSE: u16 = 114;
+pub const CMD_PRODUCE_BATCH_RESPONSE: u16 = 115;
+pub const CMD_FETCH_BATCH_RESPONSE: u16 = 116;
 pub const CMD_ERROR_RESPONSE: u16 = 500;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -82,6 +86,21 @@ pub struct ProduceResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProduceBatchRequest {
+  pub topic: String,
+  pub partition: u32,
+  pub payloads: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProduceBatchResponse {
+  pub base_offset: u64,
+  pub last_offset: u64,
+  pub next_offset: u64,
+  pub appended: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FetchRequest {
   pub consumer: String,
   pub topic: String,
@@ -104,6 +123,35 @@ pub struct FetchResponse {
   pub records: Vec<FetchRecord>,
   pub next_offset: u64,
   pub high_watermark: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchBatchItemRequest {
+  pub topic: String,
+  pub partition: u32,
+  #[serde(default)]
+  pub offset: Option<u64>,
+  pub max_records: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchBatchRequest {
+  pub consumer: String,
+  pub items: Vec<FetchBatchItemRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchBatchItemResponse {
+  pub topic: String,
+  pub partition: u32,
+  pub records: Vec<FetchRecord>,
+  pub next_offset: u64,
+  pub high_watermark: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchBatchResponse {
+  pub items: Vec<FetchBatchItemResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -318,6 +366,8 @@ mod tests {
       CMD_HEARTBEAT_CONSUMER_GROUP_REQUEST,
       CMD_REBALANCE_CONSUMER_GROUP_REQUEST,
       CMD_GET_CONSUMER_GROUP_ASSIGNMENT_REQUEST,
+      CMD_PRODUCE_BATCH_REQUEST,
+      CMD_FETCH_BATCH_REQUEST,
       CMD_HANDSHAKE_RESPONSE,
       CMD_PING_RESPONSE,
       CMD_CREATE_TOPIC_RESPONSE,
@@ -332,6 +382,8 @@ mod tests {
       CMD_HEARTBEAT_CONSUMER_GROUP_RESPONSE,
       CMD_REBALANCE_CONSUMER_GROUP_RESPONSE,
       CMD_GET_CONSUMER_GROUP_ASSIGNMENT_RESPONSE,
+      CMD_PRODUCE_BATCH_RESPONSE,
+      CMD_FETCH_BATCH_RESPONSE,
       CMD_ERROR_RESPONSE,
     ];
 

@@ -1,17 +1,19 @@
 use protocol::{
   CMD_CREATE_TOPIC_REQUEST, CMD_CREATE_TOPIC_RESPONSE, CMD_ERROR_RESPONSE, CMD_FETCH_INBOX_REQUEST,
-  CMD_FETCH_INBOX_RESPONSE, CMD_FETCH_REQUEST, CMD_FETCH_RESPONSE,
+  CMD_FETCH_BATCH_REQUEST, CMD_FETCH_BATCH_RESPONSE, CMD_FETCH_INBOX_RESPONSE, CMD_FETCH_REQUEST,
+  CMD_FETCH_RESPONSE,
   CMD_GET_CONSUMER_GROUP_ASSIGNMENT_REQUEST, CMD_GET_CONSUMER_GROUP_ASSIGNMENT_RESPONSE,
   CMD_HANDSHAKE_REQUEST, CMD_HANDSHAKE_RESPONSE, CMD_HEARTBEAT_CONSUMER_GROUP_REQUEST,
   CMD_HEARTBEAT_CONSUMER_GROUP_RESPONSE, CMD_JOIN_CONSUMER_GROUP_REQUEST,
   CMD_JOIN_CONSUMER_GROUP_RESPONSE, CMD_LIST_TOPICS_REQUEST, CMD_LIST_TOPICS_RESPONSE,
-  CMD_PING_REQUEST, CMD_PING_RESPONSE, CMD_PRODUCE_REQUEST, CMD_PRODUCE_RESPONSE,
-  CMD_REBALANCE_CONSUMER_GROUP_REQUEST, CMD_REBALANCE_CONSUMER_GROUP_RESPONSE, CreateTopicRequest,
-  ErrorResponse, FetchInboxRequest, FetchInboxResponse, FetchRequest, FetchResponse,
+  CMD_PING_REQUEST, CMD_PING_RESPONSE, CMD_PRODUCE_BATCH_REQUEST, CMD_PRODUCE_BATCH_RESPONSE,
+  CMD_PRODUCE_REQUEST, CMD_PRODUCE_RESPONSE, CMD_REBALANCE_CONSUMER_GROUP_REQUEST,
+  CMD_REBALANCE_CONSUMER_GROUP_RESPONSE, CreateTopicRequest, ErrorResponse, FetchBatchRequest,
+  FetchBatchResponse, FetchInboxRequest, FetchInboxResponse, FetchRequest, FetchResponse,
   GetConsumerGroupAssignmentRequest, GetConsumerGroupAssignmentResponse, HandshakeRequest,
   HandshakeResponse, HeartbeatConsumerGroupRequest, HeartbeatConsumerGroupResponse,
   JoinConsumerGroupRequest, JoinConsumerGroupResponse, ListTopicsResponse, PingRequest,
-  PingResponse, ProduceRequest, ProduceResponse, RebalanceConsumerGroupRequest,
+  PingResponse, ProduceBatchRequest, ProduceRequest, ProduceResponse, RebalanceConsumerGroupRequest,
   RebalanceConsumerGroupResponse,
 };
 use store::InMemoryStore;
@@ -160,6 +162,75 @@ async fn create_topic_produce_and_list_topics_roundtrip_works() {
   assert_eq!(list_response.header.command, CMD_LIST_TOPICS_RESPONSE);
   let list: ListTopicsResponse = protocol::decode_json(&list_response.body).unwrap();
   assert!(list.topics.iter().any(|topic| topic.topic == "orders"));
+}
+
+#[tokio::test]
+async fn produce_batch_and_fetch_batch_roundtrip_works() {
+  let service = build_service();
+
+  let create_topic = Frame::new(
+    protocol::VERSION_1,
+    CMD_CREATE_TOPIC_REQUEST,
+    protocol::encode_json(&CreateTopicRequest {
+      topic: "orders".to_owned(),
+      partitions: 2,
+      retention_max_bytes: None,
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let create_response = service.handle_frame(create_topic).await.unwrap();
+  assert_eq!(create_response.header.command, CMD_CREATE_TOPIC_RESPONSE);
+
+  let produce_batch = Frame::new(
+    protocol::VERSION_1,
+    CMD_PRODUCE_BATCH_REQUEST,
+    protocol::encode_json(&ProduceBatchRequest {
+      topic: "orders".to_owned(),
+      partition: 0,
+      payloads: vec![b"m1".to_vec(), b"m2".to_vec(), b"m3".to_vec()],
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let produce_response = service.handle_frame(produce_batch).await.unwrap();
+  assert_eq!(produce_response.header.command, CMD_PRODUCE_BATCH_RESPONSE);
+  let produce: protocol::ProduceBatchResponse = protocol::decode_json(&produce_response.body).unwrap();
+  assert_eq!(produce.base_offset, 0);
+  assert_eq!(produce.last_offset, 2);
+  assert_eq!(produce.next_offset, 3);
+  assert_eq!(produce.appended, 3);
+
+  let fetch_batch = Frame::new(
+    protocol::VERSION_1,
+    CMD_FETCH_BATCH_REQUEST,
+    protocol::encode_json(&FetchBatchRequest {
+      consumer: "c1".to_owned(),
+      items: vec![
+        protocol::FetchBatchItemRequest {
+          topic: "orders".to_owned(),
+          partition: 0,
+          offset: Some(0),
+          max_records: 10,
+        },
+        protocol::FetchBatchItemRequest {
+          topic: "orders".to_owned(),
+          partition: 1,
+          offset: Some(0),
+          max_records: 10,
+        },
+      ],
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let fetch_response = service.handle_frame(fetch_batch).await.unwrap();
+  assert_eq!(fetch_response.header.command, CMD_FETCH_BATCH_RESPONSE);
+  let fetched: FetchBatchResponse = protocol::decode_json(&fetch_response.body).unwrap();
+  assert_eq!(fetched.items.len(), 2);
+  assert_eq!(fetched.items[0].records.len(), 3);
+  assert_eq!(fetched.items[0].records[0].payload, b"m1".to_vec());
+  assert_eq!(fetched.items[1].records.len(), 0);
 }
 
 #[tokio::test]

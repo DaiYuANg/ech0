@@ -254,6 +254,30 @@ where
     Ok((record.offset, record.offset + 1))
   }
 
+  pub fn publish_batch(
+    &self,
+    topic: impl Into<String>,
+    partition: u32,
+    payloads: Vec<Vec<u8>>,
+  ) -> Result<(u64, u64, u64)> {
+    if payloads.is_empty() {
+      return Err(StoreError::Codec(
+        "payloads must not be empty for batch produce".to_owned(),
+      ));
+    }
+    let topic = topic.into();
+    let records = self.queue.publish_batch(&topic, partition, &payloads)?;
+    let base_offset = records
+      .first()
+      .map(|record| record.offset)
+      .ok_or_else(|| StoreError::Corruption("batch append returned no records".to_owned()))?;
+    let last_offset = records
+      .last()
+      .map(|record| record.offset)
+      .ok_or_else(|| StoreError::Corruption("batch append returned no records".to_owned()))?;
+    Ok((base_offset, last_offset, last_offset + 1))
+  }
+
   pub fn fetch(
     &self,
     consumer: &str,

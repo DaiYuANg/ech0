@@ -56,6 +56,11 @@ impl BrokerBuilder {
     self
   }
 
+  pub fn max_batch_payload_bytes(mut self, value: usize) -> Self {
+    self.config.broker.max_batch_payload_bytes = value;
+    self
+  }
+
   pub fn max_fetch_records(mut self, value: usize) -> Self {
     self.config.broker.max_fetch_records = value;
     self

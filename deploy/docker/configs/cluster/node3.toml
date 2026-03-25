@@ -5,6 +5,7 @@ data_dir = "/app/data"
 bind_addr = "0.0.0.0:9090"
 max_frame_body_bytes = 4194304
 max_payload_bytes = 1048576
+max_batch_payload_bytes = 8388608
 max_fetch_records = 1000
 group_assignment_strategy = "round_robin"
 group_sticky_assignments = true

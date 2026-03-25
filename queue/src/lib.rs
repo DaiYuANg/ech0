@@ -31,6 +31,16 @@ where
     self.log_store.append(&topic_partition, payload)
   }
 
+  pub fn publish_batch(
+    &self,
+    topic: &str,
+    partition: u32,
+    payloads: &[Vec<u8>],
+  ) -> Result<Vec<Record>> {
+    let topic_partition = TopicPartition::new(topic, partition);
+    self.log_store.append_batch(&topic_partition, payloads)
+  }
+
   pub fn fetch(
     &self,
     consumer: &str,

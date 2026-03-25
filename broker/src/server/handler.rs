@@ -5,22 +5,23 @@ use protocol::{
   AckDirectRequest, AckDirectResponse, CMD_ACK_DIRECT_REQUEST, CMD_ACK_DIRECT_RESPONSE,
   CMD_COMMIT_OFFSET_REQUEST, CMD_COMMIT_OFFSET_RESPONSE, CMD_CREATE_TOPIC_REQUEST,
   CMD_CREATE_TOPIC_RESPONSE, CMD_ERROR_RESPONSE, CMD_FETCH_INBOX_REQUEST, CMD_FETCH_INBOX_RESPONSE,
-  CMD_FETCH_REQUEST, CMD_FETCH_RESPONSE, CMD_GET_CONSUMER_GROUP_ASSIGNMENT_REQUEST,
-  CMD_GET_CONSUMER_GROUP_ASSIGNMENT_RESPONSE, CMD_HANDSHAKE_REQUEST, CMD_HANDSHAKE_RESPONSE,
-  CMD_HEARTBEAT_CONSUMER_GROUP_REQUEST, CMD_HEARTBEAT_CONSUMER_GROUP_RESPONSE,
-  CMD_JOIN_CONSUMER_GROUP_REQUEST, CMD_JOIN_CONSUMER_GROUP_RESPONSE, CMD_LIST_TOPICS_REQUEST,
-  CMD_LIST_TOPICS_RESPONSE, CMD_PING_REQUEST, CMD_PING_RESPONSE, CMD_PRODUCE_REQUEST,
-  CMD_PRODUCE_RESPONSE, CMD_REBALANCE_CONSUMER_GROUP_REQUEST,
+  CMD_FETCH_BATCH_REQUEST, CMD_FETCH_BATCH_RESPONSE, CMD_FETCH_REQUEST, CMD_FETCH_RESPONSE,
+  CMD_GET_CONSUMER_GROUP_ASSIGNMENT_REQUEST, CMD_GET_CONSUMER_GROUP_ASSIGNMENT_RESPONSE,
+  CMD_HANDSHAKE_REQUEST, CMD_HANDSHAKE_RESPONSE, CMD_HEARTBEAT_CONSUMER_GROUP_REQUEST,
+  CMD_HEARTBEAT_CONSUMER_GROUP_RESPONSE, CMD_JOIN_CONSUMER_GROUP_REQUEST,
+  CMD_JOIN_CONSUMER_GROUP_RESPONSE, CMD_LIST_TOPICS_REQUEST, CMD_LIST_TOPICS_RESPONSE,
+  CMD_PING_REQUEST, CMD_PING_RESPONSE, CMD_PRODUCE_BATCH_REQUEST, CMD_PRODUCE_BATCH_RESPONSE,
+  CMD_PRODUCE_REQUEST, CMD_PRODUCE_RESPONSE, CMD_REBALANCE_CONSUMER_GROUP_REQUEST,
   CMD_REBALANCE_CONSUMER_GROUP_RESPONSE, CMD_SEND_DIRECT_REQUEST, CMD_SEND_DIRECT_RESPONSE,
   CommitOffsetRequest, CommitOffsetResponse, ConsumerGroupAssignment, ConsumerGroupMemberLease,
-  CreateTopicRequest, CreateTopicResponse, DirectMessageRecord, ErrorResponse, FetchInboxRequest,
-  FetchInboxResponse, FetchRecord, FetchRequest, FetchResponse, GetConsumerGroupAssignmentRequest,
-  GetConsumerGroupAssignmentResponse, GroupPartitionAssignment, HandshakeRequest,
-  HandshakeResponse, HeartbeatConsumerGroupRequest, HeartbeatConsumerGroupResponse,
-  JoinConsumerGroupRequest, JoinConsumerGroupResponse, ListTopicsResponse, PingRequest,
-  PingResponse, ProduceRequest, ProduceResponse, RebalanceConsumerGroupRequest,
-  RebalanceConsumerGroupResponse, SendDirectRequest, SendDirectResponse, TopicMetadata, VERSION_1,
-  decode_json, encode_json,
+  CreateTopicRequest, CreateTopicResponse, DirectMessageRecord, ErrorResponse, FetchBatchRequest,
+  FetchBatchResponse, FetchInboxRequest, FetchInboxResponse, FetchRecord, FetchRequest,
+  FetchResponse, GetConsumerGroupAssignmentRequest, GetConsumerGroupAssignmentResponse,
+  GroupPartitionAssignment, HandshakeRequest, HandshakeResponse, HeartbeatConsumerGroupRequest,
+  HeartbeatConsumerGroupResponse, JoinConsumerGroupRequest, JoinConsumerGroupResponse,
+  ListTopicsResponse, PingRequest, PingResponse, ProduceBatchRequest, ProduceBatchResponse,
+  ProduceRequest, ProduceResponse, RebalanceConsumerGroupRequest, RebalanceConsumerGroupResponse,
+  SendDirectRequest, SendDirectResponse, TopicMetadata, VERSION_1, decode_json, encode_json,
 };
 use transport::Frame;
 
@@ -29,6 +30,7 @@ use crate::{metrics, service::BrokerService};
 #[derive(Debug, Clone, Copy)]
 pub struct HandlerLimits {
   pub max_payload_bytes: usize,
+  pub max_batch_payload_bytes: usize,
   pub max_fetch_records: usize,
 }
 
@@ -36,6 +38,7 @@ impl Default for HandlerLimits {
   fn default() -> Self {
     Self {
       max_payload_bytes: 1024 * 1024,
+      max_batch_payload_bytes: 8 * 1024 * 1024,
       max_fetch_records: 1_000,
     }
   }
@@ -155,6 +158,60 @@ where
             },
           )
         }
+        CMD_PRODUCE_BATCH_REQUEST => {
+          let request: ProduceBatchRequest = decode_request(&frame)?;
+          if request.payloads.is_empty() {
+            return error_response(
+              "invalid_request",
+              "produce_batch payloads must not be empty",
+            );
+          }
+          let limits = handler_limits();
+          let total_payload_bytes = request
+            .payloads
+            .iter()
+            .try_fold(0usize, |acc, payload| acc.checked_add(payload.len()))
+            .unwrap_or(usize::MAX);
+          if total_payload_bytes > limits.max_batch_payload_bytes {
+            return error_response(
+              "payload_too_large",
+              format!(
+                "produce_batch total payload bytes {} exceeds max_batch_payload_bytes {}",
+                total_payload_bytes,
+                limits.max_batch_payload_bytes
+              ),
+            );
+          }
+          if let Some((idx, payload)) = request
+            .payloads
+            .iter()
+            .enumerate()
+            .find(|(_, payload)| payload.len() > limits.max_payload_bytes)
+          {
+            return error_response(
+              "payload_too_large",
+              format!(
+                "produce_batch payload at index {} size {} exceeds max_payload_bytes {}",
+                idx,
+                payload.len(),
+                limits.max_payload_bytes
+              ),
+            );
+          }
+          let appended = request.payloads.len();
+          let (base_offset, last_offset, next_offset) = self
+            .publish_batch(request.topic, request.partition, request.payloads)
+            .map_err(to_io_error)?;
+          ok_response(
+            CMD_PRODUCE_BATCH_RESPONSE,
+            &ProduceBatchResponse {
+              base_offset,
+              last_offset,
+              next_offset,
+              appended,
+            },
+          )
+        }
         CMD_FETCH_REQUEST => {
           let request: FetchRequest = decode_request(&frame)?;
           let limits = handler_limits();
@@ -194,6 +251,57 @@ where
               high_watermark: fetched.high_watermark,
             },
           )
+        }
+        CMD_FETCH_BATCH_REQUEST => {
+          let request: FetchBatchRequest = decode_request(&frame)?;
+          if request.items.is_empty() {
+            return error_response("invalid_request", "fetch_batch items must not be empty");
+          }
+          let limits = handler_limits();
+          if let Some((idx, item)) = request
+            .items
+            .iter()
+            .enumerate()
+            .find(|(_, item)| item.max_records > limits.max_fetch_records)
+          {
+            return error_response(
+              "fetch_limit_exceeded",
+              format!(
+                "fetch_batch item {} max_records {} exceeds limit {}",
+                idx,
+                item.max_records,
+                limits.max_fetch_records
+              ),
+            );
+          }
+          let mut items = Vec::with_capacity(request.items.len());
+          for item in request.items {
+            let fetched = self
+              .fetch(
+                &request.consumer,
+                item.topic,
+                item.partition,
+                item.offset,
+                item.max_records,
+              )
+              .map_err(to_io_error)?;
+            items.push(protocol::FetchBatchItemResponse {
+              topic: fetched.topic,
+              partition: fetched.partition,
+              records: fetched
+                .records
+                .into_iter()
+                .map(|record| FetchRecord {
+                  offset: record.offset,
+                  timestamp_ms: record.timestamp_ms,
+                  payload: record.payload,
+                })
+                .collect(),
+              next_offset: fetched.next_offset,
+              high_watermark: fetched.high_watermark,
+            });
+          }
+          ok_response(CMD_FETCH_BATCH_RESPONSE, &FetchBatchResponse { items })
         }
         CMD_COMMIT_OFFSET_REQUEST => {
           let request: CommitOffsetRequest = decode_request(&frame)?;

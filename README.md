@@ -34,6 +34,7 @@
 3. Start broker:
 
    - `cargo run -p broker-bin`
+   - show available CLI overrides: `cargo run -p broker-bin -- --help`
 
 The broker listens on `127.0.0.1:9090` by default and stores runtime data under `./data`.
 Admin HTTP server listens on `127.0.0.1:9091` by default:
@@ -226,18 +227,22 @@ Compose-specific config samples:
 
 ## Configuration
 
-Config is loaded in this order (later wins):
+Defaults are hardcoded in Rust (`broker::config::BrokerConfig::default()` and related config defaults).
+
+Effective config is resolved in this order (later wins):
 
 1. `./ech0.toml`
 2. `./config/ech0.toml`
 3. `./config/ech0.local.toml`
 4. environment variables with `ECH0_` prefix
+5. `broker-bin` CLI arguments (when provided)
 
 Environment variables use `__` for nesting, for example:
 
 - `ECH0_BROKER__BIND_ADDR=127.0.0.1:9091`
 - `ECH0_BROKER__MAX_FRAME_BODY_BYTES=4194304`
 - `ECH0_BROKER__MAX_PAYLOAD_BYTES=1048576`
+- `ECH0_BROKER__MAX_BATCH_PAYLOAD_BYTES=8388608`
 - `ECH0_BROKER__MAX_FETCH_RECORDS=1000`
 - `ECH0_BROKER__GROUP_ASSIGNMENT_STRATEGY=round_robin` (or `range`)
 - `ECH0_BROKER__GROUP_STICKY_ASSIGNMENTS=true`
@@ -249,10 +254,20 @@ Environment variables use `__` for nesting, for example:
 
 `.env` is also loaded if present.
 
+CLI override examples:
+
+- `cargo run -p broker-bin -- --bind-addr 127.0.0.1:19090 --admin-bind-addr 127.0.0.1:19091`
+- `cargo run -p broker-bin -- --raft-enabled false --max-batch-payload-bytes 16777216`
+- `cargo run -p broker-bin -- --max-frame-body-bytes 8388608 --max-payload-bytes 2097152 --max-fetch-records 2000`
+- `cargo run -p broker-bin -- --group-assignment-strategy range --group-sticky-assignments false`
+- `cargo run -p broker-bin -- --logging-level info,broker=debug --logging-format json --logging-enable-file false`
+- `cargo run -p broker-bin -- --config ./config/ech0.toml --config ./config/ech0.local.toml`
+
 ## Runtime safeguards
 
 - `broker.max_frame_body_bytes` rejects oversized protocol frame bodies (`frame_too_large`).
 - `broker.max_payload_bytes` rejects oversized `produce` and `send_direct` payloads (`payload_too_large`).
+- `broker.max_batch_payload_bytes` rejects oversized total payload bytes in `produce_batch` (`payload_too_large`).
 - `broker.max_fetch_records` caps `fetch` and `fetch_inbox` requests (`fetch_limit_exceeded`).
 - `broker.group_assignment_strategy` controls consumer-group partition allocation (`round_robin` or `range`).
 - `broker.group_sticky_assignments` reuses prior owners when valid while keeping partition load balanced.
@@ -264,7 +279,10 @@ Environment variables use `__` for nesting, for example:
 
 - `Cargo.toml`
 - `config/ech0.toml.example`
-- `broker/src/main.rs`
+- `broker/src/lib.rs`
+- `broker-bin/src/cli.rs`
+- `broker-bin/src/config_overrides.rs`
+- `broker-bin/src/main.rs`
 - `broker/src/server/handler.rs`
 - `broker/src/service.rs`
 - `protocol/src/lib.rs`
