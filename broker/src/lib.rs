@@ -1,5 +1,7 @@
+pub mod config;
+mod builder;
+
 mod admin;
-mod config;
 mod di;
 mod logging;
 mod metrics;
@@ -7,9 +9,13 @@ mod raft;
 mod server;
 mod service;
 
+use std::future::Future;
+
 use tracing::{info, warn};
 
-use config::{AppConfig, GroupAssignmentStrategyConfig};
+pub use config::{AppConfig, ConfigError};
+pub use builder::BrokerBuilder;
+use config::GroupAssignmentStrategyConfig;
 use di::{BootstrapModule, LifecycleModule, wire_runtime};
 use raft::OpenRaftRuntimeConfig;
 use service::{
@@ -21,10 +27,23 @@ use store::{
   SegmentLogOptions, TopicCatalogStore, TopicConfig,
 };
 
-#[tokio::main]
-async fn main() -> Result<()> {
+pub async fn run() -> Result<()> {
   let app = AppConfig::load()
     .map_err(|err| store::StoreError::Codec(format!("failed to load config: {err}")))?;
+  run_with_config(app).await
+}
+
+pub async fn run_with_config(app: AppConfig) -> Result<()> {
+  run_with_config_and_shutdown(app, async {
+    let _ = tokio::signal::ctrl_c().await;
+  })
+  .await
+}
+
+pub async fn run_with_config_and_shutdown<F>(app: AppConfig, shutdown: F) -> Result<()>
+where
+  F: Future<Output = ()> + Send,
+{
   let bootstrap = BootstrapModule::new(app.clone());
   bootstrap.init_observability()?;
 
@@ -89,7 +108,7 @@ async fn main() -> Result<()> {
 
   bootstrap.spawn_retention_cleanup_task(retention_log);
 
-  lifecycle.run(wiring).await
+  lifecycle.run_with_shutdown(wiring, shutdown).await
 }
 
 fn ensure_bootstrap_topic(log: &SegmentLog, meta: &RedbMetadataStore) -> Result<()> {

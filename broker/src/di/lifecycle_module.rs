@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::future::Future;
 
 use tracing::info;
 
@@ -14,13 +15,17 @@ impl LifecycleModule {
     Self
   }
 
-  pub async fn run(&self, wiring: RuntimeWiring) -> Result<()> {
+  pub async fn run_with_shutdown<F>(&self, wiring: RuntimeWiring, shutdown: F) -> Result<()>
+  where
+    F: Future<Output = ()> + Send,
+  {
     let tcp_server = TcpBrokerServer::new(wiring.tcp_config, Arc::clone(&wiring.service));
     let tcp_task = tokio::spawn(async move { tcp_server.run().await });
 
     let admin_task = wiring
       .admin_config
       .map(|config| tokio::spawn(async move { run_admin_server(config).await }));
+    tokio::pin!(shutdown);
 
     if let Some(admin_task) = admin_task {
       tokio::select! {
@@ -30,7 +35,7 @@ impl LifecycleModule {
         result = admin_task => {
           join_result_to_store_result("admin http server", result)
         }
-        _ = tokio::signal::ctrl_c() => {
+        _ = &mut shutdown => {
           info!("shutdown signal received");
           Ok(())
         }
@@ -40,7 +45,7 @@ impl LifecycleModule {
         result = tcp_task => {
           join_result_to_store_result("tcp broker server", result)
         }
-        _ = tokio::signal::ctrl_c() => {
+        _ = &mut shutdown => {
           info!("shutdown signal received");
           Ok(())
         }

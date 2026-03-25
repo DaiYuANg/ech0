@@ -5,12 +5,14 @@ FROM rust:1.90-bookworm AS builder-debian
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
+COPY broker-bin/Cargo.toml broker-bin/Cargo.toml
 COPY broker/Cargo.toml broker/Cargo.toml
 COPY direct/Cargo.toml direct/Cargo.toml
 COPY protocol/Cargo.toml protocol/Cargo.toml
 COPY queue/Cargo.toml queue/Cargo.toml
 COPY store/Cargo.toml store/Cargo.toml
 COPY transport/Cargo.toml transport/Cargo.toml
+COPY broker-bin broker-bin
 COPY broker broker
 COPY direct direct
 COPY protocol protocol
@@ -19,19 +21,21 @@ COPY store store
 COPY transport transport
 COPY config config
 
-RUN cargo build --release -p broker
+RUN cargo build --release -p broker-bin
 
 FROM rust:1.90-alpine AS builder-alpine
 
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
+COPY broker-bin/Cargo.toml broker-bin/Cargo.toml
 COPY broker/Cargo.toml broker/Cargo.toml
 COPY direct/Cargo.toml direct/Cargo.toml
 COPY protocol/Cargo.toml protocol/Cargo.toml
 COPY queue/Cargo.toml queue/Cargo.toml
 COPY store/Cargo.toml store/Cargo.toml
 COPY transport/Cargo.toml transport/Cargo.toml
+COPY broker-bin broker-bin
 COPY broker broker
 COPY direct direct
 COPY protocol protocol
@@ -41,7 +45,7 @@ COPY transport transport
 COPY config config
 
 RUN apk add --no-cache musl-dev \
-  && cargo build --release -p broker
+  && cargo build --release -p broker-bin
 
 FROM debian:bookworm-slim AS runtime-debian
 

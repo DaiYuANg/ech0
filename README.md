@@ -33,7 +33,7 @@
 
 3. Start broker:
 
-   - `cargo run -p broker`
+   - `cargo run -p broker-bin`
 
 The broker listens on `127.0.0.1:9090` by default and stores runtime data under `./data`.
 Admin HTTP server listens on `127.0.0.1:9091` by default:
@@ -63,11 +63,57 @@ Admin HTTP server listens on `127.0.0.1:9091` by default:
 - Run smoke wrapper (PowerShell): `./scripts/smoke.ps1`
 - Run smoke wrapper (Bash): `./scripts/smoke.sh`
 
+## Embed broker as a library
+
+`broker` now supports both binary and library usage.
+
+- Binary entrypoint: `cargo run -p broker-bin`
+- Library entrypoints:
+  - `broker::run()`
+  - `broker::run_with_config(app_config)`
+  - `broker::run_with_config_and_shutdown(app_config, shutdown_future)`
+  - `broker::BrokerBuilder` (chainable programmatic configuration)
+
+Example:
+
+```rust
+use broker::AppConfig;
+
+#[tokio::main]
+async fn main() -> store::Result<()> {
+  let app = AppConfig::load()
+    .map_err(|err| store::StoreError::Codec(format!("failed to load config: {err}")))?;
+
+  // Stop broker when your own signal/future resolves.
+  let shutdown = async {
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+  };
+
+  broker::run_with_config_and_shutdown(app, shutdown).await
+}
+```
+
+Builder example:
+
+```rust
+#[tokio::main]
+async fn main() -> store::Result<()> {
+  broker::BrokerBuilder::from_env()
+    .map_err(|err| store::StoreError::Codec(format!("failed to load config: {err}")))?
+    .raft_enabled(false)
+    .broker_bind_addr("127.0.0.1:19090")
+    .admin_bind_addr("127.0.0.1:19091")
+    .max_payload_bytes(2 * 1024 * 1024)
+    .run()
+    .await
+}
+```
+
 ## End-to-end smoke test
 
 1. Start broker in terminal A:
 
-   - `cargo run -p broker`
+   - `cargo run -p broker-bin`
 
 2. Run queue smoke client in terminal B:
 

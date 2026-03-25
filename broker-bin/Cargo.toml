@@ -1,0 +1,12 @@
+[package]
+name = "broker-bin"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "broker"
+path = "src/main.rs"
+
+[dependencies]
+broker = { path = "../broker" }
+tokio.workspace = true

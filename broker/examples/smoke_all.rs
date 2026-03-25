@@ -62,7 +62,7 @@ fn start_broker_process() -> io::Result<Child> {
   let log_file_err = log_file.try_clone()?;
 
   Command::new("cargo")
-    .args(["run", "-p", "broker"])
+    .args(["run", "-p", "broker-bin"])
     .stdout(Stdio::from(log_file))
     .stderr(Stdio::from(log_file_err))
     .spawn()
