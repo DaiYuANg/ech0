@@ -5,4 +5,6 @@ mod metadata;
 
 pub use consensus::{ConsensusLogStore, ConsensusMetadataStore};
 pub use log::{MessageLogStore, MutablePartitionLogStore};
-pub use metadata::{BrokerStateStore, LocalPartitionStateStore, OffsetStore, TopicCatalogStore};
+pub use metadata::{
+  BrokerStateStore, ConsumerGroupStore, LocalPartitionStateStore, OffsetStore, TopicCatalogStore,
+};

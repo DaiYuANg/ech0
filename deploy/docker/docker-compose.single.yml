@@ -1,0 +1,19 @@
+services:
+  ech0-single:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${ECH0_BASE_IMAGE:-debian}
+    container_name: ech0-single
+    working_dir: /app
+    command: ["/usr/local/bin/broker"]
+    environment:
+      ECH0_BROKER__DATA_DIR: /app/data
+    volumes:
+      - ./configs/single/ech0.toml:/app/config/ech0.toml:ro
+      - ./data/single:/app/data
+    ports:
+      - "${ECH0_SINGLE_BROKER_PORT:-9090}:9090"
+      - "${ECH0_SINGLE_ADMIN_PORT:-9091}:9091"
+      - "${ECH0_SINGLE_RAFT_PORT:-3210}:3210"

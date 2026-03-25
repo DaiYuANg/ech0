@@ -1,0 +1,52 @@
+[broker]
+node_id = 3
+cluster_name = "ech0-cluster"
+data_dir = "/app/data"
+bind_addr = "0.0.0.0:9090"
+max_frame_body_bytes = 4194304
+max_payload_bytes = 1048576
+max_fetch_records = 1000
+group_assignment_strategy = "round_robin"
+group_sticky_assignments = true
+
+[admin]
+enabled = true
+bind_addr = "0.0.0.0:9091"
+
+[storage]
+segments_dir = "segments"
+metadata_path = "meta/metadata.redb"
+retention_cleanup_enabled = true
+retention_cleanup_interval_secs = 30
+
+[logging]
+level = "info,broker=info,store=info"
+format = "text"
+enable_stdout = true
+enable_file = true
+directory = "logs"
+file_prefix = "ech0-node3"
+rotation = "daily"
+max_files = 14
+ansi = false
+
+[raft]
+enabled = true
+bind_addr = "0.0.0.0:3210"
+metrics_interval_ms = 1000
+heartbeat_interval_ms = 150
+election_timeout_min_ms = 300
+election_timeout_max_ms = 600
+snapshot_max_chunk_size = 3145728
+
+[[raft.cluster]]
+node_id = 1
+addr = "ech0-node1:3210"
+
+[[raft.cluster]]
+node_id = 2
+addr = "ech0-node2:3210"
+
+[[raft.cluster]]
+node_id = 3
+addr = "ech0-node3:3210"

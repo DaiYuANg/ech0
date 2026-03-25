@@ -20,6 +20,7 @@ pub type Result<T> = std::result::Result<T, ConfigError>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
   pub broker: BrokerConfig,
+  pub admin: AdminConfig,
   pub storage: StorageConfig,
   pub logging: LoggingConfig,
   pub raft: RaftConfig,
@@ -29,9 +30,25 @@ impl Default for AppConfig {
   fn default() -> Self {
     Self {
       broker: BrokerConfig::default(),
+      admin: AdminConfig::default(),
       storage: StorageConfig::default(),
       logging: LoggingConfig::default(),
       raft: RaftConfig::default(),
+    }
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminConfig {
+  pub enabled: bool,
+  pub bind_addr: String,
+}
+
+impl Default for AdminConfig {
+  fn default() -> Self {
+    Self {
+      enabled: true,
+      bind_addr: "127.0.0.1:9091".to_owned(),
     }
   }
 }
@@ -79,6 +96,11 @@ pub struct BrokerConfig {
   pub cluster_name: String,
   pub data_dir: String,
   pub bind_addr: String,
+  pub max_frame_body_bytes: usize,
+  pub max_payload_bytes: usize,
+  pub max_fetch_records: usize,
+  pub group_assignment_strategy: GroupAssignmentStrategyConfig,
+  pub group_sticky_assignments: bool,
 }
 
 impl Default for BrokerConfig {
@@ -88,14 +110,28 @@ impl Default for BrokerConfig {
       cluster_name: "ech0-dev".to_owned(),
       data_dir: "./data".to_owned(),
       bind_addr: "127.0.0.1:9090".to_owned(),
+      max_frame_body_bytes: 4 * 1024 * 1024,
+      max_payload_bytes: 1024 * 1024,
+      max_fetch_records: 1_000,
+      group_assignment_strategy: GroupAssignmentStrategyConfig::RoundRobin,
+      group_sticky_assignments: true,
     }
   }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupAssignmentStrategyConfig {
+  RoundRobin,
+  Range,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageConfig {
   pub segments_dir: String,
   pub metadata_path: String,
+  pub retention_cleanup_enabled: bool,
+  pub retention_cleanup_interval_secs: u64,
 }
 
 impl Default for StorageConfig {
@@ -103,6 +139,8 @@ impl Default for StorageConfig {
     Self {
       segments_dir: "segments".to_owned(),
       metadata_path: "meta/metadata.redb".to_owned(),
+      retention_cleanup_enabled: true,
+      retention_cleanup_interval_secs: 30,
     }
   }
 }

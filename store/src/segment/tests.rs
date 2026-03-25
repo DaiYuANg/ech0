@@ -184,3 +184,28 @@ fn unavailable_topic_does_not_hide_healthy_partition_state() {
   let state_after_validation = log.local_partition_state(&healthy_partition).unwrap();
   assert_eq!(state_after_validation.state.last_appended_offset, Some(0));
 }
+
+#[test]
+fn retention_cleanup_removes_old_segments() {
+  let root = temp_path("retention-cleanup");
+  let log = SegmentLog::open(SegmentLogOptions::new(root.join("segments"))).unwrap();
+  let mut topic = TopicConfig::new("orders");
+  topic.partitions = 1;
+  topic.segment_max_bytes = 70;
+  topic.index_interval_bytes = 8;
+  topic.retention_max_bytes = 90;
+  let topic_partition = topic.partition(0);
+  log.create_topic(topic).unwrap();
+
+  for idx in 0..8u8 {
+    let payload = vec![idx; 16];
+    log.append(&topic_partition, &payload).unwrap();
+  }
+
+  let removed = log.enforce_retention_once().unwrap();
+  assert!(removed > 0);
+
+  let records = log.read_from(&topic_partition, 0, 100).unwrap();
+  assert!(!records.is_empty());
+  assert!(records.len() < 8);
+}

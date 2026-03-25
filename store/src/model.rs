@@ -23,6 +23,8 @@ pub struct TopicConfig {
   pub partitions: u32,
   pub segment_max_bytes: u64,
   pub index_interval_bytes: u64,
+  #[serde(default = "default_topic_retention_max_bytes")]
+  pub retention_max_bytes: u64,
 }
 
 impl TopicConfig {
@@ -32,12 +34,17 @@ impl TopicConfig {
       partitions: 1,
       segment_max_bytes: 16 * 1024 * 1024,
       index_interval_bytes: 4 * 1024,
+      retention_max_bytes: default_topic_retention_max_bytes(),
     }
   }
 
   pub fn partition(&self, partition: u32) -> TopicPartition {
     TopicPartition::new(self.name.clone(), partition)
   }
+}
+
+fn default_topic_retention_max_bytes() -> u64 {
+  256 * 1024 * 1024
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +76,43 @@ pub struct AckedOffset {
   pub consumer: String,
   pub topic_partition: TopicPartition,
   pub acked_offset: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsumerGroupMember {
+  pub group: String,
+  pub member_id: String,
+  pub topics: Vec<String>,
+  pub session_timeout_ms: u64,
+  pub joined_at_ms: u64,
+  pub last_heartbeat_ms: u64,
+}
+
+impl ConsumerGroupMember {
+  pub fn expires_at_ms(&self) -> u64 {
+    self
+      .last_heartbeat_ms
+      .saturating_add(self.session_timeout_ms.max(1))
+  }
+
+  pub fn is_expired_at_ms(&self, now_ms: u64) -> bool {
+    now_ms >= self.expires_at_ms()
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupPartitionAssignment {
+  pub member_id: String,
+  pub topic: String,
+  pub partition: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsumerGroupAssignment {
+  pub group: String,
+  pub generation: u64,
+  pub assignments: Vec<GroupPartitionAssignment>,
+  pub updated_at_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

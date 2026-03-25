@@ -1,7 +1,8 @@
 use std::{fmt, sync::Arc};
 
 use store::{
-  MessageLogStore, OffsetStore, Record, Result, TopicCatalogStore, TopicConfig, TopicPartition,
+  ConsumerGroupStore, MessageLogStore, OffsetStore, Record, Result, TopicCatalogStore, TopicConfig,
+  TopicPartition,
 };
 
 use crate::service::BrokerRuntimeMode;
@@ -132,5 +133,42 @@ where
 
   fn list_topics(&self) -> Result<Vec<TopicConfig>> {
     self.inner.list_topics()
+  }
+}
+
+impl<M> ConsumerGroupStore for ModeAwareMetadataStore<M>
+where
+  M: ConsumerGroupStore,
+{
+  fn save_group_member(&self, member: &store::ConsumerGroupMember) -> Result<()> {
+    self.inner.save_group_member(member)
+  }
+
+  fn load_group_member(
+    &self,
+    group: &str,
+    member_id: &str,
+  ) -> Result<Option<store::ConsumerGroupMember>> {
+    self.inner.load_group_member(group, member_id)
+  }
+
+  fn list_group_members(&self, group: &str) -> Result<Vec<store::ConsumerGroupMember>> {
+    self.inner.list_group_members(group)
+  }
+
+  fn delete_group_member(&self, group: &str, member_id: &str) -> Result<()> {
+    self.inner.delete_group_member(group, member_id)
+  }
+
+  fn delete_expired_group_members(&self, now_ms: u64) -> Result<usize> {
+    self.inner.delete_expired_group_members(now_ms)
+  }
+
+  fn save_group_assignment(&self, assignment: &store::ConsumerGroupAssignment) -> Result<()> {
+    self.inner.save_group_assignment(assignment)
+  }
+
+  fn load_group_assignment(&self, group: &str) -> Result<Option<store::ConsumerGroupAssignment>> {
+    self.inner.load_group_assignment(group)
   }
 }

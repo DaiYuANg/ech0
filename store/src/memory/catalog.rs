@@ -205,3 +205,83 @@ impl TopicCatalogStore for InMemoryStore {
     Ok(topics)
   }
 }
+
+impl ConsumerGroupStore for InMemoryStore {
+  fn save_group_member(&self, member: &crate::ConsumerGroupMember) -> Result<()> {
+    let mut members = self
+      .consumer_group_members
+      .write()
+      .expect("poisoned consumer_group_members lock");
+    members.insert(
+      (member.group.clone(), member.member_id.clone()),
+      member.clone(),
+    );
+    Ok(())
+  }
+
+  fn load_group_member(
+    &self,
+    group: &str,
+    member_id: &str,
+  ) -> Result<Option<crate::ConsumerGroupMember>> {
+    let members = self
+      .consumer_group_members
+      .read()
+      .expect("poisoned consumer_group_members lock");
+    Ok(
+      members
+        .get(&(group.to_owned(), member_id.to_owned()))
+        .cloned(),
+    )
+  }
+
+  fn list_group_members(&self, group: &str) -> Result<Vec<crate::ConsumerGroupMember>> {
+    let members = self
+      .consumer_group_members
+      .read()
+      .expect("poisoned consumer_group_members lock");
+    let mut group_members: Vec<_> = members
+      .iter()
+      .filter(|((member_group, _), _)| member_group == group)
+      .map(|(_, member)| member.clone())
+      .collect();
+    group_members.sort_by(|a, b| a.member_id.cmp(&b.member_id));
+    Ok(group_members)
+  }
+
+  fn delete_group_member(&self, group: &str, member_id: &str) -> Result<()> {
+    let mut members = self
+      .consumer_group_members
+      .write()
+      .expect("poisoned consumer_group_members lock");
+    members.remove(&(group.to_owned(), member_id.to_owned()));
+    Ok(())
+  }
+
+  fn delete_expired_group_members(&self, now_ms: u64) -> Result<usize> {
+    let mut members = self
+      .consumer_group_members
+      .write()
+      .expect("poisoned consumer_group_members lock");
+    let before = members.len();
+    members.retain(|_, member| !member.is_expired_at_ms(now_ms));
+    Ok(before.saturating_sub(members.len()))
+  }
+
+  fn save_group_assignment(&self, assignment: &crate::ConsumerGroupAssignment) -> Result<()> {
+    let mut assignments = self
+      .consumer_group_assignments
+      .write()
+      .expect("poisoned consumer_group_assignments lock");
+    assignments.insert(assignment.group.clone(), assignment.clone());
+    Ok(())
+  }
+
+  fn load_group_assignment(&self, group: &str) -> Result<Option<crate::ConsumerGroupAssignment>> {
+    let assignments = self
+      .consumer_group_assignments
+      .read()
+      .expect("poisoned consumer_group_assignments lock");
+    Ok(assignments.get(group).cloned())
+  }
+}

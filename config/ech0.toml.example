@@ -3,10 +3,21 @@ node_id = 1
 cluster_name = "ech0-dev"
 data_dir = "./data"
 bind_addr = "127.0.0.1:9090"
+max_frame_body_bytes = 4194304
+max_payload_bytes = 1048576
+max_fetch_records = 1000
+group_assignment_strategy = "round_robin"
+group_sticky_assignments = true
+
+[admin]
+enabled = true
+bind_addr = "127.0.0.1:9091"
 
 [storage]
 segments_dir = "segments"
 metadata_path = "meta/metadata.redb"
+retention_cleanup_enabled = true
+retention_cleanup_interval_secs = 30
 
 [logging]
 level = "info,broker=debug,store=debug"

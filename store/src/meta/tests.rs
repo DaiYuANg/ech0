@@ -106,3 +106,78 @@ fn consensus_metadata_and_logs_round_trip() {
     vec![(1, br#"{"index":1}"#.to_vec())]
   );
 }
+
+#[test]
+fn consumer_group_members_round_trip_and_expiration_sweep() {
+  let path = temp_path("consumer-group-members");
+  let store = RedbMetadataStore::create(path).unwrap();
+
+  let active = crate::ConsumerGroupMember {
+    group: "orders-cg".to_owned(),
+    member_id: "member-a".to_owned(),
+    topics: vec!["orders".to_owned()],
+    session_timeout_ms: 30_000,
+    joined_at_ms: 1_000,
+    last_heartbeat_ms: 2_000,
+  };
+  let expired = crate::ConsumerGroupMember {
+    group: "orders-cg".to_owned(),
+    member_id: "member-b".to_owned(),
+    topics: vec!["orders".to_owned()],
+    session_timeout_ms: 10,
+    joined_at_ms: 1_500,
+    last_heartbeat_ms: 2_000,
+  };
+
+  store.save_group_member(&active).unwrap();
+  store.save_group_member(&expired).unwrap();
+
+  let listed = store.list_group_members("orders-cg").unwrap();
+  assert_eq!(listed.len(), 2);
+  assert_eq!(
+    store.load_group_member("orders-cg", "member-a").unwrap(),
+    Some(active.clone())
+  );
+
+  let removed = store.delete_expired_group_members(2_020).unwrap();
+  assert_eq!(removed, 1);
+  let listed_after_sweep = store.list_group_members("orders-cg").unwrap();
+  assert_eq!(listed_after_sweep, vec![active]);
+
+  store.delete_group_member("orders-cg", "member-a").unwrap();
+  assert!(
+    store
+      .load_group_member("orders-cg", "member-a")
+      .unwrap()
+      .is_none()
+  );
+}
+
+#[test]
+fn consumer_group_assignment_round_trip() {
+  let path = temp_path("consumer-group-assignment");
+  let store = RedbMetadataStore::create(path).unwrap();
+  let assignment = crate::ConsumerGroupAssignment {
+    group: "orders-cg".to_owned(),
+    generation: 3,
+    updated_at_ms: 12_345,
+    assignments: vec![
+      crate::GroupPartitionAssignment {
+        member_id: "member-a".to_owned(),
+        topic: "orders".to_owned(),
+        partition: 0,
+      },
+      crate::GroupPartitionAssignment {
+        member_id: "member-b".to_owned(),
+        topic: "orders".to_owned(),
+        partition: 1,
+      },
+    ],
+  };
+
+  store.save_group_assignment(&assignment).unwrap();
+  assert_eq!(
+    store.load_group_assignment("orders-cg").unwrap(),
+    Some(assignment)
+  );
+}

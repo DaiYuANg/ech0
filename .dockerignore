@@ -1,0 +1,9 @@
+.git
+.github
+target
+data
+**/*.redb
+**/*.log
+.cursor
+.idea
+node_modules

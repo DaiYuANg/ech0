@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}ech0 Broker Ops{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h2 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">Overview</h2>
+  <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">Rust-native ops dashboard rendered by Askama.</p>
+</div>
+
+{% match topic_error %}
+{% when Some with (message) %}
+<div class="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+  Failed to load topics: {{ message }}
+</div>
+{% when None %}
+{% endmatch %}
+
+<section class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Uptime (seconds)</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ uptime_seconds }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">TCP Connections Total</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ tcp_connections_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Commands Total</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ commands_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Command Errors Total</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ command_errors_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Command Error Rate</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ command_error_rate_percent }}%</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Topics (visible)</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ topic_count }}</p>
+  </article>
+</section>
+{% endblock %}

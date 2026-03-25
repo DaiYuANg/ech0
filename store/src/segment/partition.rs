@@ -1,6 +1,54 @@
 use super::*;
 
 impl SegmentLog {
+  pub fn enforce_retention_once(&self) -> Result<usize> {
+    let mut removed_segments = 0_usize;
+    for topic in self.discover_topics()? {
+      let config = self.load_topic_config(&topic)?;
+      for partition in 0..config.partitions {
+        let topic_partition = config.partition(partition);
+        removed_segments +=
+          self.enforce_partition_retention(&topic_partition, config.retention_max_bytes)?;
+      }
+    }
+    Ok(removed_segments)
+  }
+
+  fn enforce_partition_retention(
+    &self,
+    topic_partition: &TopicPartition,
+    retention_max_bytes: u64,
+  ) -> Result<usize> {
+    if retention_max_bytes == 0 {
+      return Ok(0);
+    }
+    self.validate_partition(topic_partition)?;
+    self.with_runtime(topic_partition, |runtime| {
+      if runtime.segments.len() <= 1 {
+        return Ok(0);
+      }
+
+      let mut total_bytes = runtime
+        .segments
+        .iter()
+        .map(|segment| segment.next_write_pos)
+        .sum::<u64>();
+      if total_bytes <= retention_max_bytes {
+        return Ok(0);
+      }
+
+      let mut removed = 0_usize;
+      while runtime.segments.len() > 1 && total_bytes > retention_max_bytes {
+        let oldest = runtime.segments.remove(0);
+        total_bytes = total_bytes.saturating_sub(oldest.next_write_pos);
+        fs::remove_file(oldest.log_path)?;
+        fs::remove_file(oldest.index_path)?;
+        removed += 1;
+      }
+      Ok(removed)
+    })
+  }
+
   fn collect_records_before_offset(
     runtime: &TopicRuntime,
     truncate_offset: u64,

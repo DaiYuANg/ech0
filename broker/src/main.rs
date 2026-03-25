@@ -1,15 +1,21 @@
+mod admin;
 mod config;
+mod di;
 mod logging;
+mod metrics;
 mod raft;
 mod server;
 mod service;
 
 use tracing::{info, warn};
 
-use config::AppConfig;
+use config::{AppConfig, GroupAssignmentStrategyConfig};
+use di::{BootstrapModule, LifecycleModule, wire_runtime};
 use raft::OpenRaftRuntimeConfig;
-use server::{TcpBrokerServer, TcpServerConfig};
-use service::{BrokerIdentity, BrokerRuntimeMode, BrokerService};
+use service::{
+  BrokerIdentity, BrokerRuntimeMode, BrokerService, GroupAssignmentStrategy,
+  GroupCoordinatorOptions,
+};
 use store::{
   BrokerState, BrokerStateStore, MessageLogStore, RedbMetadataStore, Result, SegmentLog,
   SegmentLogOptions, TopicCatalogStore, TopicConfig,
@@ -19,13 +25,16 @@ use store::{
 async fn main() -> Result<()> {
   let app = AppConfig::load()
     .map_err(|err| store::StoreError::Codec(format!("failed to load config: {err}")))?;
-  logging::init_logging(&app.logging)
-    .map_err(|err| store::StoreError::Codec(format!("failed to init logging: {err}")))?;
+  let bootstrap = BootstrapModule::new(app.clone());
+  bootstrap.init_observability()?;
 
   info!(node_id = app.broker.node_id, cluster = %app.broker.cluster_name, ?app, "loaded broker configuration");
 
-  let log = SegmentLog::open(SegmentLogOptions::new(app.segments_dir()))?;
-  let meta = RedbMetadataStore::create(app.metadata_path())?;
+  let log = std::sync::Arc::new(SegmentLog::open(SegmentLogOptions::new(
+    app.segments_dir(),
+  ))?);
+  let retention_log = std::sync::Arc::clone(&log);
+  let meta = std::sync::Arc::new(RedbMetadataStore::create(app.metadata_path())?);
 
   if !app.raft.enabled {
     ensure_bootstrap_topic(&log, &meta)?;
@@ -51,29 +60,36 @@ async fn main() -> Result<()> {
     raft_runtime = ?raft_runtime.as_ref().map(|cfg| (&cfg.node_id, cfg.known_nodes.len())),
     runtime_mode = %BrokerRuntimeMode::from_raft_runtime(raft_runtime.clone()).label(),
     bind_addr = %app.broker.bind_addr,
+    admin_enabled = app.admin.enabled,
+    admin_bind_addr = %app.admin.bind_addr,
     "broker bootstrap completed"
   );
 
-  let service = std::sync::Arc::new(BrokerService::new_with_mode(
+  bootstrap.configure_runtime_limits();
+
+  let service = std::sync::Arc::new(BrokerService::new_with_mode_and_group_options(
     BrokerIdentity {
       node_id: app.broker.node_id,
       cluster_name: app.broker.cluster_name.clone(),
     },
-    log,
-    meta,
+    std::sync::Arc::clone(&log),
+    std::sync::Arc::clone(&meta),
     BrokerRuntimeMode::from_raft_runtime(raft_runtime),
-  )?);
-  let server = TcpBrokerServer::new(
-    TcpServerConfig {
-      bind_addr: app.broker.bind_addr.clone(),
+    GroupCoordinatorOptions {
+      assignment_strategy: match app.broker.group_assignment_strategy {
+        GroupAssignmentStrategyConfig::RoundRobin => GroupAssignmentStrategy::RoundRobin,
+        GroupAssignmentStrategyConfig::Range => GroupAssignmentStrategy::Range,
+      },
+      sticky_assignments: app.broker.group_sticky_assignments,
     },
-    service,
-  );
+  )?);
+  let wiring = wire_runtime(&app, std::sync::Arc::clone(&service))
+    .map_err(|err| store::StoreError::Codec(format!("failed to wire runtime via fluxdi: {err}")))?;
+  let lifecycle = LifecycleModule::new();
 
-  server
-    .run()
-    .await
-    .map_err(|err| store::StoreError::Io(std::io::Error::new(err.kind(), err.to_string())))
+  bootstrap.spawn_retention_cleanup_task(retention_log);
+
+  lifecycle.run(wiring).await
 }
 
 fn ensure_bootstrap_topic(log: &SegmentLog, meta: &RedbMetadataStore) -> Result<()> {
@@ -107,4 +123,84 @@ fn validate_topics(log: &SegmentLog, meta: &RedbMetadataStore) -> Result<()> {
   }
 
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use std::time::{SystemTime, UNIX_EPOCH};
+
+  use store::{StoreError, TopicConfig};
+
+  use super::{ensure_bootstrap_topic, validate_topics};
+  use store::{
+    BrokerState, JsonCodec, MessageLogStore, RedbMetadataStore, SegmentLog, SegmentLogOptions,
+    TopicCatalogStore,
+  };
+
+  fn temp_path(name: &str) -> std::path::PathBuf {
+    let nanos = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_nanos();
+    std::env::temp_dir().join(format!("ech0-broker-main-{name}-{nanos}"))
+  }
+
+  #[test]
+  fn validate_topics_allows_unavailable_non_demo_topics() {
+    let root = temp_path("validate-non-demo");
+    let log = SegmentLog::open(SegmentLogOptions::new(root.join("segments"))).unwrap();
+    let meta = RedbMetadataStore::create_with_codecs(
+      root.join("meta.redb"),
+      JsonCodec::<TopicConfig>::new(),
+      JsonCodec::<BrokerState>::new(),
+      JsonCodec::new(),
+    )
+    .unwrap();
+
+    ensure_bootstrap_topic(&log, &meta).unwrap();
+
+    let mut broken_manifest = TopicConfig::new("orders");
+    broken_manifest.partitions = 2;
+    log.create_topic(broken_manifest.clone()).unwrap();
+
+    let mut broken_catalog = TopicConfig::new("orders");
+    broken_catalog.partitions = 1;
+    meta.save_topic_config(&broken_catalog).unwrap();
+
+    validate_topics(&log, &meta).unwrap();
+
+    let _ = std::fs::remove_dir_all(root);
+  }
+
+  #[test]
+  fn validate_topics_rejects_unavailable_demo_topic() {
+    let root = temp_path("validate-demo");
+    let log = SegmentLog::open(SegmentLogOptions::new(root.join("segments"))).unwrap();
+    let meta = RedbMetadataStore::create_with_codecs(
+      root.join("meta.redb"),
+      JsonCodec::<TopicConfig>::new(),
+      JsonCodec::<BrokerState>::new(),
+      JsonCodec::new(),
+    )
+    .unwrap();
+
+    let mut demo_manifest = TopicConfig::new("demo");
+    demo_manifest.partitions = 2;
+    log.create_topic(demo_manifest).unwrap();
+
+    let mut demo_catalog = TopicConfig::new("demo");
+    demo_catalog.partitions = 1;
+    meta.save_topic_config(&demo_catalog).unwrap();
+
+    let err = validate_topics(&log, &meta).unwrap_err();
+    match err {
+      StoreError::TopicUnavailable { topic, reason } => {
+        assert_eq!(topic, "demo");
+        assert!(reason.contains("unavailable"));
+      }
+      other => panic!("expected TopicUnavailable error, got {other:?}"),
+    }
+
+    let _ = std::fs::remove_dir_all(root);
+  }
 }

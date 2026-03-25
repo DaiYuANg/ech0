@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}ech0 Group Detail{% endblock %}
+{% block group_jump_default %}{{ group }}{% endblock %}
+
+{% block content %}
+<header class="mb-6">
+  <h2 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">Consumer Group: {{ group }}</h2>
+  <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">Membership, rebalance diagnostics, and assignment snapshot.</p>
+</header>
+
+{% match error %}
+{% when Some with (message) %}
+<div class="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+  {{ message }}
+</div>
+{% when None %}
+{% endmatch %}
+
+{% match explain %}
+{% when Some with (stats) %}
+<section class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Next Generation</p>
+    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ stats.next_generation }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Strategy</p>
+    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ stats.strategy }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Sticky Assignments</p>
+    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ stats.sticky_assignments }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Moved Partitions</p>
+    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ stats.moved_partitions }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Sticky Applied / Candidates</p>
+    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ stats.sticky_applied }} / {{ stats.sticky_candidates }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Members / Assignments</p>
+    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ stats.active_members }} / {{ stats.total_assignments }}</p>
+  </article>
+</section>
+
+<section class="mt-6 space-y-3">
+  <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Member Load</h3>
+  {% if stats.member_loads.len() == 0 %}
+  <div class="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+    No member load data.
+  </div>
+  {% else %}
+  <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+        <tr>
+          <th class="px-4 py-3 font-semibold">Member</th>
+          <th class="px-4 py-3 font-semibold">Partitions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+        {% for item in stats.member_loads %}
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800">
+          <td class="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{{ item.member_id }}</td>
+          <td class="px-4 py-3">{{ item.partitions }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% when None %}
+<div class="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+  No rebalance explain data for this group.
+</div>
+{% endmatch %}
+
+<section class="mt-6 space-y-3">
+  <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Active Members</h3>
+  {% if members.len() == 0 %}
+  <div class="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+    No active members.
+  </div>
+  {% else %}
+  <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+        <tr>
+          <th class="px-4 py-3 font-semibold">Member</th>
+          <th class="px-4 py-3 font-semibold">Topics</th>
+          <th class="px-4 py-3 font-semibold">Session Timeout (ms)</th>
+          <th class="px-4 py-3 font-semibold">Last Heartbeat (ms)</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+        {% for member in members %}
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800">
+          <td class="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{{ member.member_id }}</td>
+          <td class="px-4 py-3">{{ member.topics | join(", ") }}</td>
+          <td class="px-4 py-3">{{ member.session_timeout_ms }}</td>
+          <td class="px-4 py-3">{{ member.last_heartbeat_ms }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<section class="mt-6 space-y-3">
+  <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Current Assignment</h3>
+  {% match assignment %}
+  {% when Some with (snapshot) %}
+  {% if snapshot.assignments.len() == 0 %}
+  <div class="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+    No partition assignments.
+  </div>
+  {% else %}
+  <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+        <tr>
+          <th class="px-4 py-3 font-semibold">Topic</th>
+          <th class="px-4 py-3 font-semibold">Partition</th>
+          <th class="px-4 py-3 font-semibold">Owner</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+        {% for item in snapshot.assignments %}
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800">
+          <td class="px-4 py-3">{{ item.topic }}</td>
+          <td class="px-4 py-3">{{ item.partition }}</td>
+          <td class="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{{ item.member_id }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% when None %}
+  <div class="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+    No saved assignment snapshot.
+  </div>
+  {% endmatch %}
+</section>
+{% endblock %}

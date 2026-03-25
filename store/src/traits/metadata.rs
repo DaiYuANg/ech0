@@ -1,6 +1,9 @@
 use crate::{
   Result,
-  model::{BrokerState, LocalPartitionState, TopicConfig, TopicPartition},
+  model::{
+    BrokerState, ConsumerGroupAssignment, ConsumerGroupMember, LocalPartitionState, TopicConfig,
+    TopicPartition,
+  },
 };
 
 pub trait OffsetStore: Send + Sync {
@@ -35,4 +38,14 @@ pub trait LocalPartitionStateStore: Send + Sync {
     topic_partition: &TopicPartition,
   ) -> Result<Option<LocalPartitionState>>;
   fn list_local_partition_states(&self) -> Result<Vec<LocalPartitionState>>;
+}
+
+pub trait ConsumerGroupStore: Send + Sync {
+  fn save_group_member(&self, member: &ConsumerGroupMember) -> Result<()>;
+  fn load_group_member(&self, group: &str, member_id: &str) -> Result<Option<ConsumerGroupMember>>;
+  fn list_group_members(&self, group: &str) -> Result<Vec<ConsumerGroupMember>>;
+  fn delete_group_member(&self, group: &str, member_id: &str) -> Result<()>;
+  fn delete_expired_group_members(&self, now_ms: u64) -> Result<usize>;
+  fn save_group_assignment(&self, assignment: &ConsumerGroupAssignment) -> Result<()>;
+  fn load_group_assignment(&self, group: &str) -> Result<Option<ConsumerGroupAssignment>>;
 }

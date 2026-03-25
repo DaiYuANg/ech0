@@ -88,3 +88,56 @@ where
     (&self.log_store, &self.meta_store)
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::QueueRuntime;
+  use store::{InMemoryStore, TopicConfig};
+
+  fn build_runtime() -> QueueRuntime<InMemoryStore, InMemoryStore> {
+    QueueRuntime::new(InMemoryStore::new(), InMemoryStore::new())
+  }
+
+  #[test]
+  fn create_topic_is_listed_from_catalog() {
+    let runtime = build_runtime();
+    runtime.create_topic(TopicConfig::new("orders")).unwrap();
+
+    let topics = runtime.list_topics().unwrap();
+    assert!(topics.iter().any(|topic| topic.name == "orders"));
+  }
+
+  #[test]
+  fn fetch_uses_explicit_offset_over_committed_offset() {
+    let runtime = build_runtime();
+    runtime.create_topic(TopicConfig::new("orders")).unwrap();
+    runtime.publish("orders", 0, b"m1").unwrap();
+    runtime.publish("orders", 0, b"m2").unwrap();
+    runtime.ack("c1", "orders", 0, 2).unwrap();
+
+    let result = runtime.fetch("c1", "orders", 0, Some(0), 10).unwrap();
+    assert_eq!(result.records.len(), 2);
+    assert_eq!(result.records[0].payload, b"m1".to_vec());
+  }
+
+  #[test]
+  fn poll_uses_committed_offset_when_present() {
+    let runtime = build_runtime();
+    runtime.create_topic(TopicConfig::new("orders")).unwrap();
+    runtime.publish("orders", 0, b"m1").unwrap();
+    runtime.publish("orders", 0, b"m2").unwrap();
+    runtime.ack("c1", "orders", 0, 1).unwrap();
+
+    let result = runtime.poll("c1", "orders", 0, 10).unwrap();
+    assert_eq!(result.records.len(), 1);
+    assert_eq!(result.records[0].payload, b"m2".to_vec());
+    assert_eq!(result.next_offset, 2);
+  }
+
+  #[test]
+  fn publish_to_missing_topic_returns_error() {
+    let runtime = build_runtime();
+    let err = runtime.publish("missing", 0, b"m1").unwrap_err();
+    assert!(matches!(err, store::StoreError::PartitionNotFound { .. }));
+  }
+}

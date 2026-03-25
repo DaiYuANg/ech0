@@ -2,10 +2,15 @@ use std::sync::Arc;
 
 use crate::{
   Result,
-  model::{BrokerState, LocalPartitionState, TopicConfig, TopicPartition},
+  model::{
+    BrokerState, ConsumerGroupAssignment, ConsumerGroupMember, LocalPartitionState, TopicConfig,
+    TopicPartition,
+  },
 };
 
-use super::super::{BrokerStateStore, LocalPartitionStateStore, OffsetStore, TopicCatalogStore};
+use super::super::{
+  BrokerStateStore, ConsumerGroupStore, LocalPartitionStateStore, OffsetStore, TopicCatalogStore,
+};
 
 impl<T> OffsetStore for &T
 where
@@ -136,5 +141,71 @@ where
   }
   fn list_local_partition_states(&self) -> Result<Vec<LocalPartitionState>> {
     (**self).list_local_partition_states()
+  }
+}
+
+impl<T> ConsumerGroupStore for &T
+where
+  T: ConsumerGroupStore + ?Sized,
+{
+  fn save_group_member(&self, member: &ConsumerGroupMember) -> Result<()> {
+    (**self).save_group_member(member)
+  }
+
+  fn load_group_member(&self, group: &str, member_id: &str) -> Result<Option<ConsumerGroupMember>> {
+    (**self).load_group_member(group, member_id)
+  }
+
+  fn list_group_members(&self, group: &str) -> Result<Vec<ConsumerGroupMember>> {
+    (**self).list_group_members(group)
+  }
+
+  fn delete_group_member(&self, group: &str, member_id: &str) -> Result<()> {
+    (**self).delete_group_member(group, member_id)
+  }
+
+  fn delete_expired_group_members(&self, now_ms: u64) -> Result<usize> {
+    (**self).delete_expired_group_members(now_ms)
+  }
+
+  fn save_group_assignment(&self, assignment: &ConsumerGroupAssignment) -> Result<()> {
+    (**self).save_group_assignment(assignment)
+  }
+
+  fn load_group_assignment(&self, group: &str) -> Result<Option<ConsumerGroupAssignment>> {
+    (**self).load_group_assignment(group)
+  }
+}
+
+impl<T> ConsumerGroupStore for Arc<T>
+where
+  T: ConsumerGroupStore + ?Sized,
+{
+  fn save_group_member(&self, member: &ConsumerGroupMember) -> Result<()> {
+    (**self).save_group_member(member)
+  }
+
+  fn load_group_member(&self, group: &str, member_id: &str) -> Result<Option<ConsumerGroupMember>> {
+    (**self).load_group_member(group, member_id)
+  }
+
+  fn list_group_members(&self, group: &str) -> Result<Vec<ConsumerGroupMember>> {
+    (**self).list_group_members(group)
+  }
+
+  fn delete_group_member(&self, group: &str, member_id: &str) -> Result<()> {
+    (**self).delete_group_member(group, member_id)
+  }
+
+  fn delete_expired_group_members(&self, now_ms: u64) -> Result<usize> {
+    (**self).delete_expired_group_members(now_ms)
+  }
+
+  fn save_group_assignment(&self, assignment: &ConsumerGroupAssignment) -> Result<()> {
+    (**self).save_group_assignment(assignment)
+  }
+
+  fn load_group_assignment(&self, group: &str) -> Result<Option<ConsumerGroupAssignment>> {
+    (**self).load_group_assignment(group)
   }
 }

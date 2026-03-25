@@ -18,14 +18,16 @@ pub use error::{Result, StoreError};
 pub use memory::InMemoryStore;
 pub use meta::{MetadataStore, RedbMetadataStore};
 pub use model::{
-  AckedOffset, BrokerState, ConsumerOffset, LocalPartitionState, PartitionAvailability,
-  PartitionState, PollResult, Record, TopicConfig, TopicPartition, TopicValidationIssue,
+  AckedOffset, BrokerState, ConsumerGroupAssignment, ConsumerGroupMember, ConsumerOffset,
+  GroupPartitionAssignment, LocalPartitionState, PartitionAvailability, PartitionState, PollResult,
+  Record, TopicConfig, TopicPartition, TopicValidationIssue,
 };
 pub use segment::{SegmentLog, SegmentLogOptions};
 pub use state_machine::{
   AppliedPartitionCommand, LocalPartitionStateMachine, PartitionApplyContext, PartitionStateMachine,
 };
 pub use traits::{
-  BrokerStateStore, ConsensusLogStore, ConsensusMetadataStore, LocalPartitionStateStore,
-  MessageLogStore, MutablePartitionLogStore, OffsetStore, TopicCatalogStore,
+  BrokerStateStore, ConsensusLogStore, ConsensusMetadataStore, ConsumerGroupStore,
+  LocalPartitionStateStore, MessageLogStore, MutablePartitionLogStore, OffsetStore,
+  TopicCatalogStore,
 };

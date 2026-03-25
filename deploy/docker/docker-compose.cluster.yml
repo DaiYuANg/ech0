@@ -1,0 +1,57 @@
+services:
+  ech0-node1:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${ECH0_BASE_IMAGE:-debian}
+    container_name: ech0-node1
+    working_dir: /app
+    command: ["/usr/local/bin/broker"]
+    environment:
+      ECH0_BROKER__DATA_DIR: /app/data
+    volumes:
+      - ./configs/cluster/node1.toml:/app/config/ech0.toml:ro
+      - ./data/cluster/node1:/app/data
+    ports:
+      - "${ECH0_NODE1_BROKER_PORT:-19090}:9090"
+      - "${ECH0_NODE1_ADMIN_PORT:-19091}:9091"
+      - "${ECH0_NODE1_RAFT_PORT:-13210}:3210"
+
+  ech0-node2:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${ECH0_BASE_IMAGE:-debian}
+    container_name: ech0-node2
+    working_dir: /app
+    command: ["/usr/local/bin/broker"]
+    environment:
+      ECH0_BROKER__DATA_DIR: /app/data
+    volumes:
+      - ./configs/cluster/node2.toml:/app/config/ech0.toml:ro
+      - ./data/cluster/node2:/app/data
+    ports:
+      - "${ECH0_NODE2_BROKER_PORT:-29090}:9090"
+      - "${ECH0_NODE2_ADMIN_PORT:-29091}:9091"
+      - "${ECH0_NODE2_RAFT_PORT:-23210}:3210"
+
+  ech0-node3:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${ECH0_BASE_IMAGE:-debian}
+    container_name: ech0-node3
+    working_dir: /app
+    command: ["/usr/local/bin/broker"]
+    environment:
+      ECH0_BROKER__DATA_DIR: /app/data
+    volumes:
+      - ./configs/cluster/node3.toml:/app/config/ech0.toml:ro
+      - ./data/cluster/node3:/app/data
+    ports:
+      - "${ECH0_NODE3_BROKER_PORT:-39090}:9090"
+      - "${ECH0_NODE3_ADMIN_PORT:-39091}:9091"
+      - "${ECH0_NODE3_RAFT_PORT:-33210}:3210"
