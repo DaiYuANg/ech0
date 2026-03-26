@@ -66,6 +66,11 @@ impl BrokerBuilder {
     self
   }
 
+  pub fn max_fetch_wait_ms(mut self, value: u64) -> Self {
+    self.config.broker.max_fetch_wait_ms = value;
+    self
+  }
+
   pub fn config(&self) -> &AppConfig {
     &self.config
   }

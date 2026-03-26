@@ -21,6 +21,7 @@ pub use model::{
   AckedOffset, BrokerState, ConsumerGroupAssignment, ConsumerGroupMember, ConsumerOffset,
   GroupPartitionAssignment, LocalPartitionState, PartitionAvailability, PartitionState, PollResult,
   Record, RecordAppend, RecordHeader, TopicCleanupPolicy, TopicConfig, TopicPartition,
+  RECORD_ATTRIBUTE_TOMBSTONE,
   TopicRetryPolicy, TopicValidationIssue,
 };
 pub use segment::{DEFAULT_CHECKPOINT_INTERVAL, SegmentLog, SegmentLogOptions};

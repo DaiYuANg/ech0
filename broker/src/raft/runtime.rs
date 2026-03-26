@@ -16,6 +16,7 @@ use super::{
   network::{TcpRaftNetworkFactory, run_raft_rpc_server, send_client_write_request},
   storage::{BrokerRaftLogStore, BrokerRaftStateMachine},
 };
+use crate::metrics;
 
 #[derive(Clone)]
 pub struct BrokerRaftRuntime<L, M> {
@@ -24,6 +25,9 @@ pub struct BrokerRaftRuntime<L, M> {
   raft: Raft<EchoRaftTypeConfig>,
   _marker: std::marker::PhantomData<(L, M)>,
 }
+
+const CLIENT_WRITE_MAX_ATTEMPTS: usize = 8;
+const CLIENT_WRITE_RETRY_BASE_DELAY_MS: u64 = 25;
 
 impl<L, M> std::fmt::Debug for BrokerRaftRuntime<L, M> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -103,13 +107,14 @@ where
       _marker: std::marker::PhantomData,
     })
   }
-
-  pub fn config(&self) -> &OpenRaftRuntimeConfig {
-    &self.config
-  }
-
   pub fn current_leader(&self) -> StoreResult<Option<u64>> {
     Ok(self.block_on(self.raft.current_leader()))
+  }
+
+  pub fn is_initialized(&self) -> StoreResult<bool> {
+    self
+      .block_on(self.raft.is_initialized())
+      .map_err(|err| StoreError::Codec(format!("failed to query raft init state: {err}")))
   }
 
   pub fn ensure_linearizable_read(&self) -> StoreResult<()> {
@@ -179,7 +184,7 @@ where
   async fn submit_async(&self, request: BrokerRaftRequest) -> StoreResult<BrokerRaftResponse> {
     let mut redirect: Option<BasicNode> = None;
 
-    for _ in 0..5 {
+    for attempt in 0..CLIENT_WRITE_MAX_ATTEMPTS {
       let response = match redirect.take() {
         Some(node) => send_client_write_request(&node.addr, &request).await,
         None => self.raft.client_write(request.clone()).await,
@@ -189,9 +194,16 @@ where
         Ok(response) => return Ok(response.data),
         Err(err) => {
           if let Some(node) = leader_node_from_write_error(&err, &self.config) {
+            metrics::record_raft_client_write_retry();
             redirect = Some(node);
             continue;
           }
+          if should_retry_client_write(&err) && attempt + 1 < CLIENT_WRITE_MAX_ATTEMPTS {
+            metrics::record_raft_client_write_retry();
+            tokio::time::sleep(client_write_retry_delay(attempt)).await;
+            continue;
+          }
+          metrics::record_raft_client_write_failure();
           return Err(StoreError::Codec(format!(
             "raft client write failed: {err}"
           )));
@@ -199,10 +211,21 @@ where
       }
     }
 
+    metrics::record_raft_client_write_failure();
     Err(StoreError::Codec(
       "raft client write exceeded forwarding limit".to_owned(),
     ))
   }
+}
+
+fn should_retry_client_write(
+  err: &RaftError<u64, ClientWriteError<u64, BasicNode>>,
+) -> bool {
+  err.forward_to_leader().is_some()
+}
+
+fn client_write_retry_delay(attempt: usize) -> std::time::Duration {
+  std::time::Duration::from_millis(CLIENT_WRITE_RETRY_BASE_DELAY_MS * (attempt as u64 + 1))
 }
 
 fn run_with_executor<F, T>(executor: &BrokerRaftExecutor, future: F) -> T

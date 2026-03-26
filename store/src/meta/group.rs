@@ -141,4 +141,20 @@ where
         ))
       })
   }
+
+  fn list_group_assignments(&self) -> Result<Vec<crate::ConsumerGroupAssignment>> {
+    let read_txn = self.db.begin_read()?;
+    let table = read_txn.open_table(CONSUMER_GROUP_ASSIGNMENTS)?;
+    let mut assignments: Vec<crate::ConsumerGroupAssignment> = Vec::new();
+    for entry in table.iter()? {
+      let (_key, value) = entry?;
+      assignments.push(serde_json::from_slice(value.value()).map_err(|err| {
+        crate::StoreError::Corruption(format!(
+          "invalid consumer group assignment payload while listing assignments: {err}"
+        ))
+      })?);
+    }
+    assignments.sort_by(|a, b| a.group.cmp(&b.group));
+    Ok(assignments)
+  }
 }

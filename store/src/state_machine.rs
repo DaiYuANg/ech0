@@ -131,6 +131,13 @@ fn replicated_to_local(command: ReplicatedPartitionCommand) -> LocalPartitionCom
       topic_partition,
       record,
     },
+    ReplicatedPartitionCommand::AppendBatch {
+      topic_partition,
+      records,
+    } => LocalPartitionCommand::AppendBatch {
+      topic_partition,
+      records,
+    },
     ReplicatedPartitionCommand::Truncate {
       topic_partition,
       offset,
@@ -177,10 +184,13 @@ mod tests {
       applied.context.replication_scope,
       crate::CommandReplicationScope::Replicated
     );
-    assert_eq!(
+    assert!(matches!(
       applied.result,
-      crate::ApplyResult::Appended { next_offset: 1 }
-    );
+      crate::ApplyResult::Appended {
+        next_offset: 1,
+        records
+      } if records.len() == 1 && records[0].offset == 0 && records[0].payload.as_ref() == b"hello"
+    ));
   }
 
   #[test]
@@ -210,10 +220,13 @@ mod tests {
       applied.context.replication_scope,
       crate::CommandReplicationScope::Replicated
     );
-    assert_eq!(
+    assert!(matches!(
       applied.result,
-      crate::ApplyResult::Appended { next_offset: 1 }
-    );
+      crate::ApplyResult::Appended {
+        next_offset: 1,
+        records
+      } if records.len() == 1 && records[0].offset == 0 && records[0].payload.as_ref() == b"hello"
+    ));
   }
 
   #[test]

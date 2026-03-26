@@ -6,4 +6,5 @@
 - [核心请求链路](./request-flow.md)
 - [存储设计](./storage.md)
 - [运行模式与一致性](./runtime-modes.md)
+- [Broker 设计与实现](./broker-design.md)
 - [运维与可观测性](./operations.md)

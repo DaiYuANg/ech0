@@ -2,12 +2,10 @@ use std::{collections::BTreeMap, io::Cursor, sync::Arc};
 
 use openraft::{BasicNode, Config as OpenRaftConfig};
 use serde::{Deserialize, Serialize};
-use store::{
-  AppliedPartitionCommand, ApplyResult, PartitionStateMachine, ReplicatedPartitionCommandEnvelope,
-  TopicConfig, TopicPartition,
-};
-
-use crate::config::{AppConfig, RaftPeerConfig, RaftReadPolicy};
+#[cfg(test)]
+use store::{AppliedPartitionCommand, PartitionStateMachine};
+use store::{ApplyResult, ReplicatedPartitionCommandEnvelope, TopicConfig, TopicPartition};
+use crate::config::{AppConfig, RaftReadPolicy};
 
 mod network;
 mod runtime;
@@ -28,27 +26,6 @@ openraft::declare_raft_types!(
         Responder = openraft::impls::OneshotResponder<EchoRaftTypeConfig>,
         AsyncRuntime = openraft::TokioRuntime,
 );
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RaftNodeDescriptor {
-  pub node_id: u64,
-  pub addr: String,
-}
-
-impl From<&RaftPeerConfig> for RaftNodeDescriptor {
-  fn from(value: &RaftPeerConfig) -> Self {
-    Self {
-      node_id: value.node_id,
-      addr: value.addr.clone(),
-    }
-  }
-}
-
-impl RaftNodeDescriptor {
-  pub fn basic_node(&self) -> BasicNode {
-    BasicNode::new(self.addr.clone())
-  }
-}
 
 #[derive(Debug, Clone)]
 pub struct OpenRaftRuntimeConfig {
@@ -97,21 +74,20 @@ impl OpenRaftRuntimeConfig {
   }
 }
 
+#[cfg(test)]
 #[derive(Debug)]
 pub struct OpenRaftPartitionStateMachineAdapter<SM> {
   inner: SM,
 }
 
+#[cfg(test)]
 impl<SM> OpenRaftPartitionStateMachineAdapter<SM> {
   pub fn new(inner: SM) -> Self {
     Self { inner }
   }
-
-  pub fn inner(&self) -> &SM {
-    &self.inner
-  }
 }
 
+#[cfg(test)]
 impl<SM> OpenRaftPartitionStateMachineAdapter<SM>
 where
   SM: PartitionStateMachine,
@@ -123,17 +99,15 @@ where
     self.inner.apply_replicated_envelope(envelope)
   }
 
-  pub fn decode_and_apply_json(&self, bytes: &[u8]) -> store::Result<AppliedPartitionCommand> {
-    let envelope = ReplicatedPartitionCommandEnvelope::decode_json(bytes)?;
-    self.apply_replicated_entry(envelope)
-  }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OpenRaftEntryPayload {
   pub envelope: ReplicatedPartitionCommandEnvelope,
 }
 
+#[cfg(test)]
 impl OpenRaftEntryPayload {
   pub fn encode_json(&self) -> store::Result<Vec<u8>> {
     serde_json::to_vec(self).map_err(|err| {

@@ -51,12 +51,31 @@ where
       },
       CommandSource::Client,
     )?;
-    appended_record_from_apply_result(self.log.as_ref(), topic_partition, applied.result)
+    appended_record_from_apply_result(topic_partition, applied.result)
+  }
+
+  fn append_records_batch(
+    &self,
+    topic_partition: &TopicPartition,
+    records: Vec<RecordAppend>,
+  ) -> Result<Vec<Record>> {
+    let expected_count = records.len();
+    let applied = self.state_machine.apply_local_command(
+      LocalPartitionCommand::AppendBatch {
+        topic_partition: topic_partition.clone(),
+        records,
+      },
+      CommandSource::Client,
+    )?;
+    appended_records_from_apply_result(
+      topic_partition,
+      expected_count,
+      applied.result,
+    )
   }
 }
 
 struct RaftPartitionAppender<L, M> {
-  log: Arc<L>,
   runtime: Arc<BrokerRaftRuntime<L, M>>,
 }
 
@@ -73,7 +92,8 @@ where
     + 'static,
 {
   fn new(log: Arc<L>, runtime: Arc<BrokerRaftRuntime<L, M>>) -> Self {
-    Self { log, runtime }
+    let _ = log;
+    Self { runtime }
   }
 }
 
@@ -108,39 +128,82 @@ where
     let applied = self
       .runtime
       .apply_partition(envelope.replicated_command()?)?;
-    appended_record_from_apply_result(self.log.as_ref(), topic_partition, applied)
+    appended_record_from_apply_result(topic_partition, applied)
+  }
+
+  fn append_records_batch(
+    &self,
+    topic_partition: &TopicPartition,
+    records: Vec<RecordAppend>,
+  ) -> Result<Vec<Record>> {
+    let expected_count = records.len();
+    let envelope = PartitionCommandEnvelope::new(
+      LocalPartitionCommand::AppendBatch {
+        topic_partition: topic_partition.clone(),
+        records,
+      },
+      CommandSource::Client,
+    );
+    let applied = self
+      .runtime
+      .apply_partition(envelope.replicated_command()?)?;
+    appended_records_from_apply_result(topic_partition, expected_count, applied)
   }
 }
 
-fn appended_record_from_apply_result<L>(
-  log: &L,
+fn appended_record_from_apply_result(
   topic_partition: &TopicPartition,
   result: ApplyResult,
-) -> Result<Record>
-where
-  L: MessageLogStore,
-{
-  let next_offset = match result {
-    ApplyResult::Appended { next_offset } => next_offset,
+) -> Result<Record> {
+  appended_records_from_apply_result(topic_partition, 1, result)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| {
+      StoreError::Corruption(format!(
+        "append succeeded but no record was returned for topic {} partition {}",
+        topic_partition.topic, topic_partition.partition
+      ))
+    })
+}
+
+fn appended_records_from_apply_result(
+  topic_partition: &TopicPartition,
+  expected_count: usize,
+  result: ApplyResult,
+) -> Result<Vec<Record>> {
+  if expected_count == 0 {
+    return Ok(Vec::new());
+  }
+  let (records, next_offset) = match result {
+    ApplyResult::Appended { records, next_offset } => (records, next_offset),
     other => {
       return Err(StoreError::Corruption(format!(
         "unexpected apply result for append: {other:?}"
       )));
     }
   };
-  let offset = next_offset.checked_sub(1).ok_or_else(|| {
-    StoreError::Corruption("append result returned invalid next offset 0".to_owned())
-  })?;
-  log
-    .read_from(topic_partition, offset, 1)?
-    .into_iter()
-    .next()
-    .ok_or_else(|| {
-      StoreError::Corruption(format!(
-        "append succeeded but record {offset} was not readable from topic {} partition {}",
-        topic_partition.topic, topic_partition.partition
-      ))
-    })
+  if records.len() != expected_count {
+    return Err(StoreError::Corruption(format!(
+      "append succeeded but expected {expected_count} records from topic {} partition {}, found {}",
+      topic_partition.topic,
+      topic_partition.partition,
+      records.len()
+    )));
+  }
+  let expected_next_offset = records
+    .last()
+    .map(|record| record.offset + 1)
+    .ok_or_else(|| StoreError::Corruption("append result returned no records".to_owned()))?;
+  if next_offset != expected_next_offset {
+    return Err(StoreError::Corruption(format!(
+      "append result returned inconsistent next offset for topic {} partition {}: expected {}, got {}",
+      topic_partition.topic,
+      topic_partition.partition,
+      expected_next_offset,
+      next_offset
+    )));
+  }
+  Ok(records)
 }
 
 pub(in crate::service) fn build_partition_appender<L, M>(

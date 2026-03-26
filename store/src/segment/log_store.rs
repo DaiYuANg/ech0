@@ -70,6 +70,10 @@ impl MessageLogStore for SegmentLog {
         .open(&active.log_path)?;
       let written = Self::write_record(&mut file, &record)?;
       active.next_write_pos += written as u64;
+      if active.first_timestamp_ms.is_none() {
+        active.first_timestamp_ms = Some(record.timestamp_ms);
+      }
+      active.last_timestamp_ms = Some(record.timestamp_ms);
       active.last_offset = Some(record.offset);
 
       if start_pos == 0
@@ -89,6 +93,99 @@ impl MessageLogStore for SegmentLog {
         runtime.appends_since_checkpoint = 0;
       }
       Ok(record)
+    })
+  }
+
+  fn append_records_batch(
+    &self,
+    topic_partition: &TopicPartition,
+    records: Vec<RecordAppend>,
+  ) -> Result<Vec<Record>> {
+    let total_records = records.len();
+    if total_records == 0 {
+      return Ok(Vec::new());
+    }
+    self.validate_partition(topic_partition)?;
+    self.with_runtime(topic_partition, |runtime| {
+      let mut appended = Vec::with_capacity(total_records);
+      let mut file = None;
+
+      for (i, record) in records.into_iter().enumerate() {
+        let active = runtime
+          .segments
+          .last()
+          .cloned()
+          .ok_or_else(|| StoreError::Corruption("missing active segment".to_owned()))?;
+
+        let record = Record {
+          offset: runtime.next_offset,
+          timestamp_ms: record.timestamp_ms.unwrap_or_else(now_ms),
+          key: record.key,
+          headers: record.headers,
+          attributes: record.attributes,
+          payload: record.payload,
+        };
+        if Self::should_roll_segment(runtime, &active, &record) {
+          file = None;
+          let next_base = runtime.next_offset;
+          let segment = self.create_segment_files(topic_partition, next_base)?;
+          runtime.segments.push(segment);
+        }
+
+        let active = runtime.segments.last_mut().ok_or_else(|| {
+          StoreError::Corruption("missing active segment after rollover".to_owned())
+        })?;
+
+        let active_path = active.log_path.clone();
+        if file
+          .as_ref()
+          .map(|(path, _)| path != &active_path)
+          .unwrap_or(true)
+        {
+          file = Some((
+            active_path.clone(),
+            OpenOptions::new()
+              .create(true)
+              .append(true)
+              .open(&active.log_path)?,
+          ));
+        }
+
+        let start_pos = active.next_write_pos;
+        let (_, file_handle) = file
+          .as_mut()
+          .ok_or_else(|| StoreError::Corruption("missing active log file handle".to_owned()))?;
+        let written = Self::write_record_no_flush(file_handle, &record)?;
+        if i + 1 == total_records {
+          file_handle.flush()?;
+        }
+        active.next_write_pos += written as u64;
+        if active.first_timestamp_ms.is_none() {
+          active.first_timestamp_ms = Some(record.timestamp_ms);
+        }
+        active.last_timestamp_ms = Some(record.timestamp_ms);
+        active.last_offset = Some(record.offset);
+
+        if start_pos == 0
+          || active
+            .next_write_pos
+            .saturating_sub(active.last_indexed_pos)
+            >= runtime.config.index_interval_bytes
+        {
+          Self::append_index_entry(&active.index_path, record.offset, start_pos)?;
+          active.last_indexed_pos = start_pos;
+        }
+
+        runtime.next_offset += 1;
+        runtime.appends_since_checkpoint += 1;
+        appended.push(record);
+      }
+
+      if runtime.appends_since_checkpoint >= self.options.checkpoint_interval {
+        self.write_checkpoint(topic_partition, runtime.next_offset)?;
+        runtime.appends_since_checkpoint = 0;
+      }
+      Ok(appended)
     })
   }
 
@@ -128,71 +225,13 @@ impl MessageLogStore for SegmentLog {
     topic_partition: &TopicPartition,
     payloads: &[Vec<u8>],
   ) -> Result<Vec<Record>> {
-    if payloads.is_empty() {
-      return Ok(Vec::new());
-    }
-    self.validate_partition(topic_partition)?;
-    self.with_runtime(topic_partition, |runtime| {
-      let mut records = Vec::with_capacity(payloads.len());
-      let now = now_ms();
-      for (i, payload) in payloads.iter().enumerate() {
-        let active = runtime
-          .segments
-          .last()
-          .cloned()
-          .ok_or_else(|| StoreError::Corruption("missing active segment".to_owned()))?;
-
-        let next_offset = runtime.next_offset;
-        let record = Record {
-          offset: next_offset,
-          timestamp_ms: now,
-          key: None,
-          headers: Vec::new(),
-          attributes: 0,
-          payload: Bytes::copy_from_slice(payload),
-        };
-        if Self::should_roll_segment(runtime, &active, &record) {
-          let next_base = runtime.next_offset;
-          let segment = self.create_segment_files(topic_partition, next_base)?;
-          runtime.segments.push(segment);
-        }
-
-        let active = runtime.segments.last_mut().ok_or_else(|| {
-          StoreError::Corruption("missing active segment after rollover".to_owned())
-        })?;
-
-        let start_pos = active.next_write_pos;
-        let mut file = OpenOptions::new()
-          .create(true)
-          .append(true)
-          .open(&active.log_path)?;
-        let written = Self::write_record_no_flush(&mut file, &record)?;
-        if i == payloads.len() - 1 {
-          file.flush()?;
-        }
-        active.next_write_pos += written as u64;
-        active.last_offset = Some(record.offset);
-
-        if start_pos == 0
-          || active
-            .next_write_pos
-            .saturating_sub(active.last_indexed_pos)
-            >= runtime.config.index_interval_bytes
-        {
-          Self::append_index_entry(&active.index_path, record.offset, start_pos)?;
-          active.last_indexed_pos = start_pos;
-        }
-
-        runtime.next_offset += 1;
-        runtime.appends_since_checkpoint += 1;
-        records.push(record);
-      }
-      if runtime.appends_since_checkpoint >= self.options.checkpoint_interval {
-        self.write_checkpoint(topic_partition, runtime.next_offset)?;
-        runtime.appends_since_checkpoint = 0;
-      }
-      Ok(records)
-    })
+    self.append_records_batch(
+      topic_partition,
+      payloads
+        .iter()
+        .map(|payload| RecordAppend::new(Bytes::copy_from_slice(payload)))
+        .collect(),
+    )
   }
 
   fn last_offset(&self, topic_partition: &TopicPartition) -> Result<Option<u64>> {

@@ -100,6 +100,7 @@ pub struct BrokerConfig {
   pub max_payload_bytes: usize,
   pub max_batch_payload_bytes: usize,
   pub max_fetch_records: usize,
+  pub max_fetch_wait_ms: u64,
   pub group_assignment_strategy: GroupAssignmentStrategyConfig,
   pub group_sticky_assignments: bool,
   pub retry_worker_enabled: bool,
@@ -123,6 +124,7 @@ impl Default for BrokerConfig {
       max_payload_bytes: 1024 * 1024,
       max_batch_payload_bytes: 8 * 1024 * 1024,
       max_fetch_records: 1_000,
+      max_fetch_wait_ms: 5_000,
       group_assignment_strategy: GroupAssignmentStrategyConfig::RoundRobin,
       group_sticky_assignments: true,
       retry_worker_enabled: true,
@@ -150,6 +152,9 @@ pub struct StorageConfig {
   pub metadata_path: String,
   pub retention_cleanup_enabled: bool,
   pub retention_cleanup_interval_secs: u64,
+  pub compaction_cleanup_enabled: bool,
+  pub compaction_cleanup_interval_secs: u64,
+  pub compaction_sealed_segment_batch: usize,
 }
 
 impl Default for StorageConfig {
@@ -159,6 +164,9 @@ impl Default for StorageConfig {
       metadata_path: "meta/metadata.redb".to_owned(),
       retention_cleanup_enabled: true,
       retention_cleanup_interval_secs: 30,
+      compaction_cleanup_enabled: true,
+      compaction_cleanup_interval_secs: 60,
+      compaction_sealed_segment_batch: 2,
     }
   }
 }

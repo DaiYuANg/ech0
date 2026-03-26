@@ -5,6 +5,8 @@ mod admin;
 mod di;
 mod logging;
 mod metrics;
+mod ops_state;
+mod producer_state;
 mod raft;
 mod server;
 mod service;
@@ -50,9 +52,9 @@ where
 
   info!(node_id = app.broker.node_id, cluster = %app.broker.cluster_name, ?app, "loaded broker configuration");
 
-  let log = std::sync::Arc::new(SegmentLog::open(SegmentLogOptions::new(
-    app.segments_dir(),
-  ))?);
+  let mut log_options = SegmentLogOptions::new(app.segments_dir());
+  log_options.compaction_sealed_segment_batch = app.storage.compaction_sealed_segment_batch.max(1);
+  let log = std::sync::Arc::new(SegmentLog::open(log_options)?);
   let retention_log = std::sync::Arc::clone(&log);
   let meta = std::sync::Arc::new(RedbMetadataStore::create(app.metadata_path())?);
 
@@ -108,6 +110,7 @@ where
   let lifecycle = LifecycleModule::new();
 
   bootstrap.spawn_retention_cleanup_task(retention_log);
+  bootstrap.spawn_compaction_cleanup_task(std::sync::Arc::clone(&log));
   if app.broker.delay_scheduler_enabled {
     tokio::spawn(run_delay_scheduler_task(
       std::sync::Arc::clone(&log),

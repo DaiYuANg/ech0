@@ -23,6 +23,13 @@ where
   fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record> {
     (**self).append_record(topic_partition, record)
   }
+  fn append_records_batch(
+    &self,
+    topic_partition: &TopicPartition,
+    records: Vec<RecordAppend>,
+  ) -> Result<Vec<Record>> {
+    (**self).append_records_batch(topic_partition, records)
+  }
   fn read_from(
     &self,
     topic_partition: &TopicPartition,
@@ -51,6 +58,13 @@ where
   }
   fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record> {
     (**self).append_record(topic_partition, record)
+  }
+  fn append_records_batch(
+    &self,
+    topic_partition: &TopicPartition,
+    records: Vec<RecordAppend>,
+  ) -> Result<Vec<Record>> {
+    (**self).append_records_batch(topic_partition, records)
   }
   fn read_from(
     &self,

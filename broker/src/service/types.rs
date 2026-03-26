@@ -18,6 +18,7 @@ impl BrokerRuntimeMode {
     }
   }
 
+  #[cfg(test)]
   pub fn is_raft(&self) -> bool {
     matches!(self, Self::Raft(_))
   }
@@ -49,6 +50,7 @@ pub struct TopicPolicyOverrides {
   pub max_message_bytes: Option<u32>,
   pub max_batch_bytes: Option<u32>,
   pub retention_ms: Option<u64>,
+  pub compaction_tombstone_retention_ms: Option<u64>,
   pub retry_policy: Option<TopicRetryPolicy>,
   pub dead_letter_topic: Option<String>,
   pub delay_enabled: Option<bool>,
@@ -56,10 +58,28 @@ pub struct TopicPolicyOverrides {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrokerRaftHealth {
+  pub node_id: u64,
+  pub initialized: bool,
+  pub known_nodes: usize,
+  pub leader_id: Option<u64>,
+  pub local_is_leader: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrokerRuntimeHealth {
+  pub status: &'static str,
+  pub runtime_mode: &'static str,
+  pub raft: Option<BrokerRaftHealth>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchedRecord {
   /// Record offset (record ID, inclusive).
   pub offset: u64,
   pub timestamp_ms: u64,
+  pub key: Option<Vec<u8>>,
+  pub tombstone: bool,
   pub payload: Vec<u8>,
 }
 
@@ -202,4 +222,54 @@ pub struct GroupRebalanceExplain {
   pub sticky_candidates: u64,
   pub sticky_applied: u64,
   pub member_loads: Vec<GroupMemberLoad>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopicPartitionBacklog {
+  pub topic: String,
+  pub partition: u32,
+  pub high_watermark: Option<u64>,
+  pub backlog_records: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopicBacklogSnapshot {
+  pub topic: String,
+  pub total_backlog_records: u64,
+  pub max_partition_backlog: u64,
+  pub partitions: Vec<TopicPartitionBacklog>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupPartitionLag {
+  pub member_id: String,
+  pub topic: String,
+  pub partition: u32,
+  pub committed_next_offset: u64,
+  pub high_watermark: Option<u64>,
+  pub backlog_records: u64,
+  pub lag_records: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupLagSnapshot {
+  pub group: String,
+  pub generation: u64,
+  pub total_backlog_records: u64,
+  pub total_lag_records: u64,
+  pub partitions: Vec<GroupPartitionLag>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StreamMetricsSnapshot {
+  pub topic_count: usize,
+  pub topics_with_backlog: usize,
+  pub total_topic_backlog_records: u64,
+  pub max_topic_backlog_records: u64,
+  pub max_partition_backlog_records: u64,
+  pub consumer_group_count: usize,
+  pub consumer_groups_with_lag: usize,
+  pub total_consumer_group_backlog_records: u64,
+  pub total_consumer_group_lag_records: u64,
+  pub max_consumer_group_lag_records: u64,
 }

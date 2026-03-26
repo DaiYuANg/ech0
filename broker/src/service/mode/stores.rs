@@ -85,6 +85,14 @@ where
     self.appender.append_record(topic_partition, record)
   }
 
+  fn append_records_batch(
+    &self,
+    topic_partition: &TopicPartition,
+    records: Vec<RecordAppend>,
+  ) -> Result<Vec<Record>> {
+    self.appender.append_records_batch(topic_partition, records)
+  }
+
   fn read_from(
     &self,
     topic_partition: &TopicPartition,
@@ -174,5 +182,9 @@ where
 
   fn load_group_assignment(&self, group: &str) -> Result<Option<store::ConsumerGroupAssignment>> {
     self.inner.load_group_assignment(group)
+  }
+
+  fn list_group_assignments(&self) -> Result<Vec<store::ConsumerGroupAssignment>> {
+    self.inner.list_group_assignments()
   }
 }

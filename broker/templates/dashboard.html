@@ -22,6 +22,18 @@
     <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ uptime_seconds }}</p>
   </article>
   <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Health Status</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ health_status }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Runtime Mode</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ runtime_mode }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Raft Leader</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ raft_leader }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
     <p class="text-sm text-slate-500 dark:text-slate-400">TCP Connections Total</p>
     <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ tcp_connections_total }}</p>
   </article>
@@ -41,5 +53,192 @@
     <p class="text-sm text-slate-500 dark:text-slate-400">Topics (visible)</p>
     <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ topic_count }}</p>
   </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Produce Requests</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ produce_requests_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Produced Records</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ produced_records_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Explicit Requests / Records</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ explicit_produce_requests_total }} / {{ explicit_produced_records_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Round Robin Requests / Records</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ round_robin_produce_requests_total }} / {{ round_robin_produced_records_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Key Hash Requests / Records</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ key_hash_produce_requests_total }} / {{ key_hash_produced_records_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Raft Write Retries</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ raft_client_write_retries_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Raft Write Failures</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ raft_client_write_failures_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Retention Cleanup Runs</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ retention_cleanup_runs_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Removed Segments</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ retention_cleanup_removed_segments_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Retention Interval</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ retention_cleanup_interval_secs }}s</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Compaction Cleanup Runs</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ compaction_cleanup_runs_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Compacted Partitions</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ compaction_cleanup_compacted_partitions_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Removed Records</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ compaction_cleanup_removed_records_total }}</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Compaction Interval</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ compaction_cleanup_interval_secs }}s</p>
+  </article>
+  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Compaction Segment Batch</p>
+    <p class="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">{{ compaction_sealed_segment_batch }}</p>
+  </article>
+</section>
+
+<section class="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+  <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Hot Partitions</h3>
+  {% if hot_partitions.len() == 0 %}
+  <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">No producer traffic recorded yet.</p>
+  {% else %}
+  <div class="mt-4 overflow-x-auto">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+        <tr>
+          <th class="px-4 py-3 font-semibold">Topic</th>
+          <th class="px-4 py-3 font-semibold">Partition</th>
+          <th class="px-4 py-3 font-semibold">Produced Records</th>
+          <th class="px-4 py-3 font-semibold">Last Partitioner</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+        {% for item in hot_partitions %}
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800">
+          <td class="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{{ item.topic }}</td>
+          <td class="px-4 py-3">{{ item.partition }}</td>
+          <td class="px-4 py-3">{{ item.produced_records_total }}</td>
+          <td class="px-4 py-3">
+            {% match item.last_partitioning %}
+            {% when Some with (value) %}{{ value }}{% when None %}unknown{% endmatch %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<section class="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+  <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Retention Worker</h3>
+  <dl class="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-5">
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Ready</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">{{ retention_cleanup_ready }}</dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Last Run Started</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match retention_cleanup_last_run_started_at_ms %}
+        {% when Some with (value) %}{{ value }}{% when None %}never{% endmatch %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Last Run Finished</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match retention_cleanup_last_run_finished_at_ms %}
+        {% when Some with (value) %}{{ value }}{% when None %}never{% endmatch %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Last Success</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match retention_cleanup_last_success_at_ms %}
+        {% when Some with (value) %}{{ value }}{% when None %}never{% endmatch %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Last Removed Segments</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">{{ retention_cleanup_last_removed_segments }}</dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Readiness Reason</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match retention_cleanup_readiness_reason %}
+        {% when Some with (value) %}{{ value }}{% when None %}none{% endmatch %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Last Error</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match retention_cleanup_last_error %}
+        {% when Some with (value) %}{{ value }}{% when None %}none{% endmatch %}
+      </dd>
+    </div>
+  </dl>
+</section>
+
+<section class="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+  <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Compaction Worker</h3>
+  <dl class="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-5">
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Ready</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">{{ compaction_cleanup_ready }}</dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Last Run Started</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match compaction_cleanup_last_run_started_at_ms %}
+        {% when Some with (value) %}{{ value }}{% when None %}never{% endmatch %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Last Run Finished</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match compaction_cleanup_last_run_finished_at_ms %}
+        {% when Some with (value) %}{{ value }}{% when None %}never{% endmatch %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Last Success</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match compaction_cleanup_last_success_at_ms %}
+        {% when Some with (value) %}{{ value }}{% when None %}never{% endmatch %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Readiness Reason</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match compaction_cleanup_readiness_reason %}
+        {% when Some with (value) %}{{ value }}{% when None %}none{% endmatch %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500 dark:text-slate-400">Last Error</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-slate-100">
+        {% match compaction_cleanup_last_error %}
+        {% when Some with (value) %}{{ value }}{% when None %}none{% endmatch %}
+      </dd>
+    </div>
+  </dl>
 </section>
 {% endblock %}

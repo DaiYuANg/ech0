@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 use std::{collections::BTreeMap, collections::BTreeSet};
 use tracing::info;
 
@@ -9,12 +10,14 @@ use store::{
   ConsensusLogStore, ConsensusMetadataStore, ConsumerGroupAssignment, ConsumerGroupMember,
   ConsumerGroupStore, GroupPartitionAssignment, LocalPartitionStateStore, MessageLogStore,
   MutablePartitionLogStore, OffsetStore, Record, RecordAppend, RecordHeader, Result, StoreError,
-  TopicCatalogStore, TopicConfig, TopicPartition,
+  TopicCatalogStore, TopicCleanupPolicy, TopicConfig, TopicPartition, TopicRetryPolicy,
+  RECORD_ATTRIBUTE_TOMBSTONE,
 };
 
-use crate::{config::RaftReadPolicy, metrics, raft::BrokerRaftRuntime};
+use crate::{config::RaftReadPolicy, metrics, producer_state, raft::BrokerRaftRuntime};
 
 mod mode;
+mod partitioning;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -22,10 +25,14 @@ mod types;
 use mode::{
   ModeAwareLogStore, ModeAwareMetadataStore, build_metadata_writer, build_partition_appender,
 };
+use partitioning::{PartitionRouter, PublishPartitioning};
+pub(crate) use partitioning::PublishPartitioning as BrokerPublishPartitioning;
 pub use types::{
-  BrokerIdentity, BrokerRuntimeMode, DelayScheduleResult, FetchResult, FetchedRecord,
-  GroupAssignmentSnapshot, GroupAssignmentStrategy, GroupCoordinatorOptions, GroupMemberLease,
-  GroupMemberLoad, GroupRebalanceExplain, ProcessRetryResult, RetryResult, TopicPolicyOverrides,
+  BrokerIdentity, BrokerRaftHealth, BrokerRuntimeHealth, BrokerRuntimeMode, DelayScheduleResult,
+  FetchResult, FetchedRecord, GroupAssignmentSnapshot, GroupAssignmentStrategy,
+  GroupCoordinatorOptions, GroupLagSnapshot, GroupMemberLease, GroupMemberLoad,
+  GroupPartitionLag, GroupRebalanceExplain, ProcessRetryResult, RetryResult,
+  StreamMetricsSnapshot, TopicBacklogSnapshot, TopicPartitionBacklog, TopicPolicyOverrides,
 };
 
 const INTERNAL_RETRY_TOPIC_PREFIX: &str = "__retry";
@@ -44,6 +51,8 @@ const DLQ_HEADER_RETRY_COUNT: &str = "x-dlq-retry-count";
 const DLQ_HEADER_ERROR_CODE: &str = "x-dlq-error-code";
 const DLQ_HEADER_ERROR_MESSAGE: &str = "x-dlq-error-message";
 const DLQ_ERROR_CODE_RETRY_EXHAUSTED: &str = "retry_exhausted";
+const GROUP_OFFSET_CONSUMER_PREFIX: &str = "__group_offset";
+const LONG_POLL_INTERVAL_MS: u64 = 25;
 
 #[derive(Debug)]
 pub struct BrokerService<L, M> {
@@ -51,6 +60,7 @@ pub struct BrokerService<L, M> {
   runtime_mode: BrokerRuntimeMode,
   raft_runtime: Option<Arc<BrokerRaftRuntime<L, M>>>,
   group_options: GroupCoordinatorOptions,
+  partition_router: PartitionRouter,
   metadata: Arc<ModeAwareMetadataStore<M>>,
   queue: QueueRuntime<Arc<ModeAwareLogStore<L>>, Arc<ModeAwareMetadataStore<M>>>,
   direct: DirectRuntime<Arc<ModeAwareLogStore<L>>, Arc<ModeAwareMetadataStore<M>>>,
@@ -69,6 +79,7 @@ where
     + Sync
     + 'static,
 {
+  #[cfg(test)]
   pub fn new(identity: BrokerIdentity, log: L, meta: M) -> Result<Self>
   where
     L: MessageLogStore + MutablePartitionLogStore + Send + Sync + 'static,
@@ -91,6 +102,7 @@ where
     )
   }
 
+  #[cfg(test)]
   pub fn new_with_mode(
     identity: BrokerIdentity,
     log: L,
@@ -167,6 +179,7 @@ where
       runtime_mode,
       raft_runtime: raft_runtime.clone(),
       group_options,
+      partition_router: PartitionRouter::default(),
       metadata: Arc::clone(&mode_aware_meta),
       queue: QueueRuntime::new(Arc::clone(&mode_aware_log), Arc::clone(&mode_aware_meta)),
       direct: DirectRuntime::new(mode_aware_log, mode_aware_meta),
@@ -177,8 +190,45 @@ where
     &self.identity
   }
 
+  #[cfg(test)]
   pub fn runtime_mode(&self) -> &BrokerRuntimeMode {
     &self.runtime_mode
+  }
+
+  pub fn runtime_health(&self) -> Result<BrokerRuntimeHealth> {
+    match &self.runtime_mode {
+      BrokerRuntimeMode::Standalone => Ok(BrokerRuntimeHealth {
+        status: "ok",
+        runtime_mode: self.runtime_mode.label(),
+        raft: None,
+      }),
+      BrokerRuntimeMode::Raft(_) => {
+        let raft_runtime = self
+          .raft_runtime
+          .as_ref()
+          .expect("raft runtime must be initialized in raft mode");
+        let initialized = raft_runtime.is_initialized()?;
+        let leader_id = raft_runtime.current_leader()?;
+        Ok(BrokerRuntimeHealth {
+          status: if initialized && leader_id.is_some() {
+            "ok"
+          } else {
+            "degraded"
+          },
+          runtime_mode: self.runtime_mode.label(),
+          raft: Some(BrokerRaftHealth {
+            node_id: self.identity.node_id,
+            initialized,
+            known_nodes: match &self.runtime_mode {
+              BrokerRuntimeMode::Raft(config) => config.known_nodes.len(),
+              BrokerRuntimeMode::Standalone => 0,
+            },
+            leader_id,
+            local_is_leader: leader_id == Some(self.identity.node_id),
+          }),
+        })
+      }
+    }
   }
 }
 
@@ -231,24 +281,9 @@ where
     }
   }
 
+  #[cfg(test)]
   pub fn create_topic(&self, topic: impl Into<String>, partitions: u32) -> Result<TopicConfig> {
     self.create_topic_with_policies(topic, partitions, TopicPolicyOverrides::default())
-  }
-
-  pub fn create_topic_with_retention(
-    &self,
-    topic: impl Into<String>,
-    partitions: u32,
-    retention_max_bytes: Option<u64>,
-  ) -> Result<TopicConfig> {
-    self.create_topic_with_policies(
-      topic,
-      partitions,
-      TopicPolicyOverrides {
-        retention_max_bytes,
-        ..TopicPolicyOverrides::default()
-      },
-    )
   }
 
   pub fn create_topic_with_policies(
@@ -258,6 +293,7 @@ where
     policies: TopicPolicyOverrides,
   ) -> Result<TopicConfig> {
     let topic = topic.into();
+    validate_topic_request(&topic, partitions, &policies)?;
     if partitions == 0 {
       return Err(StoreError::Codec(
         "partitions must be greater than zero".to_owned(),
@@ -301,6 +337,9 @@ where
     if let Some(retention_ms) = policies.retention_ms {
       config.retention_ms = Some(retention_ms);
     }
+    if let Some(compaction_tombstone_retention_ms) = policies.compaction_tombstone_retention_ms {
+      config.compaction_tombstone_retention_ms = Some(compaction_tombstone_retention_ms);
+    }
     if let Some(retry_policy) = policies.retry_policy {
       config.retry_policy = retry_policy;
     }
@@ -313,43 +352,112 @@ where
     if let Some(compaction_enabled) = policies.compaction_enabled {
       config.compaction_enabled = compaction_enabled;
     }
+    validate_topic_config(&config)?;
     self.queue.create_topic(config.clone())?;
     Ok(config)
   }
 
+  #[cfg(test)]
   pub fn publish(
     &self,
     topic: impl Into<String>,
     partition: u32,
     payload: Vec<u8>,
   ) -> Result<(u64, u64)> {
-    let topic = topic.into();
-    let record = self.queue.publish(&topic, partition, &payload)?;
-    Ok((record.offset, record.offset + 1))
+    self.publish_with_key(topic, partition, None, payload)
   }
 
-  pub fn publish_batch(
+  #[cfg(test)]
+  pub fn publish_with_key(
     &self,
     topic: impl Into<String>,
     partition: u32,
-    payloads: Vec<Vec<u8>>,
+    key: Option<Vec<u8>>,
+    payload: Vec<u8>,
+  ) -> Result<(u64, u64)> {
+    self.publish_with_options(topic, partition, key, false, payload)
+  }
+
+  #[cfg(test)]
+  pub fn publish_with_options(
+    &self,
+    topic: impl Into<String>,
+    partition: u32,
+    key: Option<Vec<u8>>,
+    tombstone: bool,
+    payload: Vec<u8>,
+  ) -> Result<(u64, u64)> {
+    let (_partition, offset, next_offset) =
+      self.publish_with_partitioning(topic, PublishPartitioning::Explicit(partition), key, tombstone, payload)?;
+    Ok((offset, next_offset))
+  }
+
+  pub(crate) fn publish_with_partitioning(
+    &self,
+    topic: impl Into<String>,
+    partitioning: PublishPartitioning,
+    key: Option<Vec<u8>>,
+    tombstone: bool,
+    payload: Vec<u8>,
+  ) -> Result<(u32, u64, u64)> {
+    let topic = topic.into();
+    let mut append = RecordAppend::new(payload);
+    append.key = key.map(Into::into);
+    if tombstone {
+      append.attributes |= RECORD_ATTRIBUTE_TOMBSTONE;
+    }
+    validate_record_append(&append)?;
+    let partition = self.resolve_publish_partition(&topic, partitioning, append.key.as_deref())?;
+    let record = self.queue.publish_record(&topic, partition, append)?;
+    metrics::record_produce(partitioning.as_label(), 1);
+    producer_state::record_publish(&topic, partition, partitioning.as_label(), 1);
+    Ok((partition, record.offset, record.offset + 1))
+  }
+
+  #[cfg(test)]
+  pub fn publish_batch_records(
+    &self,
+    topic: impl Into<String>,
+    partition: u32,
+    records: Vec<RecordAppend>,
   ) -> Result<(u64, u64, u64)> {
-    if payloads.is_empty() {
+    let (_partition, base_offset, last_offset, next_offset) = self.publish_batch_records_with_partitioning(
+      topic,
+      PublishPartitioning::Explicit(partition),
+      records,
+    )?;
+    Ok((base_offset, last_offset, next_offset))
+  }
+
+  pub(crate) fn publish_batch_records_with_partitioning(
+    &self,
+    topic: impl Into<String>,
+    partitioning: PublishPartitioning,
+    records: Vec<RecordAppend>,
+  ) -> Result<(u32, u64, u64, u64)> {
+    if records.is_empty() {
       return Err(StoreError::Codec(
         "payloads must not be empty for batch produce".to_owned(),
       ));
     }
     let topic = topic.into();
-    let records = self.queue.publish_batch(&topic, partition, &payloads)?;
-    let base_offset = records
+    for record in &records {
+      validate_record_append(record)?;
+    }
+    let partition = self.resolve_publish_batch_partition(&topic, partitioning, &records)?;
+    let records_count = records.len() as u64;
+    let appended_records = self.queue.publish_batch_records(&topic, partition, records)?;
+    metrics::record_produce(partitioning.as_label(), records_count);
+    producer_state::record_publish(&topic, partition, partitioning.as_label(), records_count);
+    let base_offset = appended_records
       .first()
       .map(|record| record.offset)
       .ok_or_else(|| StoreError::Corruption("batch append returned no records".to_owned()))?;
-    let last_offset = records
+    let last_offset = appended_records
       .last()
       .map(|record| record.offset)
       .ok_or_else(|| StoreError::Corruption("batch append returned no records".to_owned()))?;
-    Ok((base_offset, last_offset, last_offset + 1))
+    Ok((partition, base_offset, last_offset, last_offset + 1))
   }
 
   pub fn schedule_delayed(
@@ -389,6 +497,36 @@ where
     offset: Option<u64>,
     max_records: usize,
   ) -> Result<FetchResult> {
+    self.fetch_now(consumer, topic, partition, offset, max_records)
+  }
+
+  pub async fn fetch_long_poll(
+    &self,
+    consumer: &str,
+    topic: impl Into<String>,
+    partition: u32,
+    offset: Option<u64>,
+    max_records: usize,
+    min_records: Option<usize>,
+    max_wait_ms: Option<u64>,
+  ) -> Result<FetchResult> {
+    let topic = topic.into();
+    let min_records = min_records.filter(|value| *value > 0).unwrap_or(1);
+    self
+      .long_poll_until(max_wait_ms, || {
+        self.fetch_now(consumer, topic.clone(), partition, offset, max_records)
+      }, |fetched| fetched.records.len() >= min_records)
+      .await
+  }
+
+  fn fetch_now(
+    &self,
+    consumer: &str,
+    topic: impl Into<String>,
+    partition: u32,
+    offset: Option<u64>,
+    max_records: usize,
+  ) -> Result<FetchResult> {
     self.ensure_read_allowed()?;
     let topic = topic.into();
     let fetched = self
@@ -401,15 +539,246 @@ where
       records: fetched
         .records
         .into_iter()
-        .map(|record| FetchedRecord {
-          offset: record.offset,
-          timestamp_ms: record.timestamp_ms,
-          payload: record.payload.to_vec(),
+        .map(|record| {
+          let tombstone = record.is_tombstone();
+          FetchedRecord {
+            offset: record.offset,
+            timestamp_ms: record.timestamp_ms,
+            key: record.key.map(|key| key.to_vec()),
+            tombstone,
+            payload: record.payload.to_vec(),
+          }
         })
         .collect(),
       next_offset: fetched.next_offset,
       high_watermark: fetched.high_watermark,
     })
+  }
+
+  /// Fetch records using a consumer-group cursor and enforce assignment ownership.
+  #[cfg(test)]
+  pub fn fetch_consumer_group(
+    &self,
+    group: &str,
+    member_id: &str,
+    generation: u64,
+    topic: impl Into<String>,
+    partition: u32,
+    offset: Option<u64>,
+    max_records: usize,
+  ) -> Result<FetchResult> {
+    self.fetch_consumer_group_now(group, member_id, generation, topic, partition, offset, max_records)
+  }
+
+  pub async fn fetch_consumer_group_long_poll(
+    &self,
+    group: &str,
+    member_id: &str,
+    generation: u64,
+    topic: impl Into<String>,
+    partition: u32,
+    offset: Option<u64>,
+    max_records: usize,
+    min_records: Option<usize>,
+    max_wait_ms: Option<u64>,
+  ) -> Result<FetchResult> {
+    let topic = topic.into();
+    let min_records = min_records.filter(|value| *value > 0).unwrap_or(1);
+    self
+      .long_poll_until(max_wait_ms, || {
+        self.fetch_consumer_group_now(
+          group,
+          member_id,
+          generation,
+          topic.clone(),
+          partition,
+          offset,
+          max_records,
+        )
+      }, |fetched| fetched.records.len() >= min_records)
+      .await
+  }
+
+  fn fetch_consumer_group_now(
+    &self,
+    group: &str,
+    member_id: &str,
+    generation: u64,
+    topic: impl Into<String>,
+    partition: u32,
+    offset: Option<u64>,
+    max_records: usize,
+  ) -> Result<FetchResult> {
+    self.ensure_read_allowed()?;
+    let topic = topic.into();
+    self.validate_group_assignment_access(group, member_id, generation, &topic, partition)?;
+    let fetched = self.queue.fetch(
+      &consumer_group_offset_key(group),
+      &topic,
+      partition,
+      offset,
+      max_records,
+    )?;
+
+    Ok(FetchResult {
+      topic,
+      partition,
+      records: fetched
+        .records
+        .into_iter()
+        .map(|record| {
+          let tombstone = record.is_tombstone();
+          FetchedRecord {
+            offset: record.offset,
+            timestamp_ms: record.timestamp_ms,
+            key: record.key.map(|key| key.to_vec()),
+            tombstone,
+            payload: record.payload.to_vec(),
+          }
+        })
+        .collect(),
+      next_offset: fetched.next_offset,
+      high_watermark: fetched.high_watermark,
+    })
+  }
+
+  #[cfg(test)]
+  pub fn fetch_consumer_group_batch(
+    &self,
+    group: &str,
+    member_id: &str,
+    generation: u64,
+    items: Vec<(String, u32, Option<u64>, usize)>,
+  ) -> Result<Vec<FetchResult>> {
+    self.fetch_consumer_group_batch_now(group, member_id, generation, items)
+  }
+
+  pub async fn fetch_batch_long_poll(
+    &self,
+    consumer: &str,
+    items: Vec<(String, u32, Option<u64>, usize)>,
+    min_records: Option<usize>,
+    max_wait_ms: Option<u64>,
+  ) -> Result<Vec<FetchResult>> {
+    let min_records = min_records.filter(|value| *value > 0).unwrap_or(1);
+    self
+      .long_poll_until(
+        max_wait_ms,
+        || self.fetch_batch_now(consumer, &items),
+        |fetched| total_fetched_records(fetched) >= min_records,
+      )
+      .await
+  }
+
+  pub async fn fetch_consumer_group_batch_long_poll(
+    &self,
+    group: &str,
+    member_id: &str,
+    generation: u64,
+    items: Vec<(String, u32, Option<u64>, usize)>,
+    min_records: Option<usize>,
+    max_wait_ms: Option<u64>,
+  ) -> Result<Vec<FetchResult>> {
+    let min_records = min_records.filter(|value| *value > 0).unwrap_or(1);
+    self
+      .long_poll_until(
+        max_wait_ms,
+        || self.fetch_consumer_group_batch_now(group, member_id, generation, items.clone()),
+        |fetched| total_fetched_records(fetched) >= min_records,
+      )
+      .await
+  }
+
+  fn fetch_batch_now(
+    &self,
+    consumer: &str,
+    items: &[(String, u32, Option<u64>, usize)],
+  ) -> Result<Vec<FetchResult>> {
+    let mut fetched_items = Vec::with_capacity(items.len());
+    for (topic, partition, offset, max_records) in items {
+      fetched_items.push(self.fetch_now(
+        consumer,
+        topic.clone(),
+        *partition,
+        *offset,
+        *max_records,
+      )?);
+    }
+    Ok(fetched_items)
+  }
+
+  fn fetch_consumer_group_batch_now(
+    &self,
+    group: &str,
+    member_id: &str,
+    generation: u64,
+    items: Vec<(String, u32, Option<u64>, usize)>,
+  ) -> Result<Vec<FetchResult>> {
+    self.ensure_read_allowed()?;
+    let mut fetched_items = Vec::with_capacity(items.len());
+    for (topic, partition, offset, max_records) in items {
+      self.validate_group_assignment_access(group, member_id, generation, &topic, partition)?;
+      let fetched = self.queue.fetch(
+        &consumer_group_offset_key(group),
+        &topic,
+        partition,
+        offset,
+        max_records,
+      )?;
+      fetched_items.push(FetchResult {
+        topic,
+        partition,
+        records: fetched
+          .records
+          .into_iter()
+          .map(|record| {
+            let tombstone = record.is_tombstone();
+            FetchedRecord {
+              offset: record.offset,
+              timestamp_ms: record.timestamp_ms,
+              key: record.key.map(|key| key.to_vec()),
+              tombstone,
+              payload: record.payload.to_vec(),
+            }
+          })
+          .collect(),
+        next_offset: fetched.next_offset,
+        high_watermark: fetched.high_watermark,
+      });
+    }
+    Ok(fetched_items)
+  }
+
+async fn long_poll_until<T, F, Ready>(
+    &self,
+    max_wait_ms: Option<u64>,
+    mut fetch_once: F,
+    is_ready: Ready,
+  ) -> Result<T>
+  where
+    F: FnMut() -> Result<T>,
+    Ready: Fn(&T) -> bool,
+  {
+    let mut last = fetch_once()?;
+    let Some(wait_ms) = max_wait_ms.filter(|wait_ms| *wait_ms > 0) else {
+      return Ok(last);
+    };
+    if is_ready(&last) {
+      return Ok(last);
+    }
+
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(wait_ms);
+    loop {
+      let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+      if remaining.is_zero() {
+        return Ok(last);
+      }
+      tokio::time::sleep(remaining.min(Duration::from_millis(LONG_POLL_INTERVAL_MS))).await;
+      last = fetch_once()?;
+      if is_ready(&last) {
+        return Ok(last);
+      }
+    }
   }
 
   /// Commit consumer cursor as "next offset to consume".
@@ -423,6 +792,23 @@ where
     self
       .queue
       .ack(consumer, &topic.into(), partition, next_offset)
+  }
+
+  /// Commit a consumer-group cursor as "next offset to consume".
+  pub fn commit_consumer_group_offset(
+    &self,
+    group: &str,
+    member_id: &str,
+    generation: u64,
+    topic: impl Into<String>,
+    partition: u32,
+    next_offset: u64,
+  ) -> Result<()> {
+    let topic = topic.into();
+    self.validate_group_assignment_access(group, member_id, generation, &topic, partition)?;
+    self
+      .queue
+      .ack(&consumer_group_offset_key(group), &topic, partition, next_offset)
   }
 
   pub fn nack_and_retry(
@@ -673,6 +1059,7 @@ where
     Ok(member.into())
   }
 
+  #[cfg(test)]
   pub fn leave_consumer_group(&self, group: &str, member_id: &str) -> Result<()> {
     let existed = self.metadata.load_group_member(group, member_id)?.is_some();
     self.metadata.delete_group_member(group, member_id)?;
@@ -763,6 +1150,131 @@ where
       .load_group_assignment(group)
       .map(|assignment| assignment.map(Into::into))
   }
+
+  pub fn topic_backlog(&self, topic: &str) -> Result<TopicBacklogSnapshot> {
+    self.ensure_read_allowed()?;
+    let topic_config = self
+      .metadata
+      .load_topic_config(topic)?
+      .ok_or_else(|| StoreError::TopicNotFound(topic.to_owned()))?;
+    let mut partitions = Vec::with_capacity(topic_config.partitions as usize);
+    let mut total_backlog_records = 0u64;
+    let mut max_partition_backlog = 0u64;
+    for partition in 0..topic_config.partitions {
+      let partition_backlog = self.partition_backlog(topic, partition)?;
+      total_backlog_records = total_backlog_records.saturating_add(partition_backlog.backlog_records);
+      max_partition_backlog = max_partition_backlog.max(partition_backlog.backlog_records);
+      partitions.push(partition_backlog);
+    }
+    Ok(TopicBacklogSnapshot {
+      topic: topic.to_owned(),
+      total_backlog_records,
+      max_partition_backlog,
+      partitions,
+    })
+  }
+
+  pub fn consumer_group_lag(&self, group: &str) -> Result<Option<GroupLagSnapshot>> {
+    self.ensure_read_allowed()?;
+    let Some(assignment) = self.metadata.load_group_assignment(group)? else {
+      return Ok(None);
+    };
+    let consumer_key = consumer_group_offset_key(group);
+    let mut partitions = Vec::with_capacity(assignment.assignments.len());
+    let mut total_backlog_records = 0u64;
+    let mut total_lag_records = 0u64;
+    for item in assignment.assignments {
+      let topic_partition = TopicPartition::new(item.topic.clone(), item.partition);
+      let committed_next_offset = self
+        .metadata
+        .load_consumer_offset(&consumer_key, &topic_partition)?
+        .unwrap_or(0);
+      let high_watermark = self.queue.stores().0.last_offset(&topic_partition)?;
+      let backlog_records = high_watermark.map(|offset| offset + 1).unwrap_or(0);
+      let lag_records = backlog_records.saturating_sub(committed_next_offset);
+      total_backlog_records = total_backlog_records.saturating_add(backlog_records);
+      total_lag_records = total_lag_records.saturating_add(lag_records);
+      partitions.push(GroupPartitionLag {
+        member_id: item.member_id,
+        topic: item.topic,
+        partition: item.partition,
+        committed_next_offset,
+        high_watermark,
+        backlog_records,
+        lag_records,
+      });
+    }
+    partitions.sort_by(|a, b| {
+      a.topic
+        .cmp(&b.topic)
+        .then(a.partition.cmp(&b.partition))
+        .then(a.member_id.cmp(&b.member_id))
+    });
+    Ok(Some(GroupLagSnapshot {
+      group: assignment.group,
+      generation: assignment.generation,
+      total_backlog_records,
+      total_lag_records,
+      partitions,
+    }))
+  }
+
+  pub fn stream_metrics_snapshot(&self) -> Result<StreamMetricsSnapshot> {
+    self.ensure_read_allowed()?;
+
+    let topics = self.list_topics()?;
+    let mut topics_with_backlog = 0usize;
+    let mut total_topic_backlog_records = 0u64;
+    let mut max_topic_backlog_records = 0u64;
+    let mut max_partition_backlog_records = 0u64;
+    for topic in &topics {
+      let snapshot = self.topic_backlog(&topic.name)?;
+      if snapshot.total_backlog_records > 0 {
+        topics_with_backlog += 1;
+      }
+      total_topic_backlog_records =
+        total_topic_backlog_records.saturating_add(snapshot.total_backlog_records);
+      max_topic_backlog_records = max_topic_backlog_records.max(snapshot.total_backlog_records);
+      max_partition_backlog_records =
+        max_partition_backlog_records.max(snapshot.max_partition_backlog);
+    }
+
+    let assignments = self.metadata.list_group_assignments()?;
+    let mut consumer_groups_with_lag = 0usize;
+    let mut total_consumer_group_backlog_records = 0u64;
+    let mut total_consumer_group_lag_records = 0u64;
+    let mut max_consumer_group_lag_records = 0u64;
+    for assignment in &assignments {
+      if let Some(snapshot) = self.consumer_group_lag(&assignment.group)? {
+        if snapshot.total_lag_records > 0 {
+          consumer_groups_with_lag += 1;
+        }
+        total_consumer_group_backlog_records = total_consumer_group_backlog_records
+          .saturating_add(snapshot.total_backlog_records);
+        total_consumer_group_lag_records =
+          total_consumer_group_lag_records.saturating_add(snapshot.total_lag_records);
+        max_consumer_group_lag_records =
+          max_consumer_group_lag_records.max(snapshot.total_lag_records);
+      }
+    }
+
+    Ok(StreamMetricsSnapshot {
+      topic_count: topics.len(),
+      topics_with_backlog,
+      total_topic_backlog_records,
+      max_topic_backlog_records,
+      max_partition_backlog_records,
+      consumer_group_count: assignments.len(),
+      consumer_groups_with_lag,
+      total_consumer_group_backlog_records,
+      total_consumer_group_lag_records,
+      max_consumer_group_lag_records,
+    })
+  }
+}
+
+fn total_fetched_records(items: &[FetchResult]) -> usize {
+  items.iter().map(|item| item.records.len()).sum()
 }
 
 impl<L, M> BrokerService<L, M>
@@ -875,6 +1387,122 @@ where
       sticky_applied,
       member_loads,
     })
+  }
+
+  fn validate_group_assignment_access(
+    &self,
+    group: &str,
+    member_id: &str,
+    generation: u64,
+    topic: &str,
+    partition: u32,
+  ) -> Result<()> {
+    if group.trim().is_empty() {
+      return Err(StoreError::Codec("group must not be empty".to_owned()));
+    }
+    if member_id.trim().is_empty() {
+      return Err(StoreError::Codec("member_id must not be empty".to_owned()));
+    }
+
+    let now = current_time_ms();
+    let removed_expired = self.metadata.delete_expired_group_members(now)?;
+    if removed_expired > 0 {
+      self.rebalance_consumer_group(group)?;
+    }
+
+    let Some(_) = self.metadata.load_group_member(group, member_id)? else {
+      return Err(StoreError::Codec(format!(
+        "consumer group member not found: group={group}, member_id={member_id}"
+      )));
+    };
+
+    let Some(assignment) = self.metadata.load_group_assignment(group)? else {
+      return Err(StoreError::Codec(format!(
+        "consumer group assignment not found: group={group}"
+      )));
+    };
+    if assignment.generation != generation {
+      return Err(StoreError::Codec(format!(
+        "consumer group generation mismatch: group={group}, expected={}, got={generation}",
+        assignment.generation
+      )));
+    }
+
+    let assigned = assignment.assignments.iter().any(|item| {
+      item.member_id == member_id && item.topic == topic && item.partition == partition
+    });
+    if !assigned {
+      return Err(StoreError::Codec(format!(
+        "partition not assigned to consumer group member: group={group}, member_id={member_id}, topic={topic}, partition={partition}"
+      )));
+    }
+    Ok(())
+  }
+
+  fn partition_backlog(&self, topic: &str, partition: u32) -> Result<TopicPartitionBacklog> {
+    let topic_partition = TopicPartition::new(topic.to_owned(), partition);
+    let high_watermark = self.queue.stores().0.last_offset(&topic_partition)?;
+    let backlog_records = high_watermark.map(|offset| offset + 1).unwrap_or(0);
+    Ok(TopicPartitionBacklog {
+      topic: topic.to_owned(),
+      partition,
+      high_watermark,
+      backlog_records,
+    })
+  }
+
+  fn resolve_publish_partition(
+    &self,
+    topic: &str,
+    partitioning: PublishPartitioning,
+    key: Option<&[u8]>,
+  ) -> Result<u32> {
+    let topic_config = self
+      .metadata
+      .load_topic_config(topic)?
+      .ok_or_else(|| StoreError::TopicNotFound(topic.to_owned()))?;
+    self
+      .partition_router
+      .select_partition(&topic_config, partitioning, key)
+  }
+
+  fn resolve_publish_batch_partition(
+    &self,
+    topic: &str,
+    partitioning: PublishPartitioning,
+    records: &[RecordAppend],
+  ) -> Result<u32> {
+    let key = match partitioning {
+      PublishPartitioning::KeyHash => {
+        let first_key = records
+          .first()
+          .and_then(|record| record.key.as_deref())
+          .ok_or_else(|| {
+            StoreError::Codec(
+              "key_hash partitioning requires every batch record to have the same non-empty key"
+                .to_owned(),
+            )
+          })?;
+        if first_key.is_empty() {
+          return Err(StoreError::Codec(
+            "key_hash partitioning requires every batch record to have the same non-empty key"
+              .to_owned(),
+          ));
+        }
+        let all_same = records
+          .iter()
+          .all(|record| record.key.as_deref() == Some(first_key));
+        if !all_same {
+          return Err(StoreError::Codec(
+            "key_hash partitioning requires every batch record to have the same non-empty key"
+              .to_owned(),
+          ));
+        }
+        Some(first_key)
+      }
+      _ => None,
+    };
+    self.resolve_publish_partition(topic, partitioning, key)
   }
 
   fn compute_topic_assignments(
@@ -1105,6 +1733,7 @@ where
     config.retention_ms = source.retention_ms;
     config.max_message_bytes = source.max_message_bytes;
     config.max_batch_bytes = source.max_batch_bytes;
+    config.compaction_tombstone_retention_ms = None;
     config.retry_policy = source.retry_policy.clone();
     config.dead_letter_topic = source.dead_letter_topic.clone();
     config.delay_enabled = source.delay_enabled;
@@ -1115,6 +1744,124 @@ where
 
 fn retry_topic_name(source_topic: &str) -> String {
   format!("{INTERNAL_RETRY_TOPIC_PREFIX}.{source_topic}")
+}
+
+fn consumer_group_offset_key(group: &str) -> String {
+  format!("{GROUP_OFFSET_CONSUMER_PREFIX}:{group}")
+}
+
+fn validate_topic_request(topic: &str, partitions: u32, policies: &TopicPolicyOverrides) -> Result<()> {
+  if topic.trim().is_empty() {
+    return Err(StoreError::Codec("topic must not be empty".to_owned()));
+  }
+  if is_internal_topic_name(topic) {
+    return Err(StoreError::Codec(format!(
+      "topic name {topic} is reserved for internal broker use"
+    )));
+  }
+  if partitions == 0 {
+    return Err(StoreError::Codec(
+      "partitions must be greater than zero".to_owned(),
+    ));
+  }
+  if let Some(dead_letter_topic) = &policies.dead_letter_topic {
+    if dead_letter_topic.trim().is_empty() {
+      return Err(StoreError::Codec(
+        "dead_letter_topic must not be empty when configured".to_owned(),
+      ));
+    }
+    if dead_letter_topic == topic {
+      return Err(StoreError::Codec(
+        "dead_letter_topic must differ from the source topic".to_owned(),
+      ));
+    }
+    if is_internal_topic_name(dead_letter_topic) {
+      return Err(StoreError::Codec(format!(
+        "dead_letter_topic {dead_letter_topic} is reserved for internal broker use"
+      )));
+    }
+  }
+  if let Some(retry_policy) = &policies.retry_policy {
+    validate_retry_policy(retry_policy)?;
+  }
+  Ok(())
+}
+
+fn validate_topic_config(config: &TopicConfig) -> Result<()> {
+  if config.max_message_bytes == 0 {
+    return Err(StoreError::Codec(
+      "max_message_bytes must be greater than zero".to_owned(),
+    ));
+  }
+  if config.max_batch_bytes == 0 {
+    return Err(StoreError::Codec(
+      "max_batch_bytes must be greater than zero".to_owned(),
+    ));
+  }
+  if config.max_message_bytes > config.max_batch_bytes {
+    return Err(StoreError::Codec(
+      "max_message_bytes must not exceed max_batch_bytes".to_owned(),
+    ));
+  }
+  validate_retry_policy(&config.retry_policy)?;
+  if config.compaction_tombstone_retention_ms.is_some() && !config.compaction_enabled {
+    return Err(StoreError::Codec(
+      "compaction_tombstone_retention_ms requires compaction_enabled".to_owned(),
+    ));
+  }
+  match config.cleanup_policy {
+    TopicCleanupPolicy::Delete if config.compaction_enabled => Err(StoreError::Codec(
+      "compaction_enabled requires cleanup_policy to include compact".to_owned(),
+    )),
+    TopicCleanupPolicy::Compact | TopicCleanupPolicy::CompactAndDelete
+      if !config.compaction_enabled =>
+    {
+      Err(StoreError::Codec(
+        "cleanup_policy includes compact but compaction_enabled is false".to_owned(),
+      ))
+    }
+    _ => Ok(()),
+  }
+}
+
+fn validate_retry_policy(policy: &TopicRetryPolicy) -> Result<()> {
+  if policy.max_attempts == 0 {
+    return Err(StoreError::Codec(
+      "retry_policy.max_attempts must be greater than zero".to_owned(),
+    ));
+  }
+  if policy.backoff_initial_ms == 0 {
+    return Err(StoreError::Codec(
+      "retry_policy.backoff_initial_ms must be greater than zero".to_owned(),
+    ));
+  }
+  if policy.backoff_max_ms == 0 {
+    return Err(StoreError::Codec(
+      "retry_policy.backoff_max_ms must be greater than zero".to_owned(),
+    ));
+  }
+  if policy.backoff_initial_ms > policy.backoff_max_ms {
+    return Err(StoreError::Codec(
+      "retry_policy.backoff_initial_ms must not exceed backoff_max_ms".to_owned(),
+    ));
+  }
+  Ok(())
+}
+
+fn validate_record_append(record: &RecordAppend) -> Result<()> {
+  if record.is_tombstone() {
+    if record.key.is_none() {
+      return Err(StoreError::Codec(
+        "tombstone records require a non-empty key".to_owned(),
+      ));
+    }
+    if !record.payload.is_empty() {
+      return Err(StoreError::Codec(
+        "tombstone records must use an empty payload".to_owned(),
+      ));
+    }
+  }
+  Ok(())
 }
 
 fn is_internal_topic_name(topic: &str) -> bool {

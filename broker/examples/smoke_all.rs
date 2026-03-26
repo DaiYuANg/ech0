@@ -16,7 +16,8 @@ use protocol::{
   CMD_PRODUCE_RESPONSE, CMD_SEND_DIRECT_REQUEST, CMD_SEND_DIRECT_RESPONSE, CommitOffsetRequest,
   CommitOffsetResponse, CreateTopicRequest, CreateTopicResponse, FetchInboxRequest,
   FetchInboxResponse, FetchRequest, FetchResponse, HandshakeRequest, HandshakeResponse,
-  ListTopicsResponse, PingRequest, PingResponse, ProduceRequest, ProduceResponse,
+  ListTopicsResponse, PingRequest, PingResponse, ProducePartitioning, ProduceRequest,
+  ProduceResponse,
   SendDirectRequest, SendDirectResponse,
 };
 use tokio::net::TcpStream;
@@ -145,6 +146,7 @@ async fn run_queue_flow(addr: &str) -> io::Result<()> {
       dead_letter_topic: None,
       delay_enabled: None,
       compaction_enabled: None,
+      compaction_tombstone_retention_ms: None,
     },
   )
   .await?;
@@ -171,7 +173,10 @@ async fn run_queue_flow(addr: &str) -> io::Result<()> {
     CMD_PRODUCE_RESPONSE,
     &ProduceRequest {
       topic: topic.clone(),
-      partition: 0,
+      partition: Some(0),
+      partitioning: ProducePartitioning::Explicit,
+      key: None,
+      tombstone: false,
       payload: payload.clone(),
     },
   )
@@ -187,6 +192,8 @@ async fn run_queue_flow(addr: &str) -> io::Result<()> {
       partition: 0,
       offset: Some(0),
       max_records: 10,
+      min_records: None,
+      max_wait_ms: None,
     },
   )
   .await?;

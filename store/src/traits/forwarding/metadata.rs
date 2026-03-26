@@ -175,6 +175,10 @@ where
   fn load_group_assignment(&self, group: &str) -> Result<Option<ConsumerGroupAssignment>> {
     (**self).load_group_assignment(group)
   }
+
+  fn list_group_assignments(&self) -> Result<Vec<ConsumerGroupAssignment>> {
+    (**self).list_group_assignments()
+  }
 }
 
 impl<T> ConsumerGroupStore for Arc<T>
@@ -207,5 +211,9 @@ where
 
   fn load_group_assignment(&self, group: &str) -> Result<Option<ConsumerGroupAssignment>> {
     (**self).load_group_assignment(group)
+  }
+
+  fn list_group_assignments(&self) -> Result<Vec<ConsumerGroupAssignment>> {
+    (**self).list_group_assignments()
   }
 }

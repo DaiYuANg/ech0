@@ -18,7 +18,13 @@ fn append_command_updates_local_partition_state() {
     })
     .unwrap();
 
-  assert_eq!(result, ApplyResult::Appended { next_offset: 1 });
+  assert!(matches!(
+    result,
+    ApplyResult::Appended {
+      next_offset: 1,
+      records
+    } if records.len() == 1 && records[0].offset == 0 && records[0].payload.as_ref() == b"hello"
+  ));
   assert_eq!(executor.stores().0.last_offset(&tp).unwrap(), Some(0));
   let state = executor
     .stores()
@@ -28,6 +34,46 @@ fn append_command_updates_local_partition_state() {
     .unwrap();
   assert_eq!(state.availability, PartitionAvailability::Online);
   assert_eq!(state.state.last_appended_offset, Some(0));
+}
+
+#[test]
+fn append_batch_command_updates_local_partition_state() {
+  let log = InMemoryStore::new();
+  let states = InMemoryStore::new();
+  log.create_topic(TopicConfig::new("orders")).unwrap();
+  let executor = LocalPartitionCommandExecutor::new(log, states);
+  let tp = TopicPartition::new("orders", 0);
+
+  let result = executor
+    .apply(LocalPartitionCommand::AppendBatch {
+      topic_partition: tp.clone(),
+      records: vec![
+        RecordAppend::new(b"hello".to_vec()),
+        RecordAppend::new(b"world".to_vec()),
+      ],
+    })
+    .unwrap();
+
+  assert!(matches!(
+    result,
+    ApplyResult::Appended {
+      next_offset: 2,
+      records
+    } if records.len() == 2
+      && records[0].offset == 0
+      && records[0].payload.as_ref() == b"hello"
+      && records[1].offset == 1
+      && records[1].payload.as_ref() == b"world"
+  ));
+  assert_eq!(executor.stores().0.last_offset(&tp).unwrap(), Some(1));
+  let state = executor
+    .stores()
+    .1
+    .load_local_partition_state(&tp)
+    .unwrap()
+    .unwrap();
+  assert_eq!(state.state.last_appended_offset, Some(1));
+  assert_eq!(state.state.high_watermark, Some(1));
 }
 
 #[test]

@@ -30,6 +30,17 @@
         <th class="px-4 py-3 font-semibold">Segment Max Bytes</th>
         <th class="px-4 py-3 font-semibold">Index Interval Bytes</th>
         <th class="px-4 py-3 font-semibold">Retention Max Bytes</th>
+        <th class="px-4 py-3 font-semibold">Retention Ms</th>
+        <th class="px-4 py-3 font-semibold">Tombstone Retention Ms</th>
+        <th class="px-4 py-3 font-semibold">Cleanup</th>
+        <th class="px-4 py-3 font-semibold">Message/Batch Max</th>
+        <th class="px-4 py-3 font-semibold">Retry Max</th>
+        <th class="px-4 py-3 font-semibold">DLQ</th>
+        <th class="px-4 py-3 font-semibold">Flags</th>
+        <th class="px-4 py-3 font-semibold">Produced Records</th>
+        <th class="px-4 py-3 font-semibold">Hot Partition</th>
+        <th class="px-4 py-3 font-semibold">Total Backlog</th>
+        <th class="px-4 py-3 font-semibold">Max Partition Backlog</th>
         <th class="px-4 py-3 font-semibold">Actions</th>
       </tr>
     </thead>
@@ -41,6 +52,52 @@
         <td class="px-4 py-3">{{ topic.segment_max_bytes }}</td>
         <td class="px-4 py-3">{{ topic.index_interval_bytes }}</td>
         <td class="px-4 py-3">{{ topic.retention_max_bytes }}</td>
+        <td class="px-4 py-3">
+          {% match topic.retention_ms %}
+          {% when Some with (retention_ms) %}
+          {{ retention_ms }}
+          {% when None %}
+          none
+          {% endmatch %}
+        </td>
+        <td class="px-4 py-3">
+          {% match topic.compaction_tombstone_retention_ms %}
+          {% when Some with (compaction_tombstone_retention_ms) %}
+          {{ compaction_tombstone_retention_ms }}
+          {% when None %}
+          none
+          {% endmatch %}
+        </td>
+        <td class="px-4 py-3">{{ topic.cleanup_policy }}</td>
+        <td class="px-4 py-3">{{ topic.max_message_bytes }} / {{ topic.max_batch_bytes }}</td>
+        <td class="px-4 py-3">{{ topic.retry_max_attempts }}</td>
+        <td class="px-4 py-3">
+          {% match topic.dead_letter_topic %}
+          {% when Some with (dead_letter_topic) %}
+          {{ dead_letter_topic }}
+          {% when None %}
+          none
+          {% endmatch %}
+        </td>
+        <td class="px-4 py-3">
+          delay={{ topic.delay_enabled }}, compact={{ topic.compaction_enabled }}
+        </td>
+        <td class="px-4 py-3">{{ topic.produced_records_total }}</td>
+        <td class="px-4 py-3">
+          {% match topic.hottest_partition %}
+          {% when Some with (partition) %}
+          p{{ partition }} ({{ topic.hottest_partition_records }})
+          {% match topic.last_partitioning %}
+          {% when Some with (partitioning) %}
+          via {{ partitioning }}
+          {% when None %}
+          {% endmatch %}
+          {% when None %}
+          none
+          {% endmatch %}
+        </td>
+        <td class="px-4 py-3">{{ topic.total_backlog_records }}</td>
+        <td class="px-4 py-3">{{ topic.max_partition_backlog }}</td>
         <td class="px-4 py-3">
           <a href="/ui/topics/{{ topic.name }}/messages?partition=0&offset=0&limit=50" class="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
             View Messages

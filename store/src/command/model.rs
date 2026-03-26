@@ -1,4 +1,5 @@
 use super::*;
+use crate::Record;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommandReplicationScope {
@@ -20,6 +21,10 @@ pub enum LocalPartitionCommand {
     topic_partition: TopicPartition,
     record: RecordAppend,
   },
+  AppendBatch {
+    topic_partition: TopicPartition,
+    records: Vec<RecordAppend>,
+  },
   Truncate {
     topic_partition: TopicPartition,
     offset: u64,
@@ -39,6 +44,9 @@ impl LocalPartitionCommand {
       Self::Append {
         topic_partition, ..
       }
+      | Self::AppendBatch {
+        topic_partition, ..
+      }
       | Self::Truncate {
         topic_partition, ..
       }
@@ -51,7 +59,9 @@ impl LocalPartitionCommand {
 
   pub fn replication_scope(&self) -> CommandReplicationScope {
     match self {
-      Self::Append { .. } | Self::Truncate { .. } => CommandReplicationScope::Replicated,
+      Self::Append { .. } | Self::AppendBatch { .. } | Self::Truncate { .. } => {
+        CommandReplicationScope::Replicated
+      }
       Self::UpdateAvailability { .. } | Self::RecoverPartition { .. } => {
         CommandReplicationScope::LocalOnly
       }
@@ -120,6 +130,13 @@ impl PartitionCommandEnvelope {
           topic_partition,
           record,
         },
+        LocalPartitionCommand::AppendBatch {
+          topic_partition,
+          records,
+        } => ReplicatedPartitionCommand::AppendBatch {
+          topic_partition,
+          records,
+        },
         LocalPartitionCommand::Truncate {
           topic_partition,
           offset,
@@ -144,6 +161,10 @@ pub enum ReplicatedPartitionCommand {
     topic_partition: TopicPartition,
     record: RecordAppend,
   },
+  AppendBatch {
+    topic_partition: TopicPartition,
+    records: Vec<RecordAppend>,
+  },
   Truncate {
     topic_partition: TopicPartition,
     offset: u64,
@@ -165,6 +186,9 @@ impl ReplicatedPartitionCommandEnvelope {
       ReplicatedPartitionCommand::Append {
         topic_partition, ..
       }
+      | ReplicatedPartitionCommand::AppendBatch {
+        topic_partition, ..
+      }
       | ReplicatedPartitionCommand::Truncate {
         topic_partition, ..
       } => topic_partition,
@@ -182,7 +206,7 @@ impl ReplicatedPartitionCommandEnvelope {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ApplyResult {
-  Appended { next_offset: u64 },
+  Appended { records: Vec<Record>, next_offset: u64 },
   Truncated { next_offset: u64 },
   AvailabilityUpdated { state: LocalPartitionState },
   PartitionRecovered { state: LocalPartitionState },

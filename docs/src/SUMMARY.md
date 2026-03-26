@@ -6,6 +6,7 @@
 - [简体中文 / 核心请求链路](./zh-CN/request-flow.md)
 - [简体中文 / 存储设计](./zh-CN/storage.md)
 - [简体中文 / 运行模式与一致性](./zh-CN/runtime-modes.md)
+- [简体中文 / Broker 设计与实现](./zh-CN/broker-design.md)
 - [简体中文 / 运维与可观测性](./zh-CN/operations.md)
 - [English / Overview](./en/overview.md)
 - [English / System Architecture](./en/architecture.md)
@@ -13,4 +14,5 @@
 - [English / Core Request Flow](./en/request-flow.md)
 - [English / Storage Design](./en/storage.md)
 - [English / Runtime Modes and Consistency](./en/runtime-modes.md)
+- [English / Broker Design and Implementation](./en/broker-design.md)
 - [English / Operations and Observability](./en/operations.md)

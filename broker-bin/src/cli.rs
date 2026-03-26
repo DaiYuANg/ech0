@@ -76,6 +76,10 @@ pub struct Args {
   #[arg(long)]
   pub max_fetch_records: Option<usize>,
 
+  /// Max broker-side wait time for fetch/fetch_batch long polling.
+  #[arg(long)]
+  pub max_fetch_wait_ms: Option<u64>,
+
   /// Consumer group assignment strategy.
   #[arg(long, value_enum)]
   pub group_assignment_strategy: Option<GroupAssignmentStrategyArg>,

@@ -3,9 +3,12 @@ use std::sync::{OnceLock, RwLock};
 
 use protocol::{
   AckDirectRequest, AckDirectResponse, CMD_ACK_DIRECT_REQUEST, CMD_ACK_DIRECT_RESPONSE,
+  CMD_COMMIT_CONSUMER_GROUP_OFFSET_REQUEST, CMD_COMMIT_CONSUMER_GROUP_OFFSET_RESPONSE,
   CMD_COMMIT_OFFSET_REQUEST, CMD_COMMIT_OFFSET_RESPONSE, CMD_CREATE_TOPIC_REQUEST,
   CMD_CREATE_TOPIC_RESPONSE, CMD_ERROR_RESPONSE, CMD_FETCH_INBOX_REQUEST, CMD_FETCH_INBOX_RESPONSE,
-  CMD_FETCH_BATCH_REQUEST, CMD_FETCH_BATCH_RESPONSE, CMD_FETCH_REQUEST, CMD_FETCH_RESPONSE,
+  CMD_FETCH_BATCH_REQUEST, CMD_FETCH_BATCH_RESPONSE, CMD_FETCH_CONSUMER_GROUP_REQUEST,
+  CMD_FETCH_CONSUMER_GROUP_BATCH_REQUEST, CMD_FETCH_CONSUMER_GROUP_BATCH_RESPONSE,
+  CMD_FETCH_CONSUMER_GROUP_RESPONSE, CMD_FETCH_REQUEST, CMD_FETCH_RESPONSE,
   CMD_GET_CONSUMER_GROUP_ASSIGNMENT_REQUEST, CMD_GET_CONSUMER_GROUP_ASSIGNMENT_RESPONSE,
   CMD_HANDSHAKE_REQUEST, CMD_HANDSHAKE_RESPONSE, CMD_HEARTBEAT_CONSUMER_GROUP_REQUEST,
   CMD_HEARTBEAT_CONSUMER_GROUP_RESPONSE, CMD_JOIN_CONSUMER_GROUP_REQUEST,
@@ -16,23 +19,28 @@ use protocol::{
   CMD_PING_REQUEST, CMD_PING_RESPONSE, CMD_PRODUCE_BATCH_REQUEST, CMD_PRODUCE_BATCH_RESPONSE,
   CMD_PRODUCE_REQUEST, CMD_PRODUCE_RESPONSE, CMD_REBALANCE_CONSUMER_GROUP_REQUEST,
   CMD_REBALANCE_CONSUMER_GROUP_RESPONSE, CMD_SEND_DIRECT_REQUEST, CMD_SEND_DIRECT_RESPONSE,
-  CommitOffsetRequest, CommitOffsetResponse, ConsumerGroupAssignment, ConsumerGroupMemberLease,
+  CommitConsumerGroupOffsetRequest, CommitConsumerGroupOffsetResponse, CommitOffsetRequest,
+  CommitOffsetResponse, ConsumerGroupAssignment, ConsumerGroupMemberLease,
   CreateTopicRequest, CreateTopicResponse, DirectMessageRecord, ErrorResponse, FetchBatchRequest,
-  FetchBatchResponse, FetchInboxRequest, FetchInboxResponse, FetchRecord, FetchRequest,
-  FetchResponse, GetConsumerGroupAssignmentRequest, GetConsumerGroupAssignmentResponse,
-  GroupPartitionAssignment, HandshakeRequest, HandshakeResponse, HeartbeatConsumerGroupRequest,
+  FetchBatchResponse, FetchConsumerGroupBatchRequest, FetchConsumerGroupBatchResponse,
+  FetchConsumerGroupRequest, FetchConsumerGroupResponse, FetchInboxRequest, FetchInboxResponse,
+  FetchRecord, FetchRequest, FetchResponse,
+  GetConsumerGroupAssignmentRequest, GetConsumerGroupAssignmentResponse, GroupPartitionAssignment,
+  HandshakeRequest, HandshakeResponse, HeartbeatConsumerGroupRequest,
   HeartbeatConsumerGroupResponse, JoinConsumerGroupRequest, JoinConsumerGroupResponse,
-  ListTopicsResponse, NackRequest, NackResponse, PingRequest, PingResponse, ProduceBatchRequest,
-  ProcessRetryRequest, ProcessRetryResponse, ProduceBatchResponse, ProduceRequest, ProduceResponse,
+  ListTopicsResponse, NackRequest, NackResponse, PingRequest, PingResponse, ProduceBatchRecord,
+  ProduceBatchRequest, ProcessRetryRequest, ProcessRetryResponse, ProduceBatchResponse,
+  ProducePartitioning, ProduceRequest, ProduceResponse,
   RebalanceConsumerGroupRequest, RebalanceConsumerGroupResponse, SendDirectRequest,
   SendDirectResponse, ScheduleDelayRequest, ScheduleDelayResponse, TopicMetadata, VERSION_1,
   decode_json, encode_json,
 };
+use store::{RecordAppend, RECORD_ATTRIBUTE_TOMBSTONE};
 use transport::Frame;
 
 use crate::{
   metrics,
-  service::{BrokerService, TopicPolicyOverrides},
+  service::{BrokerPublishPartitioning, BrokerService, TopicPolicyOverrides},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -40,6 +48,7 @@ pub struct HandlerLimits {
   pub max_payload_bytes: usize,
   pub max_batch_payload_bytes: usize,
   pub max_fetch_records: usize,
+  pub max_fetch_wait_ms: u64,
 }
 
 impl Default for HandlerLimits {
@@ -48,6 +57,7 @@ impl Default for HandlerLimits {
       max_payload_bytes: 1024 * 1024,
       max_batch_payload_bytes: 8 * 1024 * 1024,
       max_fetch_records: 1_000,
+      max_fetch_wait_ms: 5_000,
     }
   }
 }
@@ -67,6 +77,33 @@ fn handler_limits() -> HandlerLimits {
     .read()
     .map(|guard| *guard)
     .unwrap_or_default()
+}
+
+fn validate_fetch_wait_ms(
+  requested: Option<u64>,
+  max_allowed: u64,
+  operation: &str,
+) -> Result<Option<u64>, String> {
+  match requested {
+    Some(wait_ms) if wait_ms > max_allowed => Err(format!(
+      "{operation} max_wait_ms {wait_ms} exceeds limit {max_allowed}",
+    )),
+    other => Ok(other),
+  }
+}
+
+fn validate_min_records(
+  requested: Option<usize>,
+  max_allowed: usize,
+  operation: &str,
+) -> Result<Option<usize>, String> {
+  match requested {
+    Some(0) => Err(format!("{operation} min_records must be greater than zero")),
+    Some(min_records) if min_records > max_allowed => Err(format!(
+      "{operation} min_records {min_records} exceeds max available records {max_allowed}",
+    )),
+    other => Ok(other),
+  }
 }
 
 pub trait BrokerCommandHandler {
@@ -91,7 +128,7 @@ where
 {
   async fn handle_frame(&self, frame: Frame) -> io::Result<Frame> {
     metrics::record_command(frame.header.command);
-    let result = (|| -> io::Result<Frame> {
+    let result: io::Result<Frame> = async {
       if frame.header.version != VERSION_1 {
         return error_response(
           "unsupported_version",
@@ -137,6 +174,7 @@ where
                 max_message_bytes: request.max_message_bytes,
                 max_batch_bytes: request.max_batch_bytes,
                 retention_ms: request.retention_ms,
+                compaction_tombstone_retention_ms: request.compaction_tombstone_retention_ms,
                 retry_policy: request.retry_policy.map(wire_retry_policy),
                 dead_letter_topic: request.dead_letter_topic,
                 delay_enabled: request.delay_enabled,
@@ -165,12 +203,21 @@ where
               ),
             );
           }
-          let (offset, next_offset) = self
-            .publish(request.topic, request.partition, request.payload)
+          let partitioning = wire_partitioning(request.partitioning, request.partition)
+            .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?;
+          let (partition, offset, next_offset) = self
+            .publish_with_partitioning(
+              request.topic,
+              partitioning,
+              request.key,
+              request.tombstone,
+              request.payload,
+            )
             .map_err(to_io_error)?;
           ok_response(
             CMD_PRODUCE_RESPONSE,
             &ProduceResponse {
+              partition,
               offset,
               next_offset,
             },
@@ -178,17 +225,29 @@ where
         }
         CMD_PRODUCE_BATCH_REQUEST => {
           let request: ProduceBatchRequest = decode_request(&frame)?;
-          if request.payloads.is_empty() {
+          if request.payloads.is_empty() == request.records.is_empty() {
             return error_response(
               "invalid_request",
-              "produce_batch payloads must not be empty",
+              "produce_batch must provide exactly one of payloads or records",
             );
           }
           let limits = handler_limits();
-          let total_payload_bytes = request
-            .payloads
+          let batch_records = if !request.records.is_empty() {
+            request.records
+          } else {
+            request
+              .payloads
+              .into_iter()
+              .map(|payload| ProduceBatchRecord {
+                key: None,
+                tombstone: false,
+                payload,
+              })
+              .collect::<Vec<_>>()
+          };
+          let total_payload_bytes = batch_records
             .iter()
-            .try_fold(0usize, |acc, payload| acc.checked_add(payload.len()))
+            .try_fold(0usize, |acc, record| acc.checked_add(record.payload.len()))
             .unwrap_or(usize::MAX);
           if total_payload_bytes > limits.max_batch_payload_bytes {
             return error_response(
@@ -200,29 +259,36 @@ where
               ),
             );
           }
-          if let Some((idx, payload)) = request
-            .payloads
+          if let Some((idx, record)) = batch_records
             .iter()
             .enumerate()
-            .find(|(_, payload)| payload.len() > limits.max_payload_bytes)
+            .find(|(_, record)| record.payload.len() > limits.max_payload_bytes)
           {
             return error_response(
               "payload_too_large",
               format!(
                 "produce_batch payload at index {} size {} exceeds max_payload_bytes {}",
                 idx,
-                payload.len(),
+                record.payload.len(),
                 limits.max_payload_bytes
               ),
             );
           }
-          let appended = request.payloads.len();
-          let (base_offset, last_offset, next_offset) = self
-            .publish_batch(request.topic, request.partition, request.payloads)
+          let appended = batch_records.len();
+          let appends = batch_records
+            .into_iter()
+            .map(record_append_from_wire)
+            .collect::<store::Result<Vec<_>>>()
+            .map_err(to_io_error)?;
+          let partitioning = wire_partitioning(request.partitioning, request.partition)
+            .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?;
+          let (partition, base_offset, last_offset, next_offset) = self
+            .publish_batch_records_with_partitioning(request.topic, partitioning, appends)
             .map_err(to_io_error)?;
           ok_response(
             CMD_PRODUCE_BATCH_RESPONSE,
             &ProduceBatchResponse {
+              partition,
               base_offset,
               last_offset,
               next_offset,
@@ -242,14 +308,30 @@ where
               ),
             );
           }
+          let max_wait_ms = match validate_fetch_wait_ms(
+            request.max_wait_ms,
+            limits.max_fetch_wait_ms,
+            "fetch",
+          ) {
+            Ok(value) => value,
+            Err(message) => return error_response("fetch_wait_exceeded", message),
+          };
+          let min_records =
+            match validate_min_records(request.min_records, request.max_records, "fetch") {
+              Ok(value) => value,
+              Err(message) => return error_response("invalid_request", message),
+            };
           let fetched = self
-            .fetch(
+            .fetch_long_poll(
               &request.consumer,
               request.topic,
               request.partition,
               request.offset,
               request.max_records,
+              min_records,
+              max_wait_ms,
             )
+            .await
             .map_err(to_io_error)?;
           ok_response(
             CMD_FETCH_RESPONSE,
@@ -262,6 +344,74 @@ where
                 .map(|record| FetchRecord {
                   offset: record.offset,
                   timestamp_ms: record.timestamp_ms,
+                  key: record.key,
+                  tombstone: record.tombstone,
+                  payload: record.payload,
+                })
+                .collect(),
+              next_offset: fetched.next_offset,
+              high_watermark: fetched.high_watermark,
+            },
+          )
+        }
+        CMD_FETCH_CONSUMER_GROUP_REQUEST => {
+          let request: FetchConsumerGroupRequest = decode_request(&frame)?;
+          let limits = handler_limits();
+          if request.max_records > limits.max_fetch_records {
+            return error_response(
+              "fetch_limit_exceeded",
+              format!(
+                "fetch_consumer_group max_records {} exceeds limit {}",
+                request.max_records, limits.max_fetch_records
+              ),
+            );
+          }
+          let max_wait_ms = match validate_fetch_wait_ms(
+            request.max_wait_ms,
+            limits.max_fetch_wait_ms,
+            "fetch_consumer_group",
+          ) {
+            Ok(value) => value,
+            Err(message) => return error_response("fetch_wait_exceeded", message),
+          };
+          let min_records = match validate_min_records(
+            request.min_records,
+            request.max_records,
+            "fetch_consumer_group",
+          ) {
+            Ok(value) => value,
+            Err(message) => return error_response("invalid_request", message),
+          };
+          let fetched = self
+            .fetch_consumer_group_long_poll(
+              &request.group,
+              &request.member_id,
+              request.generation,
+              request.topic,
+              request.partition,
+              request.offset,
+              request.max_records,
+              min_records,
+              max_wait_ms,
+            )
+            .await
+            .map_err(to_io_error)?;
+          ok_response(
+            CMD_FETCH_CONSUMER_GROUP_RESPONSE,
+            &FetchConsumerGroupResponse {
+              group: request.group,
+              member_id: request.member_id,
+              generation: request.generation,
+              topic: fetched.topic,
+              partition: fetched.partition,
+              records: fetched
+                .records
+                .into_iter()
+                .map(|record| FetchRecord {
+                  offset: record.offset,
+                  timestamp_ms: record.timestamp_ms,
+                  key: record.key,
+                  tombstone: record.tombstone,
                   payload: record.payload,
                 })
                 .collect(),
@@ -292,18 +442,42 @@ where
               ),
             );
           }
-          let mut items = Vec::with_capacity(request.items.len());
-          for item in request.items {
-            let fetched = self
-              .fetch(
-                &request.consumer,
-                item.topic,
-                item.partition,
-                item.offset,
-                item.max_records,
-              )
-              .map_err(to_io_error)?;
-            items.push(protocol::FetchBatchItemResponse {
+          let max_wait_ms = match validate_fetch_wait_ms(
+            request.max_wait_ms,
+            limits.max_fetch_wait_ms,
+            "fetch_batch",
+          ) {
+            Ok(value) => value,
+            Err(message) => return error_response("fetch_wait_exceeded", message),
+          };
+          let max_batch_records = request
+            .items
+            .iter()
+            .map(|item| item.max_records)
+            .sum::<usize>();
+          let min_records = match validate_min_records(
+            request.min_records,
+            max_batch_records,
+            "fetch_batch",
+          ) {
+            Ok(value) => value,
+            Err(message) => return error_response("invalid_request", message),
+          };
+          let items = self
+            .fetch_batch_long_poll(
+              &request.consumer,
+              request
+                .items
+                .into_iter()
+                .map(|item| (item.topic, item.partition, item.offset, item.max_records))
+                .collect(),
+              min_records,
+              max_wait_ms,
+            )
+            .await
+            .map_err(to_io_error)?
+            .into_iter()
+            .map(|fetched| protocol::FetchBatchItemResponse {
               topic: fetched.topic,
               partition: fetched.partition,
               records: fetched
@@ -312,14 +486,106 @@ where
                 .map(|record| FetchRecord {
                   offset: record.offset,
                   timestamp_ms: record.timestamp_ms,
+                  key: record.key,
+                  tombstone: record.tombstone,
                   payload: record.payload,
                 })
                 .collect(),
               next_offset: fetched.next_offset,
               high_watermark: fetched.high_watermark,
-            });
-          }
+            })
+            .collect();
           ok_response(CMD_FETCH_BATCH_RESPONSE, &FetchBatchResponse { items })
+        }
+        CMD_FETCH_CONSUMER_GROUP_BATCH_REQUEST => {
+          let request: FetchConsumerGroupBatchRequest = decode_request(&frame)?;
+          if request.items.is_empty() {
+            return error_response(
+              "invalid_request",
+              "fetch_consumer_group_batch items must not be empty",
+            );
+          }
+          let limits = handler_limits();
+          if let Some((idx, item)) = request
+            .items
+            .iter()
+            .enumerate()
+            .find(|(_, item)| item.max_records > limits.max_fetch_records)
+          {
+            return error_response(
+              "fetch_limit_exceeded",
+              format!(
+                "fetch_consumer_group_batch item {} max_records {} exceeds limit {}",
+                idx,
+                item.max_records,
+                limits.max_fetch_records
+              ),
+            );
+          }
+          let max_wait_ms = match validate_fetch_wait_ms(
+            request.max_wait_ms,
+            limits.max_fetch_wait_ms,
+            "fetch_consumer_group_batch",
+          ) {
+            Ok(value) => value,
+            Err(message) => return error_response("fetch_wait_exceeded", message),
+          };
+          let max_batch_records = request
+            .items
+            .iter()
+            .map(|item| item.max_records)
+            .sum::<usize>();
+          let min_records = match validate_min_records(
+            request.min_records,
+            max_batch_records,
+            "fetch_consumer_group_batch",
+          ) {
+            Ok(value) => value,
+            Err(message) => return error_response("invalid_request", message),
+          };
+          let fetched_items = self
+            .fetch_consumer_group_batch_long_poll(
+              &request.group,
+              &request.member_id,
+              request.generation,
+              request
+                .items
+                .into_iter()
+                .map(|item| (item.topic, item.partition, item.offset, item.max_records))
+                .collect(),
+              min_records,
+              max_wait_ms,
+            )
+            .await
+            .map_err(to_io_error)?;
+          ok_response(
+            CMD_FETCH_CONSUMER_GROUP_BATCH_RESPONSE,
+            &FetchConsumerGroupBatchResponse {
+              group: request.group,
+              member_id: request.member_id,
+              generation: request.generation,
+              items: fetched_items
+                .into_iter()
+                .map(|fetched| protocol::FetchConsumerGroupBatchItemResponse {
+                  topic: fetched.topic,
+                  partition: fetched.partition,
+                  records: fetched
+                    .records
+                    .into_iter()
+                    .map(|record| FetchRecord {
+                      offset: record.offset,
+                      timestamp_ms: record.timestamp_ms,
+                      key: record.key,
+                      tombstone: record.tombstone,
+                      payload: record.payload,
+                    })
+                    .collect(),
+                  next_offset: fetched.next_offset,
+                  high_watermark: fetched.high_watermark,
+                })
+                .collect(),
+            },
+          )
         }
         CMD_COMMIT_OFFSET_REQUEST => {
           let request: CommitOffsetRequest = decode_request(&frame)?;
@@ -335,6 +601,30 @@ where
             CMD_COMMIT_OFFSET_RESPONSE,
             &CommitOffsetResponse {
               consumer: request.consumer,
+              topic: request.topic,
+              partition: request.partition,
+              next_offset: request.next_offset,
+            },
+          )
+        }
+        CMD_COMMIT_CONSUMER_GROUP_OFFSET_REQUEST => {
+          let request: CommitConsumerGroupOffsetRequest = decode_request(&frame)?;
+          self
+            .commit_consumer_group_offset(
+              &request.group,
+              &request.member_id,
+              request.generation,
+              request.topic.clone(),
+              request.partition,
+              request.next_offset,
+            )
+            .map_err(to_io_error)?;
+          ok_response(
+            CMD_COMMIT_CONSUMER_GROUP_OFFSET_RESPONSE,
+            &CommitConsumerGroupOffsetResponse {
+              group: request.group,
+              member_id: request.member_id,
+              generation: request.generation,
               topic: request.topic,
               partition: request.partition,
               next_offset: request.next_offset,
@@ -571,7 +861,8 @@ where
         }
         command => error_response("unknown_command", format!("unknown command id {command}")),
       }
-    })();
+    }
+    .await;
 
     match result {
       Ok(frame) => Ok(frame),
@@ -647,6 +938,22 @@ fn store_error_code(err: &store::StoreError) -> &'static str {
     store::StoreError::TopicNotFound(_) => "topic_not_found",
     store::StoreError::PartitionNotFound { .. } => "partition_not_found",
     store::StoreError::InvalidOffset { .. } => "invalid_offset",
+    store::StoreError::Codec(message)
+      if message.starts_with("consumer group member not found")
+        || message.starts_with("consumer group assignment not found") =>
+    {
+      "consumer_group_not_ready"
+    }
+    store::StoreError::Codec(message)
+      if message.starts_with("consumer group generation mismatch") =>
+    {
+      "consumer_group_generation_mismatch"
+    }
+    store::StoreError::Codec(message)
+      if message.starts_with("partition not assigned to consumer group member") =>
+    {
+      "consumer_group_not_assigned"
+    }
     store::StoreError::TopicUnavailable { .. } => "topic_unavailable",
     store::StoreError::NotLeader { .. } => "not_leader",
     store::StoreError::Unsupported(_) => "unsupported_operation",
@@ -706,6 +1013,40 @@ fn wire_retry_policy(policy: protocol::TopicRetryPolicy) -> store::TopicRetryPol
     max_attempts: policy.max_attempts,
     backoff_initial_ms: policy.backoff_initial_ms,
     backoff_max_ms: policy.backoff_max_ms,
+  }
+}
+
+fn record_append_from_wire(record: ProduceBatchRecord) -> store::Result<RecordAppend> {
+  let mut append = RecordAppend::new(record.payload);
+  append.key = record.key.map(Into::into);
+  if record.tombstone {
+    append.attributes |= RECORD_ATTRIBUTE_TOMBSTONE;
+  }
+  Ok(append)
+}
+
+fn wire_partitioning(
+  partitioning: ProducePartitioning,
+  partition: Option<u32>,
+) -> std::result::Result<BrokerPublishPartitioning, String> {
+  match partitioning {
+    ProducePartitioning::Explicit => partition
+      .map(BrokerPublishPartitioning::Explicit)
+      .ok_or_else(|| "explicit partitioning requires partition".to_owned()),
+    ProducePartitioning::RoundRobin => {
+      if partition.is_some() {
+        Err("round_robin partitioning must omit partition".to_owned())
+      } else {
+        Ok(BrokerPublishPartitioning::RoundRobin)
+      }
+    }
+    ProducePartitioning::KeyHash => {
+      if partition.is_some() {
+        Err("key_hash partitioning must omit partition".to_owned())
+      } else {
+        Ok(BrokerPublishPartitioning::KeyHash)
+      }
+    }
   }
 }
 

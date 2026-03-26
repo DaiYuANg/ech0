@@ -43,7 +43,25 @@ where
         let state = self.log_store.local_partition_state(&topic_partition)?;
         self.state_store.save_local_partition_state(&state)?;
         Ok(ApplyResult::Appended {
+          records: vec![appended.clone()],
           next_offset: appended.offset + 1,
+        })
+      }
+      LocalPartitionCommand::AppendBatch {
+        topic_partition,
+        records,
+      } => {
+        let appended = self
+          .log_store
+          .append_records_batch(&topic_partition, records)?;
+        let next_offset = appended.last().map(|record| record.offset + 1).ok_or_else(|| {
+          StoreError::Codec("records must not be empty for batch append".to_owned())
+        })?;
+        let state = self.log_store.local_partition_state(&topic_partition)?;
+        self.state_store.save_local_partition_state(&state)?;
+        Ok(ApplyResult::Appended {
+          records: appended,
+          next_offset,
         })
       }
       LocalPartitionCommand::Truncate {

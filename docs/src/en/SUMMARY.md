@@ -6,4 +6,5 @@
 - [Core Request Flow](./request-flow.md)
 - [Storage Design](./storage.md)
 - [Runtime Modes and Consistency](./runtime-modes.md)
+- [Broker Design and Implementation](./broker-design.md)
 - [Operations and Observability](./operations.md)

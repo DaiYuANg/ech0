@@ -133,12 +133,14 @@ impl SegmentLog {
       log_path,
       index_path,
       next_write_pos: 0,
+      first_timestamp_ms: None,
+      last_timestamp_ms: None,
       last_offset: None,
       last_indexed_pos: 0,
     })
   }
 
-  fn recover_segment(
+  pub(super) fn recover_segment(
     &self,
     base_offset: u64,
     log_path: PathBuf,
@@ -153,6 +155,8 @@ impl SegmentLog {
       log_path,
       index_path,
       next_write_pos: scan.valid_len,
+      first_timestamp_ms: scan.first_timestamp_ms,
+      last_timestamp_ms: scan.last_timestamp_ms,
       last_offset: scan.last_offset,
       last_indexed_pos,
     })
@@ -161,6 +165,8 @@ impl SegmentLog {
   fn scan_segment_and_repair_tail(log_path: &Path) -> Result<RecoveryScanState> {
     let mut file = OpenOptions::new().read(true).write(true).open(log_path)?;
     let mut valid_len = 0u64;
+    let mut first_timestamp_ms = None;
+    let mut last_timestamp_ms = None;
     let mut last_offset = None;
 
     loop {
@@ -168,6 +174,10 @@ impl SegmentLog {
       match Self::read_record_from_file(&mut file)? {
         Ok((record, record_len)) => {
           valid_len += record_len as u64;
+          if first_timestamp_ms.is_none() {
+            first_timestamp_ms = Some(record.timestamp_ms);
+          }
+          last_timestamp_ms = Some(record.timestamp_ms);
           last_offset = Some(record.offset);
         }
         Err(ReadRecordOutcome::EndOfFile) => break,
@@ -181,6 +191,8 @@ impl SegmentLog {
 
     Ok(RecoveryScanState {
       valid_len,
+      first_timestamp_ms,
+      last_timestamp_ms,
       last_offset,
     })
   }

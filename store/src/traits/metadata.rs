@@ -48,4 +48,5 @@ pub trait ConsumerGroupStore: Send + Sync {
   fn delete_expired_group_members(&self, now_ms: u64) -> Result<usize>;
   fn save_group_assignment(&self, assignment: &ConsumerGroupAssignment) -> Result<()>;
   fn load_group_assignment(&self, group: &str) -> Result<Option<ConsumerGroupAssignment>>;
+  fn list_group_assignments(&self) -> Result<Vec<ConsumerGroupAssignment>>;
 }

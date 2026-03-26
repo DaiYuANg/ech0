@@ -143,10 +143,13 @@ fn replicated_entry_payload_round_trip_and_apply() {
   let applied = adapter.apply_replicated_entry(decoded.envelope).unwrap();
 
   assert_eq!(applied.topic_partition, tp);
-  assert_eq!(
+  assert!(matches!(
     applied.result,
-    store::ApplyResult::Appended { next_offset: 1 }
-  );
+    store::ApplyResult::Appended {
+      next_offset: 1,
+      records
+    } if records.len() == 1 && records[0].offset == 0 && records[0].payload.as_ref() == b"hello"
+  ));
 }
 
 #[test]
@@ -172,7 +175,13 @@ fn single_node_runtime_applies_real_client_writes() {
   .unwrap();
 
   let applied = runtime.apply_partition(envelope).unwrap();
-  assert_eq!(applied, ApplyResult::Appended { next_offset: 1 });
+  assert!(matches!(
+    applied,
+    ApplyResult::Appended {
+      next_offset: 1,
+      records
+    } if records.len() == 1 && records[0].offset == 0 && records[0].payload.as_ref() == b"hello"
+  ));
   assert_eq!(log.read_from(&tp, 0, 10).unwrap().len(), 1);
 
   runtime.save_consumer_offset("c1", &tp, 1).unwrap();
@@ -202,7 +211,13 @@ async fn single_node_runtime_can_be_initialized_inside_tokio_runtime() {
   .unwrap();
 
   let applied = runtime.apply_partition(envelope).unwrap();
-  assert_eq!(applied, ApplyResult::Appended { next_offset: 1 });
+  assert!(matches!(
+    applied,
+    ApplyResult::Appended {
+      next_offset: 1,
+      records
+    } if records.len() == 1 && records[0].offset == 0 && records[0].payload.as_ref() == b"hello"
+  ));
   assert_eq!(log.read_from(&tp, 0, 10).unwrap().len(), 1);
 }
 

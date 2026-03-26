@@ -29,6 +29,9 @@ pub fn apply_cli_overrides(app: &mut AppConfig, args: &Args) {
   if let Some(max_fetch_records) = args.max_fetch_records {
     app.broker.max_fetch_records = max_fetch_records;
   }
+  if let Some(max_fetch_wait_ms) = args.max_fetch_wait_ms {
+    app.broker.max_fetch_wait_ms = max_fetch_wait_ms;
+  }
   if let Some(strategy) = args.group_assignment_strategy {
     app.broker.group_assignment_strategy = match strategy {
       GroupAssignmentStrategyArg::RoundRobin => broker::config::GroupAssignmentStrategyConfig::RoundRobin,
@@ -146,6 +149,8 @@ mod tests {
       "16777216",
       "--max-fetch-records",
       "2000",
+      "--max-fetch-wait-ms",
+      "1500",
       "--group-assignment-strategy",
       "range",
       "--group-sticky-assignments",
@@ -205,6 +210,7 @@ mod tests {
     assert_eq!(app.broker.max_payload_bytes, 2_097_152);
     assert_eq!(app.broker.max_batch_payload_bytes, 16_777_216);
     assert_eq!(app.broker.max_fetch_records, 2_000);
+    assert_eq!(app.broker.max_fetch_wait_ms, 1_500);
     assert_eq!(
       app.broker.group_assignment_strategy,
       broker::config::GroupAssignmentStrategyConfig::Range

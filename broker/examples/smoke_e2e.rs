@@ -7,7 +7,7 @@ use protocol::{
   CMD_PING_RESPONSE, CMD_PRODUCE_REQUEST, CMD_PRODUCE_RESPONSE, CommitOffsetRequest,
   CommitOffsetResponse, CreateTopicRequest, CreateTopicResponse, FetchRequest, FetchResponse,
   HandshakeRequest, HandshakeResponse, ListTopicsResponse, PingRequest, PingResponse,
-  ProduceRequest, ProduceResponse,
+  ProducePartitioning, ProduceRequest, ProduceResponse,
 };
 use tokio::net::TcpStream;
 
@@ -65,6 +65,7 @@ async fn main() -> io::Result<()> {
       dead_letter_topic: None,
       delay_enabled: None,
       compaction_enabled: None,
+      compaction_tombstone_retention_ms: None,
     },
   )
   .await?;
@@ -94,7 +95,10 @@ async fn main() -> io::Result<()> {
     CMD_PRODUCE_RESPONSE,
     &ProduceRequest {
       topic: topic.clone(),
-      partition: 0,
+      partition: Some(0),
+      partitioning: ProducePartitioning::Explicit,
+      key: None,
+      tombstone: false,
       payload: payload.clone(),
     },
   )
@@ -111,6 +115,8 @@ async fn main() -> io::Result<()> {
       partition: 0,
       offset: Some(0),
       max_records: 10,
+      min_records: None,
+      max_wait_ms: None,
     },
   )
   .await?;

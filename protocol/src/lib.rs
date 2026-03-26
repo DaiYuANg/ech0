@@ -21,6 +21,9 @@ pub const CMD_FETCH_BATCH_REQUEST: u16 = 16;
 pub const CMD_NACK_REQUEST: u16 = 17;
 pub const CMD_PROCESS_RETRY_REQUEST: u16 = 18;
 pub const CMD_SCHEDULE_DELAY_REQUEST: u16 = 19;
+pub const CMD_FETCH_CONSUMER_GROUP_REQUEST: u16 = 20;
+pub const CMD_COMMIT_CONSUMER_GROUP_OFFSET_REQUEST: u16 = 21;
+pub const CMD_FETCH_CONSUMER_GROUP_BATCH_REQUEST: u16 = 22;
 
 pub const CMD_HANDSHAKE_RESPONSE: u16 = 101;
 pub const CMD_PING_RESPONSE: u16 = 102;
@@ -41,6 +44,9 @@ pub const CMD_FETCH_BATCH_RESPONSE: u16 = 116;
 pub const CMD_NACK_RESPONSE: u16 = 117;
 pub const CMD_PROCESS_RETRY_RESPONSE: u16 = 118;
 pub const CMD_SCHEDULE_DELAY_RESPONSE: u16 = 119;
+pub const CMD_FETCH_CONSUMER_GROUP_RESPONSE: u16 = 120;
+pub const CMD_COMMIT_CONSUMER_GROUP_OFFSET_RESPONSE: u16 = 121;
+pub const CMD_FETCH_CONSUMER_GROUP_BATCH_RESPONSE: u16 = 122;
 pub const CMD_ERROR_RESPONSE: u16 = 500;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -86,6 +92,8 @@ pub struct CreateTopicRequest {
   pub delay_enabled: Option<bool>,
   #[serde(default)]
   pub compaction_enabled: Option<bool>,
+  #[serde(default)]
+  pub compaction_tombstone_retention_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -110,14 +118,29 @@ pub struct TopicRetryPolicy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProducePartitioning {
+  Explicit,
+  RoundRobin,
+  KeyHash,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProduceRequest {
   pub topic: String,
-  pub partition: u32,
+  #[serde(default)]
+  pub partition: Option<u32>,
+  pub partitioning: ProducePartitioning,
+  #[serde(default)]
+  pub key: Option<Vec<u8>>,
+  #[serde(default)]
+  pub tombstone: bool,
   pub payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProduceResponse {
+  pub partition: u32,
   /// Offset of the appended record (record ID, inclusive).
   pub offset: u64,
   /// Next offset cursor after this append (`offset + 1`).
@@ -125,14 +148,29 @@ pub struct ProduceResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProduceBatchRecord {
+  #[serde(default)]
+  pub key: Option<Vec<u8>>,
+  #[serde(default)]
+  pub tombstone: bool,
+  pub payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProduceBatchRequest {
   pub topic: String,
-  pub partition: u32,
+  #[serde(default)]
+  pub partition: Option<u32>,
+  pub partitioning: ProducePartitioning,
+  #[serde(default)]
   pub payloads: Vec<Vec<u8>>,
+  #[serde(default)]
+  pub records: Vec<ProduceBatchRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProduceBatchResponse {
+  pub partition: u32,
   /// Offset of the first appended record (inclusive).
   pub base_offset: u64,
   /// Offset of the last appended record (inclusive).
@@ -150,6 +188,10 @@ pub struct FetchRequest {
   /// Inclusive fetch start offset. When omitted, server uses committed `next_offset`.
   pub offset: Option<u64>,
   pub max_records: usize,
+  #[serde(default)]
+  pub min_records: Option<usize>,
+  #[serde(default)]
+  pub max_wait_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -157,11 +199,46 @@ pub struct FetchRecord {
   /// Record offset (record ID, inclusive).
   pub offset: u64,
   pub timestamp_ms: u64,
+  #[serde(default)]
+  pub key: Option<Vec<u8>>,
+  #[serde(default)]
+  pub tombstone: bool,
   pub payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FetchResponse {
+  pub topic: String,
+  pub partition: u32,
+  pub records: Vec<FetchRecord>,
+  /// Cursor to use for the next fetch.
+  /// If records are returned: `last_record.offset + 1`; otherwise request offset.
+  pub next_offset: u64,
+  /// Largest committed and visible offset (inclusive). `None` means no visible records.
+  pub high_watermark: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchConsumerGroupRequest {
+  pub group: String,
+  pub member_id: String,
+  pub generation: u64,
+  pub topic: String,
+  pub partition: u32,
+  /// Inclusive fetch start offset. When omitted, server uses committed group `next_offset`.
+  pub offset: Option<u64>,
+  pub max_records: usize,
+  #[serde(default)]
+  pub min_records: Option<usize>,
+  #[serde(default)]
+  pub max_wait_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchConsumerGroupResponse {
+  pub group: String,
+  pub member_id: String,
+  pub generation: u64,
   pub topic: String,
   pub partition: u32,
   pub records: Vec<FetchRecord>,
@@ -186,6 +263,10 @@ pub struct FetchBatchItemRequest {
 pub struct FetchBatchRequest {
   pub consumer: String,
   pub items: Vec<FetchBatchItemRequest>,
+  #[serde(default)]
+  pub min_records: Option<usize>,
+  #[serde(default)]
+  pub max_wait_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -205,6 +286,37 @@ pub struct FetchBatchResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchConsumerGroupBatchRequest {
+  pub group: String,
+  pub member_id: String,
+  pub generation: u64,
+  pub items: Vec<FetchBatchItemRequest>,
+  #[serde(default)]
+  pub min_records: Option<usize>,
+  #[serde(default)]
+  pub max_wait_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchConsumerGroupBatchItemResponse {
+  pub topic: String,
+  pub partition: u32,
+  pub records: Vec<FetchRecord>,
+  /// Cursor to use for the next fetch of this item.
+  pub next_offset: u64,
+  /// Largest committed and visible offset for this item (inclusive).
+  pub high_watermark: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchConsumerGroupBatchResponse {
+  pub group: String,
+  pub member_id: String,
+  pub generation: u64,
+  pub items: Vec<FetchConsumerGroupBatchItemResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitOffsetRequest {
   pub consumer: String,
   pub topic: String,
@@ -216,6 +328,28 @@ pub struct CommitOffsetRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitOffsetResponse {
   pub consumer: String,
+  pub topic: String,
+  pub partition: u32,
+  /// Echoed committed cursor ("next to consume").
+  pub next_offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CommitConsumerGroupOffsetRequest {
+  pub group: String,
+  pub member_id: String,
+  pub generation: u64,
+  pub topic: String,
+  pub partition: u32,
+  /// Group cursor to persist. This is "next to consume", not "last consumed".
+  pub next_offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CommitConsumerGroupOffsetResponse {
+  pub group: String,
+  pub member_id: String,
+  pub generation: u64,
   pub topic: String,
   pub partition: u32,
   /// Echoed committed cursor ("next to consume").
@@ -483,6 +617,9 @@ mod tests {
       CMD_NACK_REQUEST,
       CMD_PROCESS_RETRY_REQUEST,
       CMD_SCHEDULE_DELAY_REQUEST,
+      CMD_FETCH_CONSUMER_GROUP_REQUEST,
+      CMD_COMMIT_CONSUMER_GROUP_OFFSET_REQUEST,
+      CMD_FETCH_CONSUMER_GROUP_BATCH_REQUEST,
       CMD_HANDSHAKE_RESPONSE,
       CMD_PING_RESPONSE,
       CMD_CREATE_TOPIC_RESPONSE,
@@ -502,6 +639,9 @@ mod tests {
       CMD_NACK_RESPONSE,
       CMD_PROCESS_RETRY_RESPONSE,
       CMD_SCHEDULE_DELAY_RESPONSE,
+      CMD_FETCH_CONSUMER_GROUP_RESPONSE,
+      CMD_COMMIT_CONSUMER_GROUP_OFFSET_RESPONSE,
+      CMD_FETCH_CONSUMER_GROUP_BATCH_RESPONSE,
       CMD_ERROR_RESPONSE,
     ];
 

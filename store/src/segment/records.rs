@@ -218,6 +218,9 @@ impl SegmentLog {
   }
 
   fn find_read_position(segment: &SegmentDescriptor, offset: u64) -> Result<u64> {
+    if offset <= segment.base_offset {
+      return Ok(0);
+    }
     if !segment.index_path.exists() {
       return Ok(0);
     }

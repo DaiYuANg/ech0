@@ -345,4 +345,33 @@ mod tests {
     assert_eq!(topics.len(), 1);
     assert!(topics[0].name.starts_with(INTERNAL_INBOX_TOPIC_PREFIX));
   }
+
+  #[test]
+  fn two_recipients_can_exchange_messages_independently() {
+    let log = InMemoryStore::new();
+    let meta = InMemoryStore::new();
+    let runtime = DirectRuntime::new(log, meta);
+
+    runtime
+      .send("alice", "bob", None, b"hello-bob".to_vec())
+      .unwrap();
+    runtime
+      .send("bob", "alice", None, b"hello-alice".to_vec())
+      .unwrap();
+
+    let bob_inbox = runtime.fetch_inbox("bob", 10).unwrap();
+    assert_eq!(bob_inbox.records.len(), 1);
+    assert_eq!(bob_inbox.records[0].message.sender, "alice");
+    assert_eq!(bob_inbox.records[0].message.payload, b"hello-bob".to_vec());
+    runtime.ack_inbox("bob", bob_inbox.next_offset).unwrap();
+
+    let alice_inbox = runtime.fetch_inbox("alice", 10).unwrap();
+    assert_eq!(alice_inbox.records.len(), 1);
+    assert_eq!(alice_inbox.records[0].message.sender, "bob");
+    assert_eq!(alice_inbox.records[0].message.payload, b"hello-alice".to_vec());
+    runtime.ack_inbox("alice", alice_inbox.next_offset).unwrap();
+
+    assert!(runtime.fetch_inbox("alice", 10).unwrap().records.is_empty());
+    assert!(runtime.fetch_inbox("bob", 10).unwrap().records.is_empty());
+  }
 }

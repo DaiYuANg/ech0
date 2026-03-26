@@ -2,16 +2,15 @@
 title = "ech0 Architecture Book"
 authors = ["ech0 contributors"]
 language = "zh-CN"
-multilingual = true
 src = "src"
 
-[language.zh-CN]
-name = "简体中文"
-title = "ech0 架构文档"
-
-[language.en]
-name = "English"
-title = "ech0 Architecture Book"
+#[language.zh-CN]
+#name = "简体中文"
+#title = "ech0 架构文档"
+#
+#[language.en]
+#name = "English"
+#title = "ech0 Architecture Book"
 
 [build]
 build-dir = "book"

@@ -18,7 +18,10 @@ use crc32fast::Hasher;
 
 use crate::{
   Result, StoreError,
-  model::{LocalPartitionState, Record, TopicConfig, TopicPartition, TopicValidationIssue, now_ms},
+  model::{
+    LocalPartitionState, Record, TopicCleanupPolicy, TopicConfig, TopicPartition,
+    TopicValidationIssue, now_ms,
+  },
   traits::{MessageLogStore, MutablePartitionLogStore, TopicCatalogStore},
 };
 
@@ -42,6 +45,8 @@ pub struct SegmentLogOptions {
   pub default_index_interval_bytes: u64,
   /// Write checkpoint to disk every N appends. 1 = every append (original behavior).
   pub checkpoint_interval: u64,
+  /// Maximum number of sealed segments compacted in a single incremental compaction pass.
+  pub compaction_sealed_segment_batch: usize,
 }
 
 impl SegmentLogOptions {
@@ -51,6 +56,7 @@ impl SegmentLogOptions {
       default_segment_max_bytes: 16 * 1024 * 1024,
       default_index_interval_bytes: 4 * 1024,
       checkpoint_interval: DEFAULT_CHECKPOINT_INTERVAL,
+      compaction_sealed_segment_batch: 2,
     }
   }
 }
@@ -61,6 +67,8 @@ struct SegmentDescriptor {
   log_path: PathBuf,
   index_path: PathBuf,
   next_write_pos: u64,
+  first_timestamp_ms: Option<u64>,
+  last_timestamp_ms: Option<u64>,
   last_offset: Option<u64>,
   last_indexed_pos: u64,
 }
@@ -89,6 +97,8 @@ enum ReadRecordOutcome {
 #[derive(Debug, Clone, Copy)]
 struct RecoveryScanState {
   valid_len: u64,
+  first_timestamp_ms: Option<u64>,
+  last_timestamp_ms: Option<u64>,
   last_offset: Option<u64>,
 }
 

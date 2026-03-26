@@ -10,15 +10,29 @@ pub trait MessageLogStore: Send + Sync {
     self.append_record(topic_partition, RecordAppend::new(payload.to_vec()))
   }
   fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record>;
+  fn append_records_batch(
+    &self,
+    topic_partition: &TopicPartition,
+    records: Vec<RecordAppend>,
+  ) -> Result<Vec<Record>> {
+    records
+      .into_iter()
+      .map(|record| self.append_record(topic_partition, record))
+      .collect()
+  }
   fn append_batch(
     &self,
     topic_partition: &TopicPartition,
     payloads: &[Vec<u8>],
   ) -> Result<Vec<Record>> {
-    payloads
-      .iter()
-      .map(|p| self.append(topic_partition, p.as_slice()))
-      .collect()
+    self.append_records_batch(
+      topic_partition,
+      payloads
+        .iter()
+        .cloned()
+        .map(RecordAppend::new)
+        .collect::<Vec<_>>(),
+    )
   }
   fn read_from(
     &self,

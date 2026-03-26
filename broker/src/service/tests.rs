@@ -7,7 +7,7 @@ use store::{
 };
 
 use super::{
-  BrokerIdentity, BrokerRuntimeMode, BrokerService, GroupAssignmentStrategy,
+  BrokerIdentity, BrokerPublishPartitioning, BrokerRuntimeMode, BrokerService, GroupAssignmentStrategy,
   GroupCoordinatorOptions, TopicPolicyOverrides,
 };
 
@@ -323,6 +323,7 @@ fn create_topic_policies_are_persisted_in_catalog() {
         max_message_bytes: Some(2 * 1024 * 1024),
         max_batch_bytes: Some(12 * 1024 * 1024),
         retention_ms: Some(86_400_000),
+        compaction_tombstone_retention_ms: Some(3_600_000),
         retry_policy: Some(TopicRetryPolicy {
           max_attempts: 8,
           backoff_initial_ms: 200,
@@ -341,6 +342,7 @@ fn create_topic_policies_are_persisted_in_catalog() {
   assert_eq!(topics[0].max_message_bytes, 2 * 1024 * 1024);
   assert_eq!(topics[0].max_batch_bytes, 12 * 1024 * 1024);
   assert_eq!(topics[0].retention_ms, Some(86_400_000));
+  assert_eq!(topics[0].compaction_tombstone_retention_ms, Some(3_600_000));
   assert_eq!(topics[0].dead_letter_topic.as_deref(), Some("orders-dlq"));
   assert!(topics[0].delay_enabled);
   assert!(topics[0].compaction_enabled);
@@ -352,6 +354,345 @@ fn create_topic_policies_are_persisted_in_catalog() {
       backoff_max_ms: 60_000,
     }
   );
+}
+
+#[test]
+fn create_topic_rejects_internal_topic_names() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  let err = service.create_topic("__retry.orders", 1).unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("reserved"));
+}
+
+#[test]
+fn create_topic_rejects_inconsistent_compaction_policy() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  let err = service
+    .create_topic_with_policies(
+      "orders",
+      1,
+      TopicPolicyOverrides {
+        cleanup_policy: Some(TopicCleanupPolicy::Compact),
+        compaction_enabled: Some(false),
+        ..TopicPolicyOverrides::default()
+      },
+    )
+    .unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("compaction_enabled"));
+}
+
+#[test]
+fn create_topic_rejects_invalid_retry_policy_bounds() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  let err = service
+    .create_topic_with_policies(
+      "orders",
+      1,
+      TopicPolicyOverrides {
+        retry_policy: Some(TopicRetryPolicy {
+          max_attempts: 3,
+          backoff_initial_ms: 5_000,
+          backoff_max_ms: 1_000,
+        }),
+        ..TopicPolicyOverrides::default()
+      },
+    )
+    .unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("backoff_initial_ms"));
+}
+
+#[test]
+fn create_topic_rejects_tombstone_retention_without_compaction() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  let err = service
+    .create_topic_with_policies(
+      "orders",
+      1,
+      TopicPolicyOverrides {
+        compaction_tombstone_retention_ms: Some(30_000),
+        ..TopicPolicyOverrides::default()
+      },
+    )
+    .unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("compaction_tombstone_retention_ms"));
+}
+
+#[test]
+fn standalone_runtime_health_reports_ok() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  let health = service.runtime_health().unwrap();
+  assert_eq!(health.status, "ok");
+  assert_eq!(health.runtime_mode, "standalone");
+  assert!(health.raft.is_none());
+}
+
+#[test]
+fn publish_with_key_round_trips_through_fetch() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  service
+    .publish_with_key("orders", 0, Some(b"customer-1".to_vec()), b"payload".to_vec())
+    .unwrap();
+
+  let fetched = service.fetch("c1", "orders", 0, Some(0), 10).unwrap();
+  assert_eq!(fetched.records.len(), 1);
+  assert_eq!(fetched.records[0].key.as_deref(), Some(&b"customer-1"[..]));
+  assert_eq!(fetched.records[0].payload, b"payload".to_vec());
+  assert!(!fetched.records[0].tombstone);
+}
+
+#[test]
+fn round_robin_partitioning_cycles_across_topic_partitions() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 3).unwrap();
+
+  let mut partitions = Vec::new();
+  for payload in [b"a".to_vec(), b"b".to_vec(), b"c".to_vec(), b"d".to_vec()] {
+    let (partition, _offset, _next_offset) = service
+      .publish_with_partitioning(
+        "orders",
+        BrokerPublishPartitioning::RoundRobin,
+        None,
+        false,
+        payload,
+      )
+      .unwrap();
+    partitions.push(partition);
+  }
+
+  assert_eq!(partitions, vec![0, 1, 2, 0]);
+}
+
+#[test]
+fn key_hash_partitioning_routes_same_key_to_same_partition() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 4).unwrap();
+  let (first_partition, first_offset, _) = service
+    .publish_with_partitioning(
+      "orders",
+      BrokerPublishPartitioning::KeyHash,
+      Some(b"customer-1".to_vec()),
+      false,
+      b"a".to_vec(),
+    )
+    .unwrap();
+  let (second_partition, second_offset, _) = service
+    .publish_with_partitioning(
+      "orders",
+      BrokerPublishPartitioning::KeyHash,
+      Some(b"customer-1".to_vec()),
+      false,
+      b"b".to_vec(),
+    )
+    .unwrap();
+
+  assert_eq!(first_partition, second_partition);
+  let fetched = service
+    .fetch("c1", "orders", first_partition, Some(first_offset), 10)
+    .unwrap();
+  assert_eq!(fetched.records.len(), 2);
+  assert_eq!(fetched.records[0].payload, b"a".to_vec());
+  assert_eq!(fetched.records[1].payload, b"b".to_vec());
+  assert_eq!(fetched.records[1].offset, second_offset);
+}
+
+#[test]
+fn key_hash_partitioning_requires_consistent_batch_keys() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 4).unwrap();
+  let mut first = store::RecordAppend::new(b"a".to_vec());
+  first.key = Some(bytes::Bytes::from_static(b"k1"));
+  let mut second = store::RecordAppend::new(b"b".to_vec());
+  second.key = Some(bytes::Bytes::from_static(b"k2"));
+
+  let err = service
+    .publish_batch_records_with_partitioning(
+      "orders",
+      BrokerPublishPartitioning::KeyHash,
+      vec![first, second],
+    )
+    .unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("same non-empty key"));
+}
+
+#[test]
+fn publish_batch_records_support_keys_and_tombstones() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  let mut record = store::RecordAppend::new(b"payload".to_vec());
+  record.key = Some(bytes::Bytes::from_static(b"k1"));
+  let mut tombstone = store::RecordAppend::new(Vec::new());
+  tombstone.key = Some(bytes::Bytes::from_static(b"k2"));
+  tombstone.attributes |= store::RECORD_ATTRIBUTE_TOMBSTONE;
+  service
+    .publish_batch_records("orders", 0, vec![record, tombstone])
+    .unwrap();
+
+  let fetched = service.fetch("c1", "orders", 0, Some(0), 10).unwrap();
+  assert_eq!(fetched.records.len(), 2);
+  assert_eq!(fetched.records[0].key.as_deref(), Some(&b"k1"[..]));
+  assert!(!fetched.records[0].tombstone);
+  assert_eq!(fetched.records[1].key.as_deref(), Some(&b"k2"[..]));
+  assert!(fetched.records[1].tombstone);
+  assert!(fetched.records[1].payload.is_empty());
+}
+
+#[test]
+fn publish_rejects_tombstone_without_key() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  let err = service
+    .publish_with_options("orders", 0, None, true, Vec::new())
+    .unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("require a non-empty key"));
+}
+
+#[test]
+fn publish_rejects_tombstone_with_payload() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  let err = service
+    .publish_with_options("orders", 0, Some(b"k1".to_vec()), true, b"value".to_vec())
+    .unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("empty payload"));
 }
 
 #[test]
@@ -569,6 +910,271 @@ fn consumer_group_rebalance_skips_unknown_topics() {
   assert!(rebalance.generation >= 1);
   assert_eq!(rebalance.assignments.len(), 2);
   assert!(rebalance.assignments.iter().all(|a| a.topic == "orders"));
+}
+
+#[test]
+fn consumer_group_fetch_and_commit_use_group_scoped_cursor() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  service.publish("orders", 0, b"a".to_vec()).unwrap();
+  service.publish("orders", 0, b"b".to_vec()).unwrap();
+  service
+    .join_consumer_group("orders-cg", "member-1", vec!["orders".to_owned()], 30_000)
+    .unwrap();
+  let assignment = service
+    .load_consumer_group_assignment("orders-cg")
+    .unwrap()
+    .expect("assignment should exist after join");
+
+  let fetched = service
+    .fetch_consumer_group(
+      "orders-cg",
+      "member-1",
+      assignment.generation,
+      "orders",
+      0,
+      None,
+      10,
+    )
+    .unwrap();
+  assert_eq!(fetched.records.len(), 2);
+  assert_eq!(fetched.records[0].offset, 0);
+  assert_eq!(fetched.records[1].offset, 1);
+
+  service
+    .commit_consumer_group_offset(
+      "orders-cg",
+      "member-1",
+      assignment.generation,
+      "orders",
+      0,
+      1,
+    )
+    .unwrap();
+
+  service
+    .join_consumer_group("orders-cg", "member-2", vec!["orders".to_owned()], 30_000)
+    .unwrap();
+  service
+    .leave_consumer_group("orders-cg", "member-1")
+    .unwrap();
+  let reassigned = service
+    .load_consumer_group_assignment("orders-cg")
+    .unwrap()
+    .expect("assignment should exist after leave");
+  assert!(
+    reassigned
+      .assignments
+      .iter()
+      .any(|item| item.member_id == "member-2" && item.topic == "orders" && item.partition == 0)
+  );
+
+  let resumed = service
+    .fetch_consumer_group(
+      "orders-cg",
+      "member-2",
+      reassigned.generation,
+      "orders",
+      0,
+      None,
+      10,
+    )
+    .unwrap();
+  assert_eq!(resumed.records.len(), 1);
+  assert_eq!(resumed.records[0].offset, 1);
+  assert_eq!(resumed.records[0].payload, b"b".to_vec());
+}
+
+#[test]
+fn consumer_group_fetch_rejects_stale_generation() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  service.publish("orders", 0, b"a".to_vec()).unwrap();
+  service
+    .join_consumer_group("orders-cg", "member-1", vec!["orders".to_owned()], 30_000)
+    .unwrap();
+  let first_generation = service
+    .load_consumer_group_assignment("orders-cg")
+    .unwrap()
+    .expect("assignment should exist after first join")
+    .generation;
+  service
+    .join_consumer_group("orders-cg", "member-2", vec!["orders".to_owned()], 30_000)
+    .unwrap();
+
+  let err = service
+    .fetch_consumer_group("orders-cg", "member-1", first_generation, "orders", 0, None, 10)
+    .unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("generation mismatch"));
+}
+
+#[test]
+fn consumer_group_fetch_batch_reads_only_assigned_partitions() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 2).unwrap();
+  service.publish("orders", 0, b"a0".to_vec()).unwrap();
+  service.publish("orders", 1, b"b0".to_vec()).unwrap();
+  service.publish("orders", 1, b"b1".to_vec()).unwrap();
+  service
+    .join_consumer_group("orders-cg", "member-1", vec!["orders".to_owned()], 30_000)
+    .unwrap();
+  let assignment = service
+    .load_consumer_group_assignment("orders-cg")
+    .unwrap()
+    .expect("assignment should exist after join");
+
+  let fetched = service
+    .fetch_consumer_group_batch(
+      "orders-cg",
+      "member-1",
+      assignment.generation,
+      vec![
+        ("orders".to_owned(), 0, None, 10),
+        ("orders".to_owned(), 1, None, 10),
+      ],
+    )
+    .unwrap();
+  assert_eq!(fetched.len(), 2);
+  assert_eq!(fetched[0].records.len(), 1);
+  assert_eq!(fetched[0].records[0].payload, b"a0".to_vec());
+  assert_eq!(fetched[1].records.len(), 2);
+  assert_eq!(fetched[1].records[0].payload, b"b0".to_vec());
+  assert_eq!(fetched[1].records[1].payload, b"b1".to_vec());
+}
+
+#[test]
+fn consumer_group_commit_rejects_unassigned_member() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  service
+    .join_consumer_group("orders-cg", "member-1", vec!["orders".to_owned()], 30_000)
+    .unwrap();
+  service
+    .join_consumer_group("orders-cg", "member-2", vec!["orders".to_owned()], 30_000)
+    .unwrap();
+  let assignment = service
+    .load_consumer_group_assignment("orders-cg")
+    .unwrap()
+    .expect("assignment should exist after joins");
+  let owner = assignment
+    .assignments
+    .iter()
+    .find(|item| item.topic == "orders" && item.partition == 0)
+    .expect("partition 0 should be assigned")
+    .member_id
+    .clone();
+  let unassigned = if owner == "member-1" {
+    "member-2"
+  } else {
+    "member-1"
+  };
+
+  let err = service
+    .commit_consumer_group_offset(
+      "orders-cg",
+      unassigned,
+      assignment.generation,
+      "orders",
+      0,
+      1,
+    )
+    .unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("not assigned"));
+}
+
+#[test]
+fn consumer_group_fetch_batch_rejects_unassigned_partition() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 2).unwrap();
+  service
+    .join_consumer_group("orders-cg", "member-1", vec!["orders".to_owned()], 30_000)
+    .unwrap();
+  service
+    .join_consumer_group("orders-cg", "member-2", vec!["orders".to_owned()], 30_000)
+    .unwrap();
+  let assignment = service
+    .load_consumer_group_assignment("orders-cg")
+    .unwrap()
+    .expect("assignment should exist after joins");
+
+  let owned_partition = assignment
+    .assignments
+    .iter()
+    .find(|item| item.member_id == "member-1")
+    .expect("member-1 should own a partition")
+    .partition;
+  let unassigned_partition = if owned_partition == 0 { 1 } else { 0 };
+
+  let err = service
+    .fetch_consumer_group_batch(
+      "orders-cg",
+      "member-1",
+      assignment.generation,
+      vec![
+        ("orders".to_owned(), owned_partition, None, 10),
+        ("orders".to_owned(), unassigned_partition, None, 10),
+      ],
+    )
+    .unwrap_err();
+  assert!(matches!(err, StoreError::Codec(_)));
+  assert!(err.to_string().contains("not assigned"));
 }
 
 #[test]

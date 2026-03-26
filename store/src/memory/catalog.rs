@@ -51,6 +51,39 @@ impl MessageLogStore for InMemoryStore {
     Ok(record)
   }
 
+  fn append_records_batch(
+    &self,
+    topic_partition: &TopicPartition,
+    records: Vec<crate::RecordAppend>,
+  ) -> Result<Vec<Record>> {
+    if records.is_empty() {
+      return Ok(Vec::new());
+    }
+
+    let mut topics = self.topics.write().expect("poisoned topics lock");
+    let entries = topics
+      .get_mut(topic_partition)
+      .ok_or_else(|| StoreError::PartitionNotFound {
+        topic: topic_partition.topic.clone(),
+        partition: topic_partition.partition,
+      })?;
+
+    let mut appended = Vec::with_capacity(records.len());
+    for record in records {
+      let record = Record {
+        offset: entries.len() as u64,
+        timestamp_ms: record.timestamp_ms.unwrap_or_else(now_ms),
+        key: record.key,
+        headers: record.headers,
+        attributes: record.attributes,
+        payload: record.payload,
+      };
+      entries.push(record.clone());
+      appended.push(record);
+    }
+    Ok(appended)
+  }
+
   fn read_from(
     &self,
     topic_partition: &TopicPartition,
@@ -288,5 +321,15 @@ impl ConsumerGroupStore for InMemoryStore {
       .read()
       .expect("poisoned consumer_group_assignments lock");
     Ok(assignments.get(group).cloned())
+  }
+
+  fn list_group_assignments(&self) -> Result<Vec<crate::ConsumerGroupAssignment>> {
+    let assignments = self
+      .consumer_group_assignments
+      .read()
+      .expect("poisoned consumer_group_assignments lock");
+    let mut values: Vec<_> = assignments.values().cloned().collect();
+    values.sort_by(|a, b| a.group.cmp(&b.group));
+    Ok(values)
   }
 }

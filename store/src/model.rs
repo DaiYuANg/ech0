@@ -2,6 +2,8 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub const RECORD_ATTRIBUTE_TOMBSTONE: u16 = 1 << 1;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TopicPartition {
   pub topic: String,
@@ -41,6 +43,8 @@ pub struct TopicConfig {
   pub delay_enabled: bool,
   #[serde(default)]
   pub compaction_enabled: bool,
+  #[serde(default)]
+  pub compaction_tombstone_retention_ms: Option<u64>,
 }
 
 impl TopicConfig {
@@ -59,6 +63,7 @@ impl TopicConfig {
       dead_letter_topic: None,
       delay_enabled: false,
       compaction_enabled: false,
+      compaction_tombstone_retention_ms: None,
     }
   }
 
@@ -120,7 +125,7 @@ fn default_retry_backoff_max_ms() -> u64 {
   30_000
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Record {
   pub offset: u64,
   pub timestamp_ms: u64,
@@ -140,6 +145,10 @@ impl Record {
       attributes: 0,
       payload: payload.into(),
     }
+  }
+
+  pub fn is_tombstone(&self) -> bool {
+    (self.attributes & RECORD_ATTRIBUTE_TOMBSTONE) != 0
   }
 }
 
@@ -167,6 +176,10 @@ impl RecordAppend {
       attributes: 0,
       payload: payload.into(),
     }
+  }
+
+  pub fn is_tombstone(&self) -> bool {
+    (self.attributes & RECORD_ATTRIBUTE_TOMBSTONE) != 0
   }
 }
 
