@@ -13,8 +13,8 @@ use openraft::{
 use store::RedbMetadataStore;
 use store::{
   ApplyResult, CommandSource, InMemoryStore, LocalPartitionCommand, LocalPartitionCommandExecutor,
-  LocalPartitionStateMachine, MessageLogStore, OffsetStore, PartitionCommandEnvelope, TopicConfig,
-  TopicPartition,
+  LocalPartitionStateMachine, MessageLogStore, OffsetStore, PartitionCommandEnvelope, RecordAppend,
+  TopicConfig, TopicPartition,
 };
 
 use super::{
@@ -130,7 +130,7 @@ fn replicated_entry_payload_round_trip_and_apply() {
   let local = store::PartitionCommandEnvelope::new(
     LocalPartitionCommand::Append {
       topic_partition: tp.clone(),
-      payload: b"hello".to_vec(),
+      record: RecordAppend::new(b"hello".to_vec()),
     },
     CommandSource::Consensus,
   );
@@ -164,7 +164,7 @@ fn single_node_runtime_applies_real_client_writes() {
   let envelope = PartitionCommandEnvelope::new(
     LocalPartitionCommand::Append {
       topic_partition: tp.clone(),
-      payload: b"hello".to_vec(),
+      record: RecordAppend::new(b"hello".to_vec()),
     },
     CommandSource::Client,
   )
@@ -194,7 +194,7 @@ async fn single_node_runtime_can_be_initialized_inside_tokio_runtime() {
   let envelope = PartitionCommandEnvelope::new(
     LocalPartitionCommand::Append {
       topic_partition: tp.clone(),
-      payload: b"hello".to_vec(),
+      record: RecordAppend::new(b"hello".to_vec()),
     },
     CommandSource::Client,
   )
@@ -267,7 +267,7 @@ fn multi_node_runtime_replicates_over_tcp() {
   let envelope = PartitionCommandEnvelope::new(
     LocalPartitionCommand::Append {
       topic_partition: tp.clone(),
-      payload: b"hello".to_vec(),
+      record: RecordAppend::new(b"hello".to_vec()),
     },
     CommandSource::Client,
   )

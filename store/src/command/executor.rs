@@ -35,15 +35,15 @@ where
     match command {
       LocalPartitionCommand::Append {
         topic_partition,
-        payload,
+        record,
       } => {
-        let record = self
+        let appended = self
           .log_store
-          .append(&topic_partition, payload.as_slice())?;
+          .append_record(&topic_partition, record)?;
         let state = self.log_store.local_partition_state(&topic_partition)?;
         self.state_store.save_local_partition_state(&state)?;
         Ok(ApplyResult::Appended {
-          next_offset: record.offset + 1,
+          next_offset: appended.offset + 1,
         })
       }
       LocalPartitionCommand::Truncate {

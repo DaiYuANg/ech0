@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
   Result,
-  model::{LocalPartitionState, Record, TopicConfig, TopicPartition},
+  model::{LocalPartitionState, Record, RecordAppend, TopicConfig, TopicPartition},
 };
 
 use super::super::{MessageLogStore, MutablePartitionLogStore};
@@ -19,6 +19,9 @@ where
   }
   fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record> {
     (**self).append(topic_partition, payload)
+  }
+  fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record> {
+    (**self).append_record(topic_partition, record)
   }
   fn read_from(
     &self,
@@ -45,6 +48,9 @@ where
   }
   fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record> {
     (**self).append(topic_partition, payload)
+  }
+  fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record> {
+    (**self).append_record(topic_partition, record)
   }
   fn read_from(
     &self,

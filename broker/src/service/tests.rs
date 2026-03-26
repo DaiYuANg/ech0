@@ -1,10 +1,14 @@
 use crate::config::{AppConfig, RaftReadPolicy};
+use scheduler::process_due_once;
 use std::time::{SystemTime, UNIX_EPOCH};
-use store::{InMemoryStore, RedbMetadataStore, SegmentLog, SegmentLogOptions, StoreError};
+use store::{
+  InMemoryStore, MessageLogStore, RedbMetadataStore, SegmentLog, SegmentLogOptions, StoreError,
+  TopicCleanupPolicy, TopicPartition, TopicRetryPolicy,
+};
 
 use super::{
   BrokerIdentity, BrokerRuntimeMode, BrokerService, GroupAssignmentStrategy,
-  GroupCoordinatorOptions,
+  GroupCoordinatorOptions, TopicPolicyOverrides,
 };
 
 fn temp_path(name: &str) -> std::path::PathBuf {
@@ -52,6 +56,228 @@ fn fetch_uses_committed_offset_when_request_offset_missing() {
 }
 
 #[test]
+fn nack_rewrites_record_to_retry_topic_with_headers() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  service.publish("orders", 0, b"m1".to_vec()).unwrap();
+
+  let retried = service
+    .nack_and_retry("c1", "orders", 0, 0, Some("db timeout".to_owned()))
+    .unwrap();
+  assert_eq!(retried.retry_topic, "__retry.orders");
+  assert_eq!(retried.retry_partition, 0);
+  assert_eq!(retried.retry_offset, 0);
+  assert_eq!(retried.retry_count, 1);
+
+  let retry_tp = TopicPartition::new("__retry.orders", 0);
+  let records = service.queue.stores().0.read_from(&retry_tp, 0, 1).unwrap();
+  assert_eq!(records.len(), 1);
+  assert_eq!(records[0].payload, b"m1".to_vec());
+
+  let headers = &records[0].headers;
+  let get = |key: &str| {
+    headers
+      .iter()
+      .find(|h| h.key == key)
+      .map(|h| String::from_utf8(h.value.to_vec()).unwrap())
+  };
+  assert_eq!(get("x-retry-original-topic").as_deref(), Some("orders"));
+  assert_eq!(get("x-retry-original-partition").as_deref(), Some("0"));
+  assert_eq!(get("x-retry-original-offset").as_deref(), Some("0"));
+  assert_eq!(get("x-retry-count").as_deref(), Some("1"));
+  assert_eq!(get("x-retry-last-error").as_deref(), Some("db timeout"));
+  assert_eq!(get("x-retry-failed-consumer").as_deref(), Some("c1"));
+}
+
+#[test]
+fn process_retry_republishes_to_origin_and_commits_retry_offset() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  service.publish("orders", 0, b"m1".to_vec()).unwrap();
+  service
+    .nack_and_retry("c1", "orders", 0, 0, Some("db timeout".to_owned()))
+    .unwrap();
+
+  let processed = service
+    .process_retry_batch("retry-worker", "orders", 0, 10)
+    .unwrap();
+  assert_eq!(processed.retry_topic, "__retry.orders");
+  assert_eq!(processed.moved_to_origin, 1);
+  assert_eq!(processed.moved_to_dead_letter, 0);
+  assert_eq!(processed.committed_next_offset, Some(1));
+
+  let origin_tp = TopicPartition::new("orders", 0);
+  let origin_records = service.queue.stores().0.read_from(&origin_tp, 1, 1).unwrap();
+  assert_eq!(origin_records.len(), 1);
+  assert_eq!(origin_records[0].payload, b"m1".to_vec());
+}
+
+#[test]
+fn process_retry_moves_exhausted_retries_to_dlq_with_metadata_headers() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service
+    .create_topic_with_policies(
+      "orders",
+      1,
+      TopicPolicyOverrides {
+        retry_policy: Some(TopicRetryPolicy {
+          max_attempts: 2,
+          backoff_initial_ms: 200,
+          backoff_max_ms: 60_000,
+        }),
+        dead_letter_topic: Some("orders-dlq".to_owned()),
+        ..TopicPolicyOverrides::default()
+      },
+    )
+    .unwrap();
+
+  service.publish("orders", 0, b"biz-payload".to_vec()).unwrap();
+  service
+    .nack_and_retry("c1", "orders", 0, 0, Some("first-failure".to_owned()))
+    .unwrap();
+  service
+    .process_retry_batch("retry-worker", "orders", 0, 10)
+    .unwrap();
+  service
+    .nack_and_retry(
+      "c1",
+      "orders",
+      0,
+      1,
+      Some("final-failure".to_owned()),
+    )
+    .unwrap();
+  let processed = service
+    .process_retry_batch("retry-worker", "orders", 0, 10)
+    .unwrap();
+  assert_eq!(processed.moved_to_dead_letter, 1);
+  assert_eq!(processed.moved_to_origin, 0);
+
+  let dlq_tp = TopicPartition::new("orders-dlq", 0);
+  let dlq_records = service.queue.stores().0.read_from(&dlq_tp, 0, 1).unwrap();
+  assert_eq!(dlq_records.len(), 1);
+  assert_eq!(dlq_records[0].payload, b"biz-payload".to_vec());
+
+  let headers = &dlq_records[0].headers;
+  let get = |key: &str| {
+    headers
+      .iter()
+      .find(|h| h.key == key)
+      .map(|h| String::from_utf8(h.value.to_vec()).unwrap())
+  };
+  assert_eq!(get("x-dlq-original-topic").as_deref(), Some("orders"));
+  assert_eq!(get("x-dlq-original-partition").as_deref(), Some("0"));
+  assert_eq!(get("x-dlq-original-offset").as_deref(), Some("0"));
+  assert_eq!(get("x-dlq-retry-count").as_deref(), Some("2"));
+  assert_eq!(get("x-dlq-error-code").as_deref(), Some("retry_exhausted"));
+  assert_eq!(get("x-dlq-error-message").as_deref(), Some("final-failure"));
+  assert!(
+    headers.iter().all(|h| !h.key.starts_with("x-retry")),
+    "DLQ record should not carry retry-chain headers"
+  );
+}
+
+#[test]
+fn process_retry_topics_once_scans_all_user_topics() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  service.create_topic("payments", 1).unwrap();
+  service.publish("orders", 0, b"o1".to_vec()).unwrap();
+  service.publish("payments", 0, b"p1".to_vec()).unwrap();
+  service
+    .nack_and_retry("c-orders", "orders", 0, 0, Some("err-o".to_owned()))
+    .unwrap();
+  service
+    .nack_and_retry("c-payments", "payments", 0, 0, Some("err-p".to_owned()))
+    .unwrap();
+
+  let moved = service.process_retry_topics_once("retry-worker", 10).unwrap();
+  assert_eq!(moved, 2);
+}
+
+#[test]
+fn scheduled_message_is_forwarded_by_delay_scheduler() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service.create_topic("orders", 1).unwrap();
+  service
+    .schedule_delayed("orders", 0, b"m1".to_vec(), 100)
+    .unwrap();
+  let moved = process_due_once(
+    service.queue.stores().0,
+    service.queue.stores().1,
+    "__delay_scheduler",
+    10,
+    100,
+  )
+  .unwrap();
+  assert_eq!(moved, 1);
+
+  let records = service
+    .queue
+    .stores()
+    .0
+    .read_from(&TopicPartition::new("orders", 0), 0, 10)
+    .unwrap();
+  assert_eq!(records.len(), 1);
+  assert_eq!(records[0].payload, b"m1".to_vec());
+}
+
+#[test]
 fn create_topic_is_visible_in_catalog() {
   let log = InMemoryStore::new();
   let meta = InMemoryStore::new();
@@ -71,6 +297,61 @@ fn create_topic_is_visible_in_catalog() {
   assert_eq!(topics.len(), 1);
   assert_eq!(topics[0].name, "orders");
   assert_eq!(topics[0].partitions, 3);
+}
+
+#[test]
+fn create_topic_policies_are_persisted_in_catalog() {
+  let log = InMemoryStore::new();
+  let meta = InMemoryStore::new();
+  let service = BrokerService::new(
+    BrokerIdentity {
+      node_id: 1,
+      cluster_name: "test".to_owned(),
+    },
+    log,
+    meta,
+  )
+  .unwrap();
+
+  service
+    .create_topic_with_policies(
+      "orders",
+      3,
+      TopicPolicyOverrides {
+        retention_max_bytes: Some(512 * 1024 * 1024),
+        cleanup_policy: Some(TopicCleanupPolicy::CompactAndDelete),
+        max_message_bytes: Some(2 * 1024 * 1024),
+        max_batch_bytes: Some(12 * 1024 * 1024),
+        retention_ms: Some(86_400_000),
+        retry_policy: Some(TopicRetryPolicy {
+          max_attempts: 8,
+          backoff_initial_ms: 200,
+          backoff_max_ms: 60_000,
+        }),
+        dead_letter_topic: Some("orders-dlq".to_owned()),
+        delay_enabled: Some(true),
+        compaction_enabled: Some(true),
+      },
+    )
+    .unwrap();
+
+  let topics = service.list_topics().unwrap();
+  assert_eq!(topics.len(), 1);
+  assert_eq!(topics[0].cleanup_policy, TopicCleanupPolicy::CompactAndDelete);
+  assert_eq!(topics[0].max_message_bytes, 2 * 1024 * 1024);
+  assert_eq!(topics[0].max_batch_bytes, 12 * 1024 * 1024);
+  assert_eq!(topics[0].retention_ms, Some(86_400_000));
+  assert_eq!(topics[0].dead_letter_topic.as_deref(), Some("orders-dlq"));
+  assert!(topics[0].delay_enabled);
+  assert!(topics[0].compaction_enabled);
+  assert_eq!(
+    topics[0].retry_policy,
+    TopicRetryPolicy {
+      max_attempts: 8,
+      backoff_initial_ms: 200,
+      backoff_max_ms: 60_000,
+    }
+  );
 }
 
 #[test]

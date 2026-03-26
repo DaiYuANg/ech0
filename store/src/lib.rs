@@ -20,7 +20,8 @@ pub use meta::{MetadataStore, RedbMetadataStore};
 pub use model::{
   AckedOffset, BrokerState, ConsumerGroupAssignment, ConsumerGroupMember, ConsumerOffset,
   GroupPartitionAssignment, LocalPartitionState, PartitionAvailability, PartitionState, PollResult,
-  Record, TopicConfig, TopicPartition, TopicValidationIssue,
+  Record, RecordAppend, RecordHeader, TopicCleanupPolicy, TopicConfig, TopicPartition,
+  TopicRetryPolicy, TopicValidationIssue,
 };
 pub use segment::{DEFAULT_CHECKPOINT_INTERVAL, SegmentLog, SegmentLogOptions};
 pub use state_machine::{

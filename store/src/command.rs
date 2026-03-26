@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
   Codec, JsonCodec, LocalPartitionStateStore, MessageLogStore, MutablePartitionLogStore, Result,
   StoreError,
-  model::{LocalPartitionState, PartitionAvailability, TopicPartition, now_ms},
+  model::{LocalPartitionState, PartitionAvailability, RecordAppend, TopicPartition, now_ms},
 };
 
 static COMMAND_SEQUENCE: AtomicU64 = AtomicU64::new(1);

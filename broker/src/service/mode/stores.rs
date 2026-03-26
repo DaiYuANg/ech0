@@ -1,7 +1,7 @@
 use std::{fmt, sync::Arc};
 
 use store::{
-  ConsumerGroupStore, MessageLogStore, OffsetStore, Record, Result, TopicCatalogStore, TopicConfig,
+  ConsumerGroupStore, MessageLogStore, OffsetStore, Record, RecordAppend, Result, TopicCatalogStore, TopicConfig,
   TopicPartition,
 };
 
@@ -79,6 +79,10 @@ where
 
   fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record> {
     self.appender.append(topic_partition, payload)
+  }
+
+  fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record> {
+    self.appender.append_record(topic_partition, record)
   }
 
   fn read_from(

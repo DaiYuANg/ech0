@@ -1,6 +1,6 @@
 use store::{
-  MessageLogStore, OffsetStore, PollResult, Record, Result, TopicCatalogStore, TopicConfig,
-  TopicPartition,
+  MessageLogStore, OffsetStore, PollResult, Record, RecordAppend, Result, TopicCatalogStore,
+  TopicConfig, TopicPartition,
 };
 
 #[derive(Debug)]
@@ -31,6 +31,16 @@ where
     self.log_store.append(&topic_partition, payload)
   }
 
+  pub fn publish_record(
+    &self,
+    topic: &str,
+    partition: u32,
+    record: RecordAppend,
+  ) -> Result<Record> {
+    let topic_partition = TopicPartition::new(topic, partition);
+    self.log_store.append_record(&topic_partition, record)
+  }
+
   pub fn publish_batch(
     &self,
     topic: &str,
@@ -41,6 +51,14 @@ where
     self.log_store.append_batch(&topic_partition, payloads)
   }
 
+  /// Fetch records from an inclusive start offset.
+  ///
+  /// `offset` is interpreted as "next offset to read". When omitted, the committed
+  /// consumer cursor is used. Returned `next_offset` follows:
+  /// - records returned: `last_record.offset + 1`
+  /// - no records returned: unchanged request/committed offset
+  ///
+  /// `high_watermark` is the largest committed and visible offset (inclusive).
   pub fn fetch(
     &self,
     consumer: &str,
@@ -83,6 +101,7 @@ where
     self.fetch(consumer, topic, partition, None, max_records)
   }
 
+  /// Persist consumer cursor as "next offset to consume".
   pub fn ack(&self, consumer: &str, topic: &str, partition: u32, next_offset: u64) -> Result<()> {
     let topic_partition = TopicPartition::new(topic, partition);
     self

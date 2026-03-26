@@ -4,8 +4,8 @@ use store::{
   ApplyResult, CommandSource, ConsensusLogStore, ConsensusMetadataStore, LocalPartitionCommand,
   LocalPartitionCommandExecutor, LocalPartitionStateMachine, LocalPartitionStateStore,
   MessageLogStore, MutablePartitionLogStore, OffsetStore, PartitionCommandEnvelope,
-  PartitionStateMachine, Record, Result, StoreError, TopicCatalogStore, TopicConfig,
-  TopicPartition,
+  PartitionStateMachine, Record, RecordAppend, Result, StoreError, TopicCatalogStore,
+  TopicConfig, TopicPartition,
 };
 
 use crate::raft::BrokerRaftRuntime;
@@ -40,10 +40,14 @@ where
   }
 
   fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record> {
+    self.append_record(topic_partition, RecordAppend::new(payload.to_vec()))
+  }
+
+  fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record> {
     let applied = self.state_machine.apply_local_command(
       LocalPartitionCommand::Append {
         topic_partition: topic_partition.clone(),
-        payload: payload.to_vec(),
+        record,
       },
       CommandSource::Client,
     )?;
@@ -90,10 +94,14 @@ where
   }
 
   fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record> {
+    self.append_record(topic_partition, RecordAppend::new(payload.to_vec()))
+  }
+
+  fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record> {
     let envelope = PartitionCommandEnvelope::new(
       LocalPartitionCommand::Append {
         topic_partition: topic_partition.clone(),
-        payload: payload.to_vec(),
+        record,
       },
       CommandSource::Client,
     );

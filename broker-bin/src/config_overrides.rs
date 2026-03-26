@@ -38,6 +38,30 @@ pub fn apply_cli_overrides(app: &mut AppConfig, args: &Args) {
   if let Some(sticky) = args.group_sticky_assignments {
     app.broker.group_sticky_assignments = sticky;
   }
+  if let Some(retry_worker_enabled) = args.retry_worker_enabled {
+    app.broker.retry_worker_enabled = retry_worker_enabled;
+  }
+  if let Some(retry_worker_interval_secs) = args.retry_worker_interval_secs {
+    app.broker.retry_worker_interval_secs = retry_worker_interval_secs;
+  }
+  if let Some(retry_worker_max_records) = args.retry_worker_max_records {
+    app.broker.retry_worker_max_records = retry_worker_max_records;
+  }
+  if let Some(retry_worker_consumer_prefix) = args.retry_worker_consumer_prefix.clone() {
+    app.broker.retry_worker_consumer_prefix = retry_worker_consumer_prefix;
+  }
+  if let Some(delay_scheduler_enabled) = args.delay_scheduler_enabled {
+    app.broker.delay_scheduler_enabled = delay_scheduler_enabled;
+  }
+  if let Some(delay_scheduler_interval_secs) = args.delay_scheduler_interval_secs {
+    app.broker.delay_scheduler_interval_secs = delay_scheduler_interval_secs;
+  }
+  if let Some(delay_scheduler_max_records) = args.delay_scheduler_max_records {
+    app.broker.delay_scheduler_max_records = delay_scheduler_max_records;
+  }
+  if let Some(delay_scheduler_consumer_prefix) = args.delay_scheduler_consumer_prefix.clone() {
+    app.broker.delay_scheduler_consumer_prefix = delay_scheduler_consumer_prefix;
+  }
 
   if let Some(admin_bind_addr) = args.admin_bind_addr.clone() {
     app.admin.bind_addr = admin_bind_addr;
@@ -126,6 +150,22 @@ mod tests {
       "range",
       "--group-sticky-assignments",
       "false",
+      "--retry-worker-enabled",
+      "false",
+      "--retry-worker-interval-secs",
+      "3",
+      "--retry-worker-max-records",
+      "128",
+      "--retry-worker-consumer-prefix",
+      "retry-bg",
+      "--delay-scheduler-enabled",
+      "false",
+      "--delay-scheduler-interval-secs",
+      "2",
+      "--delay-scheduler-max-records",
+      "64",
+      "--delay-scheduler-consumer-prefix",
+      "delay-bg",
       "--admin-bind-addr",
       "127.0.0.1:19091",
       "--admin-enabled",
@@ -170,6 +210,14 @@ mod tests {
       broker::config::GroupAssignmentStrategyConfig::Range
     );
     assert!(!app.broker.group_sticky_assignments);
+    assert!(!app.broker.retry_worker_enabled);
+    assert_eq!(app.broker.retry_worker_interval_secs, 3);
+    assert_eq!(app.broker.retry_worker_max_records, 128);
+    assert_eq!(app.broker.retry_worker_consumer_prefix, "retry-bg");
+    assert!(!app.broker.delay_scheduler_enabled);
+    assert_eq!(app.broker.delay_scheduler_interval_secs, 2);
+    assert_eq!(app.broker.delay_scheduler_max_records, 64);
+    assert_eq!(app.broker.delay_scheduler_consumer_prefix, "delay-bg");
 
     assert_eq!(app.admin.bind_addr, "127.0.0.1:19091");
     assert!(!app.admin.enabled);

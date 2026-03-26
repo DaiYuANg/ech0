@@ -1,4 +1,5 @@
 use super::*;
+use crate::RecordAppend;
 
 impl MessageLogStore for SegmentLog {
   fn create_topic(&self, topic: TopicConfig) -> Result<()> {
@@ -34,7 +35,7 @@ impl MessageLogStore for SegmentLog {
     Ok(self.topic_root_dir(topic).exists())
   }
 
-  fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record> {
+  fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record> {
     self.validate_partition(topic_partition)?;
     self.with_runtime(topic_partition, |runtime| {
       let active = runtime
@@ -43,18 +44,20 @@ impl MessageLogStore for SegmentLog {
         .cloned()
         .ok_or_else(|| StoreError::Corruption("missing active segment".to_owned()))?;
 
-      if Self::should_roll_segment(runtime, &active, payload.len()) {
+      let next_offset = runtime.next_offset;
+      let record = Record {
+        offset: next_offset,
+        timestamp_ms: record.timestamp_ms.unwrap_or_else(now_ms),
+        key: record.key,
+        headers: record.headers,
+        attributes: record.attributes,
+        payload: record.payload,
+      };
+      if Self::should_roll_segment(runtime, &active, &record) {
         let next_base = runtime.next_offset;
         let segment = self.create_segment_files(topic_partition, next_base)?;
         runtime.segments.push(segment);
       }
-
-      let next_offset = runtime.next_offset;
-      let record = Record {
-        offset: next_offset,
-        timestamp_ms: now_ms(),
-        payload: Bytes::copy_from_slice(payload),
-      };
 
       let active = runtime.segments.last_mut().ok_or_else(|| {
         StoreError::Corruption("missing active segment after rollover".to_owned())
@@ -139,18 +142,20 @@ impl MessageLogStore for SegmentLog {
           .cloned()
           .ok_or_else(|| StoreError::Corruption("missing active segment".to_owned()))?;
 
-        if Self::should_roll_segment(runtime, &active, payload.len()) {
-          let next_base = runtime.next_offset;
-          let segment = self.create_segment_files(topic_partition, next_base)?;
-          runtime.segments.push(segment);
-        }
-
         let next_offset = runtime.next_offset;
         let record = Record {
           offset: next_offset,
           timestamp_ms: now,
+          key: None,
+          headers: Vec::new(),
+          attributes: 0,
           payload: Bytes::copy_from_slice(payload),
         };
+        if Self::should_roll_segment(runtime, &active, &record) {
+          let next_base = runtime.next_offset;
+          let segment = self.create_segment_files(topic_partition, next_base)?;
+          runtime.segments.push(segment);
+        }
 
         let active = runtime.segments.last_mut().ok_or_else(|| {
           StoreError::Corruption("missing active segment after rollover".to_owned())

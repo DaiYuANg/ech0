@@ -1,7 +1,5 @@
-use bytes::Bytes;
-
 use super::*;
-use crate::StoreError;
+use crate::{StoreError, model::now_ms};
 
 impl MessageLogStore for InMemoryStore {
   fn create_topic(&self, topic: TopicConfig) -> Result<()> {
@@ -32,7 +30,7 @@ impl MessageLogStore for InMemoryStore {
     )
   }
 
-  fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record> {
+  fn append_record(&self, topic_partition: &TopicPartition, record: crate::RecordAppend) -> Result<Record> {
     let mut topics = self.topics.write().expect("poisoned topics lock");
     let entries = topics
       .get_mut(topic_partition)
@@ -41,7 +39,14 @@ impl MessageLogStore for InMemoryStore {
         partition: topic_partition.partition,
       })?;
 
-    let record = Record::new(entries.len() as u64, Bytes::copy_from_slice(payload));
+    let record = Record {
+      offset: entries.len() as u64,
+      timestamp_ms: record.timestamp_ms.unwrap_or_else(now_ms),
+      key: record.key,
+      headers: record.headers,
+      attributes: record.attributes,
+      payload: record.payload,
+    };
     entries.push(record.clone());
     Ok(record)
   }

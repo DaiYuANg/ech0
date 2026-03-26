@@ -1,5 +1,8 @@
 use crate::raft::OpenRaftRuntimeConfig;
-use store::{ConsumerGroupAssignment, ConsumerGroupMember, GroupPartitionAssignment};
+use store::{
+  ConsumerGroupAssignment, ConsumerGroupMember, GroupPartitionAssignment, TopicCleanupPolicy,
+  TopicRetryPolicy,
+};
 
 #[derive(Debug, Clone)]
 pub enum BrokerRuntimeMode {
@@ -39,8 +42,22 @@ pub struct BrokerIdentity {
   pub cluster_name: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TopicPolicyOverrides {
+  pub retention_max_bytes: Option<u64>,
+  pub cleanup_policy: Option<TopicCleanupPolicy>,
+  pub max_message_bytes: Option<u32>,
+  pub max_batch_bytes: Option<u32>,
+  pub retention_ms: Option<u64>,
+  pub retry_policy: Option<TopicRetryPolicy>,
+  pub dead_letter_topic: Option<String>,
+  pub delay_enabled: Option<bool>,
+  pub compaction_enabled: Option<bool>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchedRecord {
+  /// Record offset (record ID, inclusive).
   pub offset: u64,
   pub timestamp_ms: u64,
   pub payload: Vec<u8>,
@@ -51,8 +68,37 @@ pub struct FetchResult {
   pub topic: String,
   pub partition: u32,
   pub records: Vec<FetchedRecord>,
+  /// Cursor to pass in the next fetch call.
   pub next_offset: u64,
+  /// Largest committed and visible offset (inclusive).
   pub high_watermark: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetryResult {
+  pub retry_topic: String,
+  pub retry_partition: u32,
+  pub retry_offset: u64,
+  pub retry_next_offset: u64,
+  pub retry_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessRetryResult {
+  pub retry_topic: String,
+  pub partition: u32,
+  pub moved_to_origin: usize,
+  pub moved_to_dead_letter: usize,
+  pub committed_next_offset: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DelayScheduleResult {
+  pub delay_topic: String,
+  pub partition: u32,
+  pub offset: u64,
+  pub next_offset: u64,
+  pub deliver_at_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

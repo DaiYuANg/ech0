@@ -14,7 +14,7 @@ fn append_command_updates_local_partition_state() {
   let result = executor
     .apply(LocalPartitionCommand::Append {
       topic_partition: tp.clone(),
-      payload: b"hello".to_vec(),
+      record: RecordAppend::new(b"hello".to_vec()),
     })
     .unwrap();
 
@@ -43,13 +43,13 @@ fn truncate_command_rewrites_partition_state() {
   executor
     .apply(LocalPartitionCommand::Append {
       topic_partition: tp.clone(),
-      payload: b"a".to_vec(),
+      record: RecordAppend::new(b"a".to_vec()),
     })
     .unwrap();
   executor
     .apply(LocalPartitionCommand::Append {
       topic_partition: tp.clone(),
-      payload: b"b".to_vec(),
+      record: RecordAppend::new(b"b".to_vec()),
     })
     .unwrap();
 
@@ -76,7 +76,7 @@ fn envelope_json_round_trip_preserves_replicated_command_shape() {
   let envelope = PartitionCommandEnvelope::new(
     LocalPartitionCommand::Append {
       topic_partition: TopicPartition::new("orders", 2),
-      payload: b"hello".to_vec(),
+      record: RecordAppend::new(b"hello".to_vec()),
     },
     CommandSource::Consensus,
   )

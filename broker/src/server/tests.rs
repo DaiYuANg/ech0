@@ -1,7 +1,8 @@
 use protocol::{
   CMD_CREATE_TOPIC_REQUEST, CMD_CREATE_TOPIC_RESPONSE, CMD_ERROR_RESPONSE, CMD_FETCH_INBOX_REQUEST,
   CMD_FETCH_BATCH_REQUEST, CMD_FETCH_BATCH_RESPONSE, CMD_FETCH_INBOX_RESPONSE, CMD_FETCH_REQUEST,
-  CMD_FETCH_RESPONSE,
+  CMD_FETCH_RESPONSE, CMD_NACK_REQUEST, CMD_NACK_RESPONSE, CMD_PROCESS_RETRY_REQUEST,
+  CMD_PROCESS_RETRY_RESPONSE, CMD_SCHEDULE_DELAY_REQUEST, CMD_SCHEDULE_DELAY_RESPONSE,
   CMD_GET_CONSUMER_GROUP_ASSIGNMENT_REQUEST, CMD_GET_CONSUMER_GROUP_ASSIGNMENT_RESPONSE,
   CMD_HANDSHAKE_REQUEST, CMD_HANDSHAKE_RESPONSE, CMD_HEARTBEAT_CONSUMER_GROUP_REQUEST,
   CMD_HEARTBEAT_CONSUMER_GROUP_RESPONSE, CMD_JOIN_CONSUMER_GROUP_REQUEST,
@@ -14,7 +15,8 @@ use protocol::{
   HandshakeResponse, HeartbeatConsumerGroupRequest, HeartbeatConsumerGroupResponse,
   JoinConsumerGroupRequest, JoinConsumerGroupResponse, ListTopicsResponse, PingRequest,
   PingResponse, ProduceBatchRequest, ProduceRequest, ProduceResponse, RebalanceConsumerGroupRequest,
-  RebalanceConsumerGroupResponse,
+  RebalanceConsumerGroupResponse, NackRequest, NackResponse, ProcessRetryRequest,
+  ProcessRetryResponse, ScheduleDelayRequest, ScheduleDelayResponse,
 };
 use store::InMemoryStore;
 use transport::Frame;
@@ -134,6 +136,14 @@ async fn create_topic_produce_and_list_topics_roundtrip_works() {
       topic: "orders".to_owned(),
       partitions: 1,
       retention_max_bytes: None,
+      cleanup_policy: None,
+      max_message_bytes: None,
+      max_batch_bytes: None,
+      retention_ms: None,
+      retry_policy: None,
+      dead_letter_topic: None,
+      delay_enabled: None,
+      compaction_enabled: None,
     })
     .unwrap(),
   )
@@ -175,6 +185,14 @@ async fn produce_batch_and_fetch_batch_roundtrip_works() {
       topic: "orders".to_owned(),
       partitions: 2,
       retention_max_bytes: None,
+      cleanup_policy: None,
+      max_message_bytes: None,
+      max_batch_bytes: None,
+      retention_ms: None,
+      retry_policy: None,
+      dead_letter_topic: None,
+      delay_enabled: None,
+      compaction_enabled: None,
     })
     .unwrap(),
   )
@@ -231,6 +249,244 @@ async fn produce_batch_and_fetch_batch_roundtrip_works() {
   assert_eq!(fetched.items[0].records.len(), 3);
   assert_eq!(fetched.items[0].records[0].payload, b"m1".to_vec());
   assert_eq!(fetched.items[1].records.len(), 0);
+}
+
+#[tokio::test]
+async fn nack_moves_failed_record_into_retry_topic() {
+  let service = build_service();
+
+  let create_topic = Frame::new(
+    protocol::VERSION_1,
+    CMD_CREATE_TOPIC_REQUEST,
+    protocol::encode_json(&CreateTopicRequest {
+      topic: "orders".to_owned(),
+      partitions: 1,
+      retention_max_bytes: None,
+      cleanup_policy: None,
+      max_message_bytes: None,
+      max_batch_bytes: None,
+      retention_ms: None,
+      retry_policy: None,
+      dead_letter_topic: None,
+      delay_enabled: None,
+      compaction_enabled: None,
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let _ = service.handle_frame(create_topic).await.unwrap();
+
+  let produce = Frame::new(
+    protocol::VERSION_1,
+    CMD_PRODUCE_REQUEST,
+    protocol::encode_json(&ProduceRequest {
+      topic: "orders".to_owned(),
+      partition: 0,
+      payload: b"m1".to_vec(),
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let _ = service.handle_frame(produce).await.unwrap();
+
+  let nack = Frame::new(
+    protocol::VERSION_1,
+    CMD_NACK_REQUEST,
+    protocol::encode_json(&NackRequest {
+      consumer: "c1".to_owned(),
+      topic: "orders".to_owned(),
+      partition: 0,
+      offset: 0,
+      last_error: Some("timeout".to_owned()),
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let nack_response = service.handle_frame(nack).await.unwrap();
+  assert_eq!(nack_response.header.command, CMD_NACK_RESPONSE);
+  let nack: NackResponse = protocol::decode_json(&nack_response.body).unwrap();
+  assert_eq!(nack.retry_topic, "__retry.orders");
+  assert_eq!(nack.retry_partition, 0);
+  assert_eq!(nack.retry_offset, 0);
+  assert_eq!(nack.retry_count, 1);
+
+  let fetch_retry = Frame::new(
+    protocol::VERSION_1,
+    CMD_FETCH_REQUEST,
+    protocol::encode_json(&FetchRequest {
+      consumer: "c1-retry".to_owned(),
+      topic: "__retry.orders".to_owned(),
+      partition: 0,
+      offset: Some(0),
+      max_records: 10,
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let fetch_retry_response = service.handle_frame(fetch_retry).await.unwrap();
+  assert_eq!(fetch_retry_response.header.command, CMD_FETCH_RESPONSE);
+  let fetched: FetchResponse = protocol::decode_json(&fetch_retry_response.body).unwrap();
+  assert_eq!(fetched.records.len(), 1);
+  assert_eq!(fetched.records[0].payload, b"m1".to_vec());
+}
+
+#[tokio::test]
+async fn process_retry_moves_record_back_to_origin_topic() {
+  let service = build_service();
+
+  let create_topic = Frame::new(
+    protocol::VERSION_1,
+    CMD_CREATE_TOPIC_REQUEST,
+    protocol::encode_json(&CreateTopicRequest {
+      topic: "orders".to_owned(),
+      partitions: 1,
+      retention_max_bytes: None,
+      cleanup_policy: None,
+      max_message_bytes: None,
+      max_batch_bytes: None,
+      retention_ms: None,
+      retry_policy: None,
+      dead_letter_topic: None,
+      delay_enabled: None,
+      compaction_enabled: None,
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let _ = service.handle_frame(create_topic).await.unwrap();
+
+  let produce = Frame::new(
+    protocol::VERSION_1,
+    CMD_PRODUCE_REQUEST,
+    protocol::encode_json(&ProduceRequest {
+      topic: "orders".to_owned(),
+      partition: 0,
+      payload: b"m1".to_vec(),
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let _ = service.handle_frame(produce).await.unwrap();
+
+  let nack = Frame::new(
+    protocol::VERSION_1,
+    CMD_NACK_REQUEST,
+    protocol::encode_json(&NackRequest {
+      consumer: "c1".to_owned(),
+      topic: "orders".to_owned(),
+      partition: 0,
+      offset: 0,
+      last_error: Some("timeout".to_owned()),
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let _ = service.handle_frame(nack).await.unwrap();
+
+  let process_retry = Frame::new(
+    protocol::VERSION_1,
+    CMD_PROCESS_RETRY_REQUEST,
+    protocol::encode_json(&ProcessRetryRequest {
+      consumer: "retry-worker".to_owned(),
+      source_topic: "orders".to_owned(),
+      partition: 0,
+      max_records: 10,
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let process_retry_response = service.handle_frame(process_retry).await.unwrap();
+  assert_eq!(
+    process_retry_response.header.command,
+    CMD_PROCESS_RETRY_RESPONSE
+  );
+  let processed: ProcessRetryResponse = protocol::decode_json(&process_retry_response.body).unwrap();
+  assert_eq!(processed.retry_topic, "__retry.orders");
+  assert_eq!(processed.partition, 0);
+  assert_eq!(processed.moved_to_origin, 1);
+  assert_eq!(processed.moved_to_dead_letter, 0);
+  assert_eq!(processed.committed_next_offset, Some(1));
+
+  let fetch_origin = Frame::new(
+    protocol::VERSION_1,
+    CMD_FETCH_REQUEST,
+    protocol::encode_json(&FetchRequest {
+      consumer: "origin-reader".to_owned(),
+      topic: "orders".to_owned(),
+      partition: 0,
+      offset: Some(1),
+      max_records: 10,
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let fetch_origin_response = service.handle_frame(fetch_origin).await.unwrap();
+  let fetched: FetchResponse = protocol::decode_json(&fetch_origin_response.body).unwrap();
+  assert_eq!(fetched.records.len(), 1);
+  assert_eq!(fetched.records[0].payload, b"m1".to_vec());
+}
+
+#[tokio::test]
+async fn schedule_delay_writes_into_delay_topic() {
+  let service = build_service();
+
+  let create_topic = Frame::new(
+    protocol::VERSION_1,
+    CMD_CREATE_TOPIC_REQUEST,
+    protocol::encode_json(&CreateTopicRequest {
+      topic: "orders".to_owned(),
+      partitions: 1,
+      retention_max_bytes: None,
+      cleanup_policy: None,
+      max_message_bytes: None,
+      max_batch_bytes: None,
+      retention_ms: None,
+      retry_policy: None,
+      dead_letter_topic: None,
+      delay_enabled: None,
+      compaction_enabled: None,
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let _ = service.handle_frame(create_topic).await.unwrap();
+
+  let schedule = Frame::new(
+    protocol::VERSION_1,
+    CMD_SCHEDULE_DELAY_REQUEST,
+    protocol::encode_json(&ScheduleDelayRequest {
+      topic: "orders".to_owned(),
+      partition: 0,
+      payload: b"m1".to_vec(),
+      deliver_at_ms: 999_999,
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let schedule_response = service.handle_frame(schedule).await.unwrap();
+  assert_eq!(schedule_response.header.command, CMD_SCHEDULE_DELAY_RESPONSE);
+  let scheduled: ScheduleDelayResponse = protocol::decode_json(&schedule_response.body).unwrap();
+  assert_eq!(scheduled.delay_topic, "__delay.orders");
+  assert_eq!(scheduled.partition, 0);
+  assert_eq!(scheduled.offset, 0);
+
+  let fetch_delay = Frame::new(
+    protocol::VERSION_1,
+    CMD_FETCH_REQUEST,
+    protocol::encode_json(&FetchRequest {
+      consumer: "delay-reader".to_owned(),
+      topic: "__delay.orders".to_owned(),
+      partition: 0,
+      offset: Some(0),
+      max_records: 10,
+    })
+    .unwrap(),
+  )
+  .unwrap();
+  let fetch_delay_response = service.handle_frame(fetch_delay).await.unwrap();
+  let fetched: FetchResponse = protocol::decode_json(&fetch_delay_response.body).unwrap();
+  assert_eq!(fetched.records.len(), 1);
+  assert_eq!(fetched.records[0].payload, b"m1".to_vec());
 }
 
 #[tokio::test]

@@ -89,7 +89,7 @@ impl SegmentLog {
         StoreError::Corruption("missing segment while rebuilding partition".to_owned())
       })?;
 
-      if Self::should_roll_segment_for_config(config, &active_snapshot, record.payload.len()) {
+      if Self::should_roll_segment_for_config(config, &active_snapshot, record) {
         let next_base = record.offset;
         segments.push(self.create_segment_files(topic_partition, next_base)?);
       }
@@ -182,9 +182,9 @@ impl SegmentLog {
   fn should_roll_segment_for_config(
     config: &TopicConfig,
     active: &SegmentDescriptor,
-    payload_len: usize,
+    record: &Record,
   ) -> bool {
-    (active.next_write_pos + (RECORD_HEADER_LEN + payload_len) as u64) > config.segment_max_bytes
+    (active.next_write_pos + Self::encoded_record_len(record) as u64) > config.segment_max_bytes
       && active.next_write_pos > 0
   }
 

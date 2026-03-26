@@ -10,14 +10,16 @@ members = [
   "direct",
   "protocol",
   "queue",
+  "scheduler",
   "store",
   "transport",
 ]
 
 [workspace.dependencies]
 store = { path = "store" }
+scheduler = { path = "scheduler" }
 thiserror = "2.0"
-bytes = "1.11"
+bytes = { version = "1.11", features = ["serde"] }
 redb = "3.1"
 crc32fast = "1.5"
 serde = { version = "1", features = ["derive"] }

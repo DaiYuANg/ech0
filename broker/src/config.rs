@@ -102,6 +102,14 @@ pub struct BrokerConfig {
   pub max_fetch_records: usize,
   pub group_assignment_strategy: GroupAssignmentStrategyConfig,
   pub group_sticky_assignments: bool,
+  pub retry_worker_enabled: bool,
+  pub retry_worker_interval_secs: u64,
+  pub retry_worker_max_records: usize,
+  pub retry_worker_consumer_prefix: String,
+  pub delay_scheduler_enabled: bool,
+  pub delay_scheduler_interval_secs: u64,
+  pub delay_scheduler_max_records: usize,
+  pub delay_scheduler_consumer_prefix: String,
 }
 
 impl Default for BrokerConfig {
@@ -117,6 +125,14 @@ impl Default for BrokerConfig {
       max_fetch_records: 1_000,
       group_assignment_strategy: GroupAssignmentStrategyConfig::RoundRobin,
       group_sticky_assignments: true,
+      retry_worker_enabled: true,
+      retry_worker_interval_secs: 5,
+      retry_worker_max_records: 256,
+      retry_worker_consumer_prefix: "__retry_worker".to_owned(),
+      delay_scheduler_enabled: true,
+      delay_scheduler_interval_secs: 1,
+      delay_scheduler_max_records: 256,
+      delay_scheduler_consumer_prefix: "__delay_scheduler".to_owned(),
     }
   }
 }

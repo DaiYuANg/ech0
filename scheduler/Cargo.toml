@@ -1,0 +1,7 @@
+[package]
+name = "scheduler"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+store.workspace = true

@@ -25,6 +25,22 @@ pub struct TopicConfig {
   pub index_interval_bytes: u64,
   #[serde(default = "default_topic_retention_max_bytes")]
   pub retention_max_bytes: u64,
+  #[serde(default)]
+  pub cleanup_policy: TopicCleanupPolicy,
+  #[serde(default = "default_topic_max_message_bytes")]
+  pub max_message_bytes: u32,
+  #[serde(default = "default_topic_max_batch_bytes")]
+  pub max_batch_bytes: u32,
+  #[serde(default)]
+  pub retention_ms: Option<u64>,
+  #[serde(default)]
+  pub retry_policy: TopicRetryPolicy,
+  #[serde(default)]
+  pub dead_letter_topic: Option<String>,
+  #[serde(default)]
+  pub delay_enabled: bool,
+  #[serde(default)]
+  pub compaction_enabled: bool,
 }
 
 impl TopicConfig {
@@ -35,6 +51,14 @@ impl TopicConfig {
       segment_max_bytes: 16 * 1024 * 1024,
       index_interval_bytes: 4 * 1024,
       retention_max_bytes: default_topic_retention_max_bytes(),
+      cleanup_policy: TopicCleanupPolicy::default(),
+      max_message_bytes: default_topic_max_message_bytes(),
+      max_batch_bytes: default_topic_max_batch_bytes(),
+      retention_ms: None,
+      retry_policy: TopicRetryPolicy::default(),
+      dead_letter_topic: None,
+      delay_enabled: false,
+      compaction_enabled: false,
     }
   }
 
@@ -47,10 +71,62 @@ fn default_topic_retention_max_bytes() -> u64 {
   256 * 1024 * 1024
 }
 
+fn default_topic_max_message_bytes() -> u32 {
+  1024 * 1024
+}
+
+fn default_topic_max_batch_bytes() -> u32 {
+  8 * 1024 * 1024
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TopicCleanupPolicy {
+  #[default]
+  Delete,
+  Compact,
+  CompactAndDelete,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicRetryPolicy {
+  #[serde(default = "default_retry_max_attempts")]
+  pub max_attempts: u32,
+  #[serde(default = "default_retry_backoff_initial_ms")]
+  pub backoff_initial_ms: u64,
+  #[serde(default = "default_retry_backoff_max_ms")]
+  pub backoff_max_ms: u64,
+}
+
+impl Default for TopicRetryPolicy {
+  fn default() -> Self {
+    Self {
+      max_attempts: default_retry_max_attempts(),
+      backoff_initial_ms: default_retry_backoff_initial_ms(),
+      backoff_max_ms: default_retry_backoff_max_ms(),
+    }
+  }
+}
+
+fn default_retry_max_attempts() -> u32 {
+  16
+}
+
+fn default_retry_backoff_initial_ms() -> u64 {
+  100
+}
+
+fn default_retry_backoff_max_ms() -> u64 {
+  30_000
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record {
   pub offset: u64,
   pub timestamp_ms: u64,
+  pub key: Option<Bytes>,
+  pub headers: Vec<RecordHeader>,
+  pub attributes: u16,
   pub payload: Bytes,
 }
 
@@ -59,6 +135,36 @@ impl Record {
     Self {
       offset,
       timestamp_ms: now_ms(),
+      key: None,
+      headers: Vec::new(),
+      attributes: 0,
+      payload: payload.into(),
+    }
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordHeader {
+  pub key: String,
+  pub value: Bytes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordAppend {
+  pub timestamp_ms: Option<u64>,
+  pub key: Option<Bytes>,
+  pub headers: Vec<RecordHeader>,
+  pub attributes: u16,
+  pub payload: Bytes,
+}
+
+impl RecordAppend {
+  pub fn new(payload: impl Into<Bytes>) -> Self {
+    Self {
+      timestamp_ms: None,
+      key: None,
+      headers: Vec::new(),
+      attributes: 0,
       payload: payload.into(),
     }
   }
@@ -175,8 +281,11 @@ pub struct TopicValidationIssue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PollResult {
+  /// Records returned from the requested inclusive start offset.
   pub records: Vec<Record>,
+  /// Cursor for the next poll/fetch request.
   pub next_offset: u64,
+  /// Largest committed and visible offset (inclusive).
   pub high_watermark: Option<u64>,
 }
 

@@ -10,6 +10,9 @@ use protocol::{
   CMD_HANDSHAKE_REQUEST, CMD_HANDSHAKE_RESPONSE, CMD_HEARTBEAT_CONSUMER_GROUP_REQUEST,
   CMD_HEARTBEAT_CONSUMER_GROUP_RESPONSE, CMD_JOIN_CONSUMER_GROUP_REQUEST,
   CMD_JOIN_CONSUMER_GROUP_RESPONSE, CMD_LIST_TOPICS_REQUEST, CMD_LIST_TOPICS_RESPONSE,
+  CMD_NACK_REQUEST, CMD_NACK_RESPONSE,
+  CMD_PROCESS_RETRY_REQUEST, CMD_PROCESS_RETRY_RESPONSE,
+  CMD_SCHEDULE_DELAY_REQUEST, CMD_SCHEDULE_DELAY_RESPONSE,
   CMD_PING_REQUEST, CMD_PING_RESPONSE, CMD_PRODUCE_BATCH_REQUEST, CMD_PRODUCE_BATCH_RESPONSE,
   CMD_PRODUCE_REQUEST, CMD_PRODUCE_RESPONSE, CMD_REBALANCE_CONSUMER_GROUP_REQUEST,
   CMD_REBALANCE_CONSUMER_GROUP_RESPONSE, CMD_SEND_DIRECT_REQUEST, CMD_SEND_DIRECT_RESPONSE,
@@ -19,13 +22,18 @@ use protocol::{
   FetchResponse, GetConsumerGroupAssignmentRequest, GetConsumerGroupAssignmentResponse,
   GroupPartitionAssignment, HandshakeRequest, HandshakeResponse, HeartbeatConsumerGroupRequest,
   HeartbeatConsumerGroupResponse, JoinConsumerGroupRequest, JoinConsumerGroupResponse,
-  ListTopicsResponse, PingRequest, PingResponse, ProduceBatchRequest, ProduceBatchResponse,
-  ProduceRequest, ProduceResponse, RebalanceConsumerGroupRequest, RebalanceConsumerGroupResponse,
-  SendDirectRequest, SendDirectResponse, TopicMetadata, VERSION_1, decode_json, encode_json,
+  ListTopicsResponse, NackRequest, NackResponse, PingRequest, PingResponse, ProduceBatchRequest,
+  ProcessRetryRequest, ProcessRetryResponse, ProduceBatchResponse, ProduceRequest, ProduceResponse,
+  RebalanceConsumerGroupRequest, RebalanceConsumerGroupResponse, SendDirectRequest,
+  SendDirectResponse, ScheduleDelayRequest, ScheduleDelayResponse, TopicMetadata, VERSION_1,
+  decode_json, encode_json,
 };
 use transport::Frame;
 
-use crate::{metrics, service::BrokerService};
+use crate::{
+  metrics,
+  service::{BrokerService, TopicPolicyOverrides},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct HandlerLimits {
@@ -120,10 +128,20 @@ where
         CMD_CREATE_TOPIC_REQUEST => {
           let request: CreateTopicRequest = decode_request(&frame)?;
           let topic = self
-            .create_topic_with_retention(
+            .create_topic_with_policies(
               request.topic,
               request.partitions,
-              request.retention_max_bytes,
+              TopicPolicyOverrides {
+                retention_max_bytes: request.retention_max_bytes,
+                cleanup_policy: request.cleanup_policy.map(wire_cleanup_policy),
+                max_message_bytes: request.max_message_bytes,
+                max_batch_bytes: request.max_batch_bytes,
+                retention_ms: request.retention_ms,
+                retry_policy: request.retry_policy.map(wire_retry_policy),
+                dead_letter_topic: request.dead_letter_topic,
+                delay_enabled: request.delay_enabled,
+                compaction_enabled: request.compaction_enabled,
+              },
             )
             .map_err(to_io_error)?;
           ok_response(
@@ -320,6 +338,81 @@ where
               topic: request.topic,
               partition: request.partition,
               next_offset: request.next_offset,
+            },
+          )
+        }
+        CMD_NACK_REQUEST => {
+          let request: NackRequest = decode_request(&frame)?;
+          let result = self
+            .nack_and_retry(
+              &request.consumer,
+              request.topic,
+              request.partition,
+              request.offset,
+              request.last_error,
+            )
+            .map_err(to_io_error)?;
+          ok_response(
+            CMD_NACK_RESPONSE,
+            &NackResponse {
+              retry_topic: result.retry_topic,
+              retry_partition: result.retry_partition,
+              retry_offset: result.retry_offset,
+              retry_next_offset: result.retry_next_offset,
+              retry_count: result.retry_count,
+            },
+          )
+        }
+        CMD_PROCESS_RETRY_REQUEST => {
+          let request: ProcessRetryRequest = decode_request(&frame)?;
+          let result = self
+            .process_retry_batch(
+              &request.consumer,
+              request.source_topic,
+              request.partition,
+              request.max_records,
+            )
+            .map_err(to_io_error)?;
+          ok_response(
+            CMD_PROCESS_RETRY_RESPONSE,
+            &ProcessRetryResponse {
+              retry_topic: result.retry_topic,
+              partition: result.partition,
+              moved_to_origin: result.moved_to_origin,
+              moved_to_dead_letter: result.moved_to_dead_letter,
+              committed_next_offset: result.committed_next_offset,
+            },
+          )
+        }
+        CMD_SCHEDULE_DELAY_REQUEST => {
+          let request: ScheduleDelayRequest = decode_request(&frame)?;
+          let limits = handler_limits();
+          if request.payload.len() > limits.max_payload_bytes {
+            return error_response(
+              "payload_too_large",
+              format!(
+                "schedule_delay payload size {} exceeds max_payload_bytes {}",
+                request.payload.len(),
+                limits.max_payload_bytes
+              ),
+            );
+          }
+          let result = self
+            .schedule_delayed(
+              request.topic,
+              request.partition,
+              request.payload,
+              request.deliver_at_ms,
+            )
+            .map_err(to_io_error)?;
+          ok_response(
+            CMD_SCHEDULE_DELAY_RESPONSE,
+            &ScheduleDelayResponse {
+              delay_topic: result.delay_topic,
+              partition: result.partition,
+              offset: result.offset,
+              next_offset: result.next_offset,
+              deliver_at_ms: result.deliver_at_ms,
             },
           )
         }
@@ -597,6 +690,22 @@ fn assignment_to_wire(
       })
       .collect(),
     updated_at_ms: assignment.updated_at_ms,
+  }
+}
+
+fn wire_cleanup_policy(policy: protocol::TopicCleanupPolicy) -> store::TopicCleanupPolicy {
+  match policy {
+    protocol::TopicCleanupPolicy::Delete => store::TopicCleanupPolicy::Delete,
+    protocol::TopicCleanupPolicy::Compact => store::TopicCleanupPolicy::Compact,
+    protocol::TopicCleanupPolicy::CompactAndDelete => store::TopicCleanupPolicy::CompactAndDelete,
+  }
+}
+
+fn wire_retry_policy(policy: protocol::TopicRetryPolicy) -> store::TopicRetryPolicy {
+  store::TopicRetryPolicy {
+    max_attempts: policy.max_attempts,
+    backoff_initial_ms: policy.backoff_initial_ms,
+    backoff_max_ms: policy.backoff_max_ms,
   }
 }
 

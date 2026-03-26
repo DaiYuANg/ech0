@@ -18,7 +18,7 @@ pub enum CommandSource {
 pub enum LocalPartitionCommand {
   Append {
     topic_partition: TopicPartition,
-    payload: Vec<u8>,
+    record: RecordAppend,
   },
   Truncate {
     topic_partition: TopicPartition,
@@ -115,10 +115,10 @@ impl PartitionCommandEnvelope {
       command: match self.command {
         LocalPartitionCommand::Append {
           topic_partition,
-          payload,
+          record,
         } => ReplicatedPartitionCommand::Append {
           topic_partition,
-          payload,
+          record,
         },
         LocalPartitionCommand::Truncate {
           topic_partition,
@@ -142,7 +142,7 @@ impl PartitionCommandEnvelope {
 pub enum ReplicatedPartitionCommand {
   Append {
     topic_partition: TopicPartition,
-    payload: Vec<u8>,
+    record: RecordAppend,
   },
   Truncate {
     topic_partition: TopicPartition,

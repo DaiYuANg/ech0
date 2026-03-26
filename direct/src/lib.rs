@@ -5,9 +5,9 @@ use std::{
 };
 
 use queue::QueueRuntime;
-use serde::{Deserialize, Serialize};
 use store::{
-  MessageLogStore, OffsetStore, Record, Result, StoreError, TopicCatalogStore, TopicConfig,
+  MessageLogStore, OffsetStore, Record, RecordHeader, Result, StoreError, TopicCatalogStore,
+  TopicConfig, TopicPartition,
 };
 
 static DIRECT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -17,8 +17,13 @@ pub const INBOX_SHARD_COUNT: u32 = 256;
 /// Segment max size for inbox topics. Smaller than MQ default to reduce space waste.
 pub const INBOX_SEGMENT_MAX_BYTES: u64 = 1024 * 1024; // 1MB
 pub const INBOX_INDEX_INTERVAL_BYTES: u64 = 1024;     // 1KB
+const DIRECT_ATTRIBUTE_FLAG: u16 = 1 << 0;
+const HEADER_MESSAGE_ID: &str = "x-direct-message-id";
+const HEADER_CONVERSATION_ID: &str = "x-direct-conversation-id";
+const HEADER_SENDER: &str = "x-direct-sender";
+const HEADER_RECIPIENT: &str = "x-direct-recipient";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectMessage {
   pub message_id: String,
   pub conversation_id: String,
@@ -75,6 +80,7 @@ where
   ) -> Result<SendDirectResult> {
     let topic = inbox_topic(recipient);
     self.ensure_inbox(recipient)?;
+    let topic_partition = TopicPartition::new(topic, 0);
 
     let message = DirectMessage {
       message_id: next_message_id(),
@@ -85,9 +91,21 @@ where
       timestamp_ms: now_ms(),
       payload,
     };
-    let encoded = serde_json::to_vec(&message)
-      .map_err(|err| StoreError::Codec(format!("failed to encode direct message: {err}")))?;
-    let record = self.runtime.publish(&topic, 0, &encoded)?;
+    let record = self.runtime.stores().0.append_record(
+      &topic_partition,
+      {
+        let mut append = store::RecordAppend::new(message.payload.clone());
+        append.timestamp_ms = Some(message.timestamp_ms);
+        append.headers = vec![
+          make_header(HEADER_MESSAGE_ID, &message.message_id),
+          make_header(HEADER_CONVERSATION_ID, &message.conversation_id),
+          make_header(HEADER_SENDER, &message.sender),
+          make_header(HEADER_RECIPIENT, &message.recipient),
+        ];
+        append.attributes = DIRECT_ATTRIBUTE_FLAG;
+        append
+      },
+    )?;
 
     Ok(SendDirectResult {
       message_id: message.message_id,
@@ -198,12 +216,39 @@ fn shard(recipient: &str) -> u8 {
 }
 
 fn decode_inbox_record(record: Record) -> Result<InboxMessage> {
-  let message = serde_json::from_slice::<DirectMessage>(record.payload.as_ref())
-    .map_err(|err| StoreError::Codec(format!("failed to decode direct message: {err}")))?;
+  if (record.attributes & DIRECT_ATTRIBUTE_FLAG) == 0 {
+    return Err(StoreError::Codec(
+      "inbox record missing direct message attribute flag".to_owned(),
+    ));
+  }
+  let message = DirectMessage {
+    message_id: required_header(&record.headers, HEADER_MESSAGE_ID)?,
+    conversation_id: required_header(&record.headers, HEADER_CONVERSATION_ID)?,
+    sender: required_header(&record.headers, HEADER_SENDER)?,
+    recipient: required_header(&record.headers, HEADER_RECIPIENT)?,
+    timestamp_ms: record.timestamp_ms,
+    payload: record.payload.to_vec(),
+  };
   Ok(InboxMessage {
     offset: record.offset,
     message,
   })
+}
+
+fn make_header(key: &str, value: &str) -> RecordHeader {
+  RecordHeader {
+    key: key.to_owned(),
+    value: value.as_bytes().to_vec().into(),
+  }
+}
+
+fn required_header(headers: &[RecordHeader], key: &str) -> Result<String> {
+  let raw = headers
+    .iter()
+    .find(|header| header.key == key)
+    .ok_or_else(|| StoreError::Codec(format!("inbox record missing header: {key}")))?;
+  String::from_utf8(raw.value.to_vec())
+    .map_err(|err| StoreError::Codec(format!("inbox header {key} is not utf8: {err}")))
 }
 
 fn inbox_topic(recipient: &str) -> String {

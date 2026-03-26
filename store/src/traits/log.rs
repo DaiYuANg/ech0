@@ -1,12 +1,15 @@
 use crate::{
   Result,
-  model::{LocalPartitionState, Record, TopicConfig, TopicPartition},
+  model::{LocalPartitionState, Record, RecordAppend, TopicConfig, TopicPartition},
 };
 
 pub trait MessageLogStore: Send + Sync {
   fn create_topic(&self, topic: TopicConfig) -> Result<()>;
   fn topic_exists(&self, topic: &str) -> Result<bool>;
-  fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record>;
+  fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record> {
+    self.append_record(topic_partition, RecordAppend::new(payload.to_vec()))
+  }
+  fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record>;
   fn append_batch(
     &self,
     topic_partition: &TopicPartition,

@@ -126,10 +126,10 @@ fn replicated_to_local(command: ReplicatedPartitionCommand) -> LocalPartitionCom
   match command {
     ReplicatedPartitionCommand::Append {
       topic_partition,
-      payload,
+      record,
     } => LocalPartitionCommand::Append {
       topic_partition,
-      payload,
+      record,
     },
     ReplicatedPartitionCommand::Truncate {
       topic_partition,
@@ -145,7 +145,8 @@ fn replicated_to_local(command: ReplicatedPartitionCommand) -> LocalPartitionCom
 mod tests {
   use crate::{
     CommandSource, InMemoryStore, LocalPartitionCommand, LocalPartitionCommandExecutor,
-    MessageLogStore, PartitionAvailability, PartitionCommandEnvelope, TopicConfig, TopicPartition,
+    MessageLogStore, PartitionAvailability, PartitionCommandEnvelope, RecordAppend, TopicConfig,
+    TopicPartition,
   };
 
   use super::{LocalPartitionStateMachine, PartitionStateMachine};
@@ -161,7 +162,7 @@ mod tests {
     let envelope = PartitionCommandEnvelope::new(
       LocalPartitionCommand::Append {
         topic_partition: tp.clone(),
-        payload: b"hello".to_vec(),
+        record: RecordAppend::new(b"hello".to_vec()),
       },
       CommandSource::Client,
     )
@@ -193,7 +194,7 @@ mod tests {
     let local_envelope = PartitionCommandEnvelope::new(
       LocalPartitionCommand::Append {
         topic_partition: tp.clone(),
-        payload: b"hello".to_vec(),
+        record: RecordAppend::new(b"hello".to_vec()),
       },
       CommandSource::Consensus,
     )

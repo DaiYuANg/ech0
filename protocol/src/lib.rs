@@ -18,6 +18,9 @@ pub const CMD_REBALANCE_CONSUMER_GROUP_REQUEST: u16 = 13;
 pub const CMD_GET_CONSUMER_GROUP_ASSIGNMENT_REQUEST: u16 = 14;
 pub const CMD_PRODUCE_BATCH_REQUEST: u16 = 15;
 pub const CMD_FETCH_BATCH_REQUEST: u16 = 16;
+pub const CMD_NACK_REQUEST: u16 = 17;
+pub const CMD_PROCESS_RETRY_REQUEST: u16 = 18;
+pub const CMD_SCHEDULE_DELAY_REQUEST: u16 = 19;
 
 pub const CMD_HANDSHAKE_RESPONSE: u16 = 101;
 pub const CMD_PING_RESPONSE: u16 = 102;
@@ -35,6 +38,9 @@ pub const CMD_REBALANCE_CONSUMER_GROUP_RESPONSE: u16 = 113;
 pub const CMD_GET_CONSUMER_GROUP_ASSIGNMENT_RESPONSE: u16 = 114;
 pub const CMD_PRODUCE_BATCH_RESPONSE: u16 = 115;
 pub const CMD_FETCH_BATCH_RESPONSE: u16 = 116;
+pub const CMD_NACK_RESPONSE: u16 = 117;
+pub const CMD_PROCESS_RETRY_RESPONSE: u16 = 118;
+pub const CMD_SCHEDULE_DELAY_RESPONSE: u16 = 119;
 pub const CMD_ERROR_RESPONSE: u16 = 500;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -64,12 +70,43 @@ pub struct CreateTopicRequest {
   pub partitions: u32,
   #[serde(default)]
   pub retention_max_bytes: Option<u64>,
+  #[serde(default)]
+  pub cleanup_policy: Option<TopicCleanupPolicy>,
+  #[serde(default)]
+  pub max_message_bytes: Option<u32>,
+  #[serde(default)]
+  pub max_batch_bytes: Option<u32>,
+  #[serde(default)]
+  pub retention_ms: Option<u64>,
+  #[serde(default)]
+  pub retry_policy: Option<TopicRetryPolicy>,
+  #[serde(default)]
+  pub dead_letter_topic: Option<String>,
+  #[serde(default)]
+  pub delay_enabled: Option<bool>,
+  #[serde(default)]
+  pub compaction_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CreateTopicResponse {
   pub topic: String,
   pub partitions: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TopicCleanupPolicy {
+  Delete,
+  Compact,
+  CompactAndDelete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TopicRetryPolicy {
+  pub max_attempts: u32,
+  pub backoff_initial_ms: u64,
+  pub backoff_max_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,7 +118,9 @@ pub struct ProduceRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProduceResponse {
+  /// Offset of the appended record (record ID, inclusive).
   pub offset: u64,
+  /// Next offset cursor after this append (`offset + 1`).
   pub next_offset: u64,
 }
 
@@ -94,8 +133,11 @@ pub struct ProduceBatchRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProduceBatchResponse {
+  /// Offset of the first appended record (inclusive).
   pub base_offset: u64,
+  /// Offset of the last appended record (inclusive).
   pub last_offset: u64,
+  /// Next offset cursor after the last appended record (`last_offset + 1`).
   pub next_offset: u64,
   pub appended: usize,
 }
@@ -105,12 +147,14 @@ pub struct FetchRequest {
   pub consumer: String,
   pub topic: String,
   pub partition: u32,
+  /// Inclusive fetch start offset. When omitted, server uses committed `next_offset`.
   pub offset: Option<u64>,
   pub max_records: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FetchRecord {
+  /// Record offset (record ID, inclusive).
   pub offset: u64,
   pub timestamp_ms: u64,
   pub payload: Vec<u8>,
@@ -121,7 +165,10 @@ pub struct FetchResponse {
   pub topic: String,
   pub partition: u32,
   pub records: Vec<FetchRecord>,
+  /// Cursor to use for the next fetch.
+  /// If records are returned: `last_record.offset + 1`; otherwise request offset.
   pub next_offset: u64,
+  /// Largest committed and visible offset (inclusive). `None` means no visible records.
   pub high_watermark: Option<u64>,
 }
 
@@ -130,6 +177,7 @@ pub struct FetchBatchItemRequest {
   pub topic: String,
   pub partition: u32,
   #[serde(default)]
+  /// Inclusive fetch start offset for this topic-partition item.
   pub offset: Option<u64>,
   pub max_records: usize,
 }
@@ -145,7 +193,9 @@ pub struct FetchBatchItemResponse {
   pub topic: String,
   pub partition: u32,
   pub records: Vec<FetchRecord>,
+  /// Cursor to use for the next fetch of this item.
   pub next_offset: u64,
+  /// Largest committed and visible offset for this item (inclusive).
   pub high_watermark: Option<u64>,
 }
 
@@ -159,6 +209,7 @@ pub struct CommitOffsetRequest {
   pub consumer: String,
   pub topic: String,
   pub partition: u32,
+  /// Consumer cursor to persist. This is "next to consume", not "last consumed".
   pub next_offset: u64,
 }
 
@@ -167,7 +218,61 @@ pub struct CommitOffsetResponse {
   pub consumer: String,
   pub topic: String,
   pub partition: u32,
+  /// Echoed committed cursor ("next to consume").
   pub next_offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NackRequest {
+  pub consumer: String,
+  pub topic: String,
+  pub partition: u32,
+  pub offset: u64,
+  #[serde(default)]
+  pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NackResponse {
+  pub retry_topic: String,
+  pub retry_partition: u32,
+  pub retry_offset: u64,
+  pub retry_next_offset: u64,
+  pub retry_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessRetryRequest {
+  pub consumer: String,
+  pub source_topic: String,
+  pub partition: u32,
+  pub max_records: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessRetryResponse {
+  pub retry_topic: String,
+  pub partition: u32,
+  pub moved_to_origin: usize,
+  pub moved_to_dead_letter: usize,
+  pub committed_next_offset: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScheduleDelayRequest {
+  pub topic: String,
+  pub partition: u32,
+  pub payload: Vec<u8>,
+  pub deliver_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScheduleDelayResponse {
+  pub delay_topic: String,
+  pub partition: u32,
+  pub offset: u64,
+  pub next_offset: u64,
+  pub deliver_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -193,7 +298,9 @@ pub struct SendDirectRequest {
 pub struct SendDirectResponse {
   pub message_id: String,
   pub conversation_id: String,
+  /// Offset of the appended inbox record (inclusive).
   pub offset: u64,
+  /// Next inbox cursor after this append (`offset + 1`).
   pub next_offset: u64,
 }
 
@@ -205,6 +312,7 @@ pub struct FetchInboxRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DirectMessageRecord {
+  /// Offset of this inbox record (inclusive).
   pub offset: u64,
   pub message_id: String,
   pub conversation_id: String,
@@ -218,19 +326,23 @@ pub struct DirectMessageRecord {
 pub struct FetchInboxResponse {
   pub recipient: String,
   pub records: Vec<DirectMessageRecord>,
+  /// Cursor to use for the next inbox fetch.
   pub next_offset: u64,
+  /// Largest committed and visible inbox offset (inclusive).
   pub high_watermark: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AckDirectRequest {
   pub recipient: String,
+  /// Inbox cursor to persist ("next to consume").
   pub next_offset: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AckDirectResponse {
   pub recipient: String,
+  /// Echoed committed inbox cursor ("next to consume").
   pub next_offset: u64,
 }
 
@@ -368,6 +480,9 @@ mod tests {
       CMD_GET_CONSUMER_GROUP_ASSIGNMENT_REQUEST,
       CMD_PRODUCE_BATCH_REQUEST,
       CMD_FETCH_BATCH_REQUEST,
+      CMD_NACK_REQUEST,
+      CMD_PROCESS_RETRY_REQUEST,
+      CMD_SCHEDULE_DELAY_REQUEST,
       CMD_HANDSHAKE_RESPONSE,
       CMD_PING_RESPONSE,
       CMD_CREATE_TOPIC_RESPONSE,
@@ -384,6 +499,9 @@ mod tests {
       CMD_GET_CONSUMER_GROUP_ASSIGNMENT_RESPONSE,
       CMD_PRODUCE_BATCH_RESPONSE,
       CMD_FETCH_BATCH_RESPONSE,
+      CMD_NACK_RESPONSE,
+      CMD_PROCESS_RETRY_RESPONSE,
+      CMD_SCHEDULE_DELAY_RESPONSE,
       CMD_ERROR_RESPONSE,
     ];
 

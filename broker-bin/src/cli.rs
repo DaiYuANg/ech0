@@ -84,6 +84,38 @@ pub struct Args {
   #[arg(long, value_parser = clap::value_parser!(bool))]
   pub group_sticky_assignments: Option<bool>,
 
+  /// Enable/disable background retry worker, pass true/false.
+  #[arg(long, value_parser = clap::value_parser!(bool))]
+  pub retry_worker_enabled: Option<bool>,
+
+  /// Retry worker polling interval in seconds.
+  #[arg(long)]
+  pub retry_worker_interval_secs: Option<u64>,
+
+  /// Max records processed per retry partition in one pass.
+  #[arg(long)]
+  pub retry_worker_max_records: Option<usize>,
+
+  /// Consumer prefix used by retry worker offset commits.
+  #[arg(long)]
+  pub retry_worker_consumer_prefix: Option<String>,
+
+  /// Enable/disable delay scheduler background worker, pass true/false.
+  #[arg(long, value_parser = clap::value_parser!(bool))]
+  pub delay_scheduler_enabled: Option<bool>,
+
+  /// Delay scheduler polling interval in seconds.
+  #[arg(long)]
+  pub delay_scheduler_interval_secs: Option<u64>,
+
+  /// Max delay records processed per partition in one pass.
+  #[arg(long)]
+  pub delay_scheduler_max_records: Option<usize>,
+
+  /// Consumer prefix used by delay scheduler offset commits.
+  #[arg(long)]
+  pub delay_scheduler_consumer_prefix: Option<String>,
+
   /// Admin HTTP bind address, e.g. 127.0.0.1:9091.
   #[arg(long)]
   pub admin_bind_addr: Option<String>,

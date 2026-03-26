@@ -27,8 +27,8 @@ const INBOX_TOPIC_PREFIX: &str = "__direct.inbox";
 const INDEX_SUFFIX: &str = ".idx";
 const CHECKPOINT_FILE: &str = "checkpoint";
 const TOPIC_CONFIG_FILE: &str = "topic.json";
-const CURRENT_VERSION: u8 = 1;
-const RECORD_HEADER_LEN: usize = 1 + 8 + 8 + 4 + 4;
+const CURRENT_VERSION: u8 = 2;
+const RECORD_HEADER_LEN: usize = 1 + 8 + 8 + 4 + 4 + 2 + 4 + 4;
 const INDEX_ENTRY_LEN: usize = 8 + 8;
 
 /// Number of appends between checkpoint writes. Higher values reduce fsync frequency

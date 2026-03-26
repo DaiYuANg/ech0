@@ -1,8 +1,9 @@
-use store::{Record, Result, TopicConfig, TopicPartition};
+use store::{Record, RecordAppend, Result, TopicConfig, TopicPartition};
 
 pub(in crate::service) trait PartitionAppender: Send + Sync {
   fn create_topic(&self, topic: TopicConfig) -> Result<()>;
   fn append(&self, topic_partition: &TopicPartition, payload: &[u8]) -> Result<Record>;
+  fn append_record(&self, topic_partition: &TopicPartition, record: RecordAppend) -> Result<Record>;
 }
 
 pub(in crate::service) trait MetadataWriter: Send + Sync {

@@ -11,6 +11,7 @@ mod service;
 
 use std::future::Future;
 
+use scheduler::process_due_once;
 use tracing::{info, warn};
 
 pub use config::{AppConfig, ConfigError};
@@ -107,6 +108,23 @@ where
   let lifecycle = LifecycleModule::new();
 
   bootstrap.spawn_retention_cleanup_task(retention_log);
+  if app.broker.delay_scheduler_enabled {
+    tokio::spawn(run_delay_scheduler_task(
+      std::sync::Arc::clone(&log),
+      std::sync::Arc::clone(&meta),
+      app.broker.delay_scheduler_consumer_prefix.clone(),
+      app.broker.delay_scheduler_interval_secs,
+      app.broker.delay_scheduler_max_records,
+    ));
+  }
+  if app.broker.retry_worker_enabled {
+    tokio::spawn(run_retry_worker_task(
+      std::sync::Arc::clone(&service),
+      app.broker.retry_worker_consumer_prefix.clone(),
+      app.broker.retry_worker_interval_secs,
+      app.broker.retry_worker_max_records,
+    ));
+  }
 
   lifecycle.run_with_shutdown(wiring, shutdown).await
 }
@@ -123,6 +141,46 @@ fn ensure_bootstrap_topic(log: &SegmentLog, meta: &RedbMetadataStore) -> Result<
   }
 
   Ok(())
+}
+
+async fn run_delay_scheduler_task(
+  log: std::sync::Arc<SegmentLog>,
+  meta: std::sync::Arc<RedbMetadataStore>,
+  consumer_prefix: String,
+  interval_secs: u64,
+  max_records_per_partition: usize,
+) -> std::io::Result<()> {
+  let interval_secs = interval_secs.max(1);
+  let max_records_per_partition = max_records_per_partition.max(1);
+  let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+  interval.tick().await;
+  loop {
+    interval.tick().await;
+    let now_ms = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_millis() as u64;
+    match process_due_once(
+      log.as_ref(),
+      meta.as_ref(),
+      &consumer_prefix,
+      max_records_per_partition,
+      now_ms,
+    ) {
+      Ok(moved) if moved > 0 => {
+        info!(
+          moved_records = moved,
+          interval_secs,
+          max_records_per_partition,
+          "delay scheduler forwarded due records"
+        );
+      }
+      Ok(_) => {}
+      Err(err) => {
+        warn!(error = %err, "delay scheduler iteration failed");
+      }
+    }
+  }
 }
 
 fn validate_topics(log: &SegmentLog, meta: &RedbMetadataStore) -> Result<()> {
@@ -142,6 +200,35 @@ fn validate_topics(log: &SegmentLog, meta: &RedbMetadataStore) -> Result<()> {
   }
 
   Ok(())
+}
+
+async fn run_retry_worker_task(
+  service: std::sync::Arc<di::BrokerServiceHandle>,
+  consumer_prefix: String,
+  interval_secs: u64,
+  max_records_per_partition: usize,
+) -> std::io::Result<()> {
+  let interval_secs = interval_secs.max(1);
+  let max_records_per_partition = max_records_per_partition.max(1);
+  let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+  interval.tick().await;
+  loop {
+    interval.tick().await;
+    match service.process_retry_topics_once(&consumer_prefix, max_records_per_partition) {
+      Ok(moved) if moved > 0 => {
+        info!(
+          moved_records = moved,
+          interval_secs,
+          max_records_per_partition,
+          "retry worker moved records from retry topics"
+        );
+      }
+      Ok(_) => {}
+      Err(err) => {
+        warn!(error = %err, "retry worker iteration failed");
+      }
+    }
+  }
 }
 
 #[cfg(test)]

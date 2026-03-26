@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 bytes.workspace = true
 store.workspace = true
+scheduler.workspace = true
 queue = { path = "../queue" }
 direct = { path = "../direct" }
 protocol = { path = "../protocol" }

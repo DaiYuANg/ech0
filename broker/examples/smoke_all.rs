@@ -137,6 +137,14 @@ async fn run_queue_flow(addr: &str) -> io::Result<()> {
       topic: topic.clone(),
       partitions: 1,
       retention_max_bytes: None,
+      cleanup_policy: None,
+      max_message_bytes: None,
+      max_batch_bytes: None,
+      retention_ms: None,
+      retry_policy: None,
+      dead_letter_topic: None,
+      delay_enabled: None,
+      compaction_enabled: None,
     },
   )
   .await?;
