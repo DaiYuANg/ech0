@@ -1,27 +1,7 @@
 ARG BASE_IMAGE=debian
 ARG GO_VERSION=1.26
 
-FROM golang:${GO_VERSION}-bookworm AS builder-debian
-
-ARG ENABLE_UPX=true
-
-WORKDIR /src
-
-RUN if [ "${ENABLE_UPX}" = "true" ]; then \
-  apt-get update \
-  && (apt-get install -y --no-install-recommends upx-ucl || apt-get install -y --no-install-recommends upx) \
-  && rm -rf /var/lib/apt/lists/*; \
-  fi
-
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ech0 ./cmd/ech0 \
-  && if [ "${ENABLE_UPX}" = "true" ]; then upx --best --lzma /out/ech0; fi
-
-FROM golang:${GO_VERSION}-alpine AS builder-alpine
+FROM golang:${GO_VERSION}-alpine AS builder
 
 ARG ENABLE_UPX=true
 
@@ -47,7 +27,7 @@ WORKDIR /app
 
 RUN mkdir -p /app/config /var/lib/ech0 /var/log/ech0
 
-COPY --from=builder-debian /out/ech0 /usr/local/bin/ech0
+COPY --from=builder /out/ech0 /usr/local/bin/ech0
 COPY packaging/ech0.toml /app/config/ech0.toml
 
 EXPOSE 9090 9091 3210
@@ -63,7 +43,7 @@ WORKDIR /app
 
 RUN mkdir -p /app/config /var/lib/ech0 /var/log/ech0
 
-COPY --from=builder-alpine /out/ech0 /usr/local/bin/ech0
+COPY --from=builder /out/ech0 /usr/local/bin/ech0
 COPY packaging/ech0.toml /app/config/ech0.toml
 
 EXPOSE 9090 9091 3210

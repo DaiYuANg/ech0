@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -10,20 +11,22 @@ import (
 	"github.com/DaiYuANg/ech0/queue"
 	"github.com/DaiYuANg/ech0/store"
 	"github.com/arcgolabs/eventx"
+	"github.com/dgraph-io/ristretto/v2"
 )
 
 type Option func(*Broker)
 
 type Broker struct {
-	cfg     Config
-	log     store.MessageLogStore
-	meta    metadataStore
-	queue   *queue.Runtime
-	direct  *direct.Runtime
-	router  *partitionRouter
-	events  eventx.BusRuntime
-	logger  *slog.Logger
-	metrics *MetricsRuntime
+	cfg        Config
+	log        store.MessageLogStore
+	meta       metadataStore
+	queue      *queue.Runtime
+	direct     *direct.Runtime
+	router     *partitionRouter
+	events     eventx.BusRuntime
+	logger     *slog.Logger
+	metrics    *MetricsRuntime
+	topicCache *ristretto.Cache[string, store.TopicConfig]
 
 	raftMu sync.RWMutex
 	raft   *raftNode
@@ -60,13 +63,18 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	if metaStore == nil {
 		return nil, brokerStoreError(store.CodeInvalidArgument, "metadata store is required")
 	}
+	topicCache, err := newTopicConfigCache(cfg.Broker.TopicCacheMaxEntries)
+	if err != nil && !errors.Is(err, errTopicCacheDisabled) {
+		return nil, err
+	}
 	b := &Broker{
-		cfg:    cfg,
-		log:    logStore,
-		meta:   metaStore,
-		router: newPartitionRouter(),
-		events: eventx.New(),
-		logger: slog.Default(),
+		cfg:        cfg,
+		log:        logStore,
+		meta:       metaStore,
+		router:     newPartitionRouter(),
+		events:     eventx.New(),
+		logger:     slog.Default(),
+		topicCache: topicCache,
 	}
 	b.queue = queue.New(logStore, metaStore)
 	b.direct = direct.New(logStore, metaStore)
@@ -147,6 +155,7 @@ func (b *Broker) Stop(ctx context.Context) error {
 			return err
 		}
 	}
+	b.closeTopicCache()
 	if b.events != nil {
 		return wrapBroker("event_bus_close_failed", b.events.Close(), "close event bus")
 	}

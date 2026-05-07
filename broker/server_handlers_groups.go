@@ -61,7 +61,11 @@ func (s *TCPServer) handleJoinConsumerGroupFrame(ctx context.Context, frame tran
 	if err != nil {
 		return errorFromErr(err), nil
 	}
-	return okFrame(protocol.CmdJoinConsumerGroupResponse, protocol.JoinConsumerGroupResponse{Lease: leaseFromStore(member)})
+	lease, err := leaseFromStore(member)
+	if err != nil {
+		return errorFrame("internal_error", err.Error()), nil
+	}
+	return okFrame(protocol.CmdJoinConsumerGroupResponse, protocol.JoinConsumerGroupResponse{Lease: lease})
 }
 
 func (s *TCPServer) handleHeartbeatConsumerGroupFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
@@ -73,7 +77,11 @@ func (s *TCPServer) handleHeartbeatConsumerGroupFrame(ctx context.Context, frame
 	if err != nil {
 		return errorFromErr(err), nil
 	}
-	return okFrame(protocol.CmdHeartbeatConsumerGroupResponse, protocol.HeartbeatConsumerGroupResponse{Lease: leaseFromStore(member)})
+	lease, err := leaseFromStore(member)
+	if err != nil {
+		return errorFrame("internal_error", err.Error()), nil
+	}
+	return okFrame(protocol.CmdHeartbeatConsumerGroupResponse, protocol.HeartbeatConsumerGroupResponse{Lease: lease})
 }
 
 func (s *TCPServer) handleRebalanceConsumerGroupFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
@@ -85,7 +93,11 @@ func (s *TCPServer) handleRebalanceConsumerGroupFrame(ctx context.Context, frame
 	if err != nil {
 		return errorFromErr(err), nil
 	}
-	response := protocol.RebalanceConsumerGroupResponse{Assignment: assignmentToProtocol(assignment)}
+	converted, err := assignmentToProtocol(assignment)
+	if err != nil {
+		return errorFrame("internal_error", err.Error()), nil
+	}
+	response := protocol.RebalanceConsumerGroupResponse{Assignment: converted}
 	return okFrame(protocol.CmdRebalanceConsumerGroupResponse, response)
 }
 
@@ -98,8 +110,16 @@ func (s *TCPServer) handleGetConsumerGroupAssignmentFrame(_ context.Context, fra
 	if err != nil {
 		return errorFromErr(err), nil
 	}
+	converted, ok, err := optionalAssignmentToProtocol(assignment)
+	if err != nil {
+		return errorFrame("internal_error", err.Error()), nil
+	}
+	var responseAssignment *protocol.ConsumerGroupAssignment
+	if ok {
+		responseAssignment = &converted
+	}
 	return okFrame(protocol.CmdGetConsumerGroupAssignmentResponse, protocol.GetConsumerGroupAssignmentResponse{
-		Assignment: optionalAssignmentToProtocol(assignment),
+		Assignment: responseAssignment,
 	})
 }
 

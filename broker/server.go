@@ -7,10 +7,17 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"sync"
 
 	"github.com/DaiYuANg/ech0/protocol"
 	"github.com/DaiYuANg/ech0/transport"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/time/rate"
+)
+
+var (
+	errTCPAcceptRetry   = errors.New("retry tcp accept")
+	errTCPServerStopped = errors.New("tcp server stopped")
 )
 
 type TCPServer struct {
@@ -20,7 +27,10 @@ type TCPServer struct {
 	logger   *slog.Logger
 	metrics  *MetricsRuntime
 	listener net.Listener
-	wg       sync.WaitGroup
+	cancel   context.CancelFunc
+	group    *errgroup.Group
+	connSem  *semaphore.Weighted
+	limiter  *rate.Limiter
 }
 
 func NewTCPServer(cfg Config, broker *Broker, logger *slog.Logger, metrics *MetricsRuntime) *TCPServer {
@@ -33,6 +43,8 @@ func NewTCPServer(cfg Config, broker *Broker, logger *slog.Logger, metrics *Metr
 		broker:  broker,
 		logger:  logger,
 		metrics: metrics,
+		connSem: newConnectionSemaphore(cfg.Broker.MaxConcurrentConnections),
+		limiter: newCommandRateLimiter(cfg.Broker.CommandRateLimitPerSecond, cfg.Broker.CommandRateLimitBurst),
 	}
 }
 
@@ -46,19 +58,31 @@ func (s *TCPServer) Start(ctx context.Context) error {
 	if s.logger != nil {
 		s.logger.Info("tcp broker listening", "addr", s.addr)
 	}
-	s.wg.Add(1)
-	go s.acceptLoop(ctx)
+	serverCtx, cancel := context.WithCancel(ctx)
+	group, groupCtx := errgroup.WithContext(serverCtx)
+	s.cancel = cancel
+	s.group = group
+	group.Go(func() error {
+		return s.acceptLoop(groupCtx)
+	})
 	return nil
 }
 
 func (s *TCPServer) Stop(ctx context.Context) error {
 	var closeErr error
+	if s.cancel != nil {
+		s.cancel()
+	}
 	if s.listener != nil {
 		closeErr = s.listener.Close()
 	}
+	if s.group == nil {
+		return wrapBroker("tcp_listener_close_failed", closeErr, "close tcp listener")
+	}
 	done := make(chan struct{})
+	var waitErr error
 	go func() {
-		s.wg.Wait()
+		waitErr = normalizeTCPServerWaitError(s.group.Wait())
 		close(done)
 	}()
 	select {
@@ -68,31 +92,63 @@ func (s *TCPServer) Stop(ctx context.Context) error {
 			wrapBroker("tcp_listener_close_failed", closeErr, "close tcp listener"),
 		)
 	case <-done:
-		return wrapBroker("tcp_listener_close_failed", closeErr, "close tcp listener")
+		return errors.Join(
+			wrapBroker("tcp_listener_close_failed", closeErr, "close tcp listener"),
+			waitErr,
+		)
 	}
 }
 
-func (s *TCPServer) acceptLoop(ctx context.Context) {
-	defer s.wg.Done()
+func (s *TCPServer) acceptLoop(ctx context.Context) error {
 	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
-				return
-			}
-			if s.logger != nil {
-				s.logger.Warn("accept failed", "error", err)
-			}
+		err := s.acceptConnection(ctx)
+		if err == nil || errors.Is(err, errTCPAcceptRetry) {
 			continue
 		}
-		s.metrics.RecordTCPConnection(ctx)
-		s.wg.Add(1)
-		go s.handleConn(ctx, conn)
+		return err
 	}
+}
+
+func (s *TCPServer) acceptConnection(ctx context.Context) error {
+	conn, err := s.listener.Accept()
+	if err != nil {
+		return s.acceptError(ctx, err)
+	}
+	if err := s.acquireConnection(ctx); err != nil {
+		return s.connectionAcquireError(ctx, conn, err)
+	}
+	s.startConnectionHandler(ctx, conn)
+	return nil
+}
+
+func (s *TCPServer) acceptError(ctx context.Context, err error) error {
+	if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
+		return errTCPServerStopped
+	}
+	if s.logger != nil {
+		s.logger.Warn("accept failed", "error", err)
+	}
+	return errTCPAcceptRetry
+}
+
+func (s *TCPServer) connectionAcquireError(ctx context.Context, conn net.Conn, err error) error {
+	s.closeRejectedConnection(conn, err)
+	if ctx.Err() != nil {
+		return errTCPServerStopped
+	}
+	return errTCPAcceptRetry
+}
+
+func (s *TCPServer) startConnectionHandler(ctx context.Context, conn net.Conn) {
+	s.metrics.RecordTCPConnection(ctx)
+	s.group.Go(func() error {
+		s.handleConn(ctx, conn)
+		return nil
+	})
 }
 
 func (s *TCPServer) handleConn(ctx context.Context, conn net.Conn) {
-	defer s.wg.Done()
+	defer s.releaseConnection()
 	defer func() {
 		if err := conn.Close(); err != nil && s.logger != nil {
 			s.logger.Debug("close connection failed", "error", err)
@@ -106,6 +162,12 @@ func (s *TCPServer) handleConn(ctx context.Context, conn net.Conn) {
 }
 
 func (s *TCPServer) handleConnFrame(ctx context.Context, conn net.Conn) bool {
+	if err := s.waitCommandSlot(ctx); err != nil {
+		if s.logger != nil {
+			s.logger.Debug("command rate limiter stopped", "error", err)
+		}
+		return false
+	}
 	frame, err := transport.ReadFrameWithLimit(conn, s.limits.MaxFrameBodyBytes)
 	if err != nil {
 		s.logReadFrameError(err)
@@ -145,4 +207,60 @@ func (s *TCPServer) HandleFrame(ctx context.Context, frame transport.Frame) (tra
 		return errorFrame("unsupported_command", fmt.Sprintf("unsupported command %d", frame.Header.Command)), nil
 	}
 	return handler(s, ctx, frame)
+}
+
+func newConnectionSemaphore(limit int64) *semaphore.Weighted {
+	if limit <= 0 {
+		return nil
+	}
+	return semaphore.NewWeighted(limit)
+}
+
+func newCommandRateLimiter(limitPerSecond float64, burst int) *rate.Limiter {
+	if limitPerSecond <= 0 {
+		return nil
+	}
+	if burst <= 0 {
+		burst = int(limitPerSecond)
+	}
+	if burst <= 0 {
+		burst = 1
+	}
+	return rate.NewLimiter(rate.Limit(limitPerSecond), burst)
+}
+
+func (s *TCPServer) acquireConnection(ctx context.Context) error {
+	if s.connSem == nil {
+		return nil
+	}
+	return wrapBroker("tcp_connection_limit_acquire_failed", s.connSem.Acquire(ctx, 1), "acquire tcp connection slot")
+}
+
+func (s *TCPServer) releaseConnection() {
+	if s.connSem != nil {
+		s.connSem.Release(1)
+	}
+}
+
+func (s *TCPServer) waitCommandSlot(ctx context.Context) error {
+	if s.limiter == nil {
+		return nil
+	}
+	return wrapBroker("tcp_command_rate_wait_failed", s.limiter.Wait(ctx), "wait tcp command rate limiter")
+}
+
+func (s *TCPServer) closeRejectedConnection(conn net.Conn, cause error) {
+	if s.logger != nil {
+		s.logger.Warn("reject tcp connection", "error", cause)
+	}
+	if err := conn.Close(); err != nil && s.logger != nil {
+		s.logger.Debug("close rejected connection failed", "error", err)
+	}
+}
+
+func normalizeTCPServerWaitError(err error) error {
+	if errors.Is(err, errTCPServerStopped) {
+		return nil
+	}
+	return err
 }

@@ -75,9 +75,9 @@ func (b *Broker) readRecordAtOffset(tp store.TopicPartition, offset uint64) (sto
 }
 
 func (b *Broker) loadTopicConfig(topic string) (*store.TopicConfig, error) {
-	cfg, err := b.meta.LoadTopicConfig(topic)
+	cfg, err := b.topicConfig(topic)
 	if err != nil {
-		return nil, wrapBrokerStore(err, "load topic config")
+		return nil, err
 	}
 	if cfg == nil {
 		return nil, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", topic)
@@ -103,11 +103,16 @@ func (b *Broker) ensureAuxTopic(source store.TopicConfig, auxTopic string) error
 		return wrapBrokerStore(err, "check auxiliary topic")
 	}
 	if exists {
-		return wrapBrokerStore(b.meta.SaveTopicConfig(cfg), "save auxiliary topic config")
+		if err := b.meta.SaveTopicConfig(cfg); err != nil {
+			return wrapBrokerStore(err, "save auxiliary topic config")
+		}
+		b.cacheTopicConfig(cfg)
+		return nil
 	}
 	if err := b.queue.CreateTopic(cfg); err != nil && store.ErrorCode(err) != store.CodeTopicExists {
 		return wrapBroker("auxiliary_topic_create_failed", err, "create auxiliary topic")
 	}
+	b.cacheTopicConfig(cfg)
 	return nil
 }
 

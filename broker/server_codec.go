@@ -3,12 +3,16 @@ package broker
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/protocol"
 	"github.com/DaiYuANg/ech0/store"
 	"github.com/DaiYuANg/ech0/transport"
+	"github.com/arcgolabs/mapper"
 )
+
+var controlPlaneMapper = mapper.New()
 
 func (s *TCPServer) recordCommandError(ctx context.Context, frame transport.Frame) {
 	if s == nil || s.metrics == nil || frame.Header.Command != protocol.CmdErrorResponse {
@@ -166,41 +170,32 @@ func batchPayloadsFromProtocol(payloads [][]byte) []store.RecordAppend {
 	return out
 }
 
-func leaseFromStore(member store.ConsumerGroupMember) protocol.ConsumerGroupMemberLease {
-	return protocol.ConsumerGroupMemberLease{
-		Group:            member.Group,
-		MemberID:         member.MemberID,
-		Topics:           append([]string(nil), member.Topics...),
-		SessionTimeoutMS: member.SessionTimeoutMS,
-		JoinedAtMS:       member.JoinedAtMS,
-		LastHeartbeatMS:  member.LastHeartbeatMS,
-		ExpiresAtMS:      member.ExpiresAtMS(),
+func leaseFromStore(member store.ConsumerGroupMember) (protocol.ConsumerGroupMemberLease, error) {
+	var out protocol.ConsumerGroupMemberLease
+	if err := controlPlaneMapper.MapInto(&out, member); err != nil {
+		return protocol.ConsumerGroupMemberLease{}, fmt.Errorf("map consumer group member lease: %w", err)
 	}
+	out.ExpiresAtMS = member.ExpiresAtMS()
+	return out, nil
 }
 
-func assignmentToProtocol(assignment store.ConsumerGroupAssignment) protocol.ConsumerGroupAssignment {
-	out := protocol.ConsumerGroupAssignment{
-		Group:       assignment.Group,
-		Generation:  assignment.Generation,
-		UpdatedAtMS: assignment.UpdatedAtMS,
-		Assignments: make([]protocol.GroupPartitionAssignment, 0, len(assignment.Assignments)),
+func assignmentToProtocol(assignment store.ConsumerGroupAssignment) (protocol.ConsumerGroupAssignment, error) {
+	var out protocol.ConsumerGroupAssignment
+	if err := controlPlaneMapper.MapInto(&out, assignment); err != nil {
+		return protocol.ConsumerGroupAssignment{}, fmt.Errorf("map consumer group assignment: %w", err)
 	}
-	for _, item := range assignment.Assignments {
-		out.Assignments = append(out.Assignments, protocol.GroupPartitionAssignment{
-			MemberID:  item.MemberID,
-			Topic:     item.Topic,
-			Partition: item.Partition,
-		})
-	}
-	return out
+	return out, nil
 }
 
-func optionalAssignmentToProtocol(assignment *store.ConsumerGroupAssignment) *protocol.ConsumerGroupAssignment {
+func optionalAssignmentToProtocol(assignment *store.ConsumerGroupAssignment) (protocol.ConsumerGroupAssignment, bool, error) {
 	if assignment == nil {
-		return nil
+		return protocol.ConsumerGroupAssignment{}, false, nil
 	}
-	converted := assignmentToProtocol(*assignment)
-	return &converted
+	converted, err := assignmentToProtocol(*assignment)
+	if err != nil {
+		return protocol.ConsumerGroupAssignment{}, false, err
+	}
+	return converted, true, nil
 }
 
 func directMessagesToProtocol(records []direct.InboxRecord) []protocol.DirectMessageRecord {

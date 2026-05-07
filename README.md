@@ -97,6 +97,15 @@ go test ./... -count=1
 go run ./cmd/ech0 --config config/ech0.toml.example
 ```
 
+Design documentation:
+
+- [Architecture](docs/architecture.md)
+- [Wire Protocol](docs/wire-protocol.md)
+- [Storage](docs/storage.md)
+- [Request Reply](docs/request-reply.md)
+- [Operations](docs/operations.md)
+- [Benchmarks](docs/benchmarks.md)
+
 Docker examples:
 
 ```sh

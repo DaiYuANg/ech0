@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/DaiYuANg/ech0/store"
 )
@@ -43,12 +44,19 @@ func (b *Broker) processRetryTopics(
 	maxRecordsPerPartition int,
 ) (int, error) {
 	movedTotal := 0
-	for i := range topics {
-		moved, err := b.processRetryTopic(ctx, topics[i], consumerPrefix, maxRecordsPerPartition)
+	var movedMu sync.Mutex
+	err := runBounded(ctx, b.cfg.Broker.MaintenanceConcurrency, len(topics), func(ctx context.Context, index int) error {
+		moved, err := b.processRetryTopic(ctx, topics[index], consumerPrefix, maxRecordsPerPartition)
 		if err != nil {
-			return movedTotal, err
+			return err
 		}
+		movedMu.Lock()
 		movedTotal += moved
+		movedMu.Unlock()
+		return nil
+	})
+	if err != nil {
+		return movedTotal, err
 	}
 	return movedTotal, nil
 }

@@ -18,14 +18,15 @@ func (b *Broker) applyCreateTopic(ctx context.Context, topic store.TopicConfig) 
 	if err := b.queue.CreateTopic(topic); err != nil {
 		return store.TopicConfig{}, wrapBroker("create_topic_failed", err, "create topic")
 	}
+	b.cacheTopicConfig(topic)
 	b.publishEvent(ctx, TopicCreatedEvent{Topic: topic.Name, Partitions: topic.Partitions})
 	return topic, nil
 }
 
 func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceResult, error) {
-	topic, err := b.meta.LoadTopicConfig(req.Topic)
+	topic, err := b.topicConfig(req.Topic)
 	if err != nil {
-		return ProduceResult{}, wrapBrokerStore(err, "load topic config")
+		return ProduceResult{}, err
 	}
 	if topic == nil {
 		return ProduceResult{}, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", req.Topic)
@@ -44,9 +45,9 @@ func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceR
 }
 
 func (b *Broker) applyProduceBatch(ctx context.Context, req produceBatchCommand) (ProduceBatchResult, error) {
-	topic, err := b.meta.LoadTopicConfig(req.Topic)
+	topic, err := b.topicConfig(req.Topic)
 	if err != nil {
-		return ProduceBatchResult{}, wrapBrokerStore(err, "load topic config")
+		return ProduceBatchResult{}, err
 	}
 	if topic == nil {
 		return ProduceBatchResult{}, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", req.Topic)

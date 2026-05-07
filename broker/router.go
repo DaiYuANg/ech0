@@ -1,11 +1,11 @@
 package broker
 
 import (
-	"hash/fnv"
 	"sync"
 
 	"github.com/DaiYuANg/ech0/store"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	"github.com/cespare/xxhash/v2"
 )
 
 type PublishPartitioning struct {
@@ -42,11 +42,7 @@ func (r *partitionRouter) selectPartition(topic store.TopicConfig, partitioning 
 		if len(key) == 0 {
 			return 0, brokerStoreError(store.CodeInvalidArgument, "key_hash partitioning requires a non-empty key")
 		}
-		hash := fnv.New64a()
-		if _, err := hash.Write(key); err != nil {
-			return 0, brokerStoreError(store.CodeCodec, "hash partition key: %v", err)
-		}
-		partition := hash.Sum64() % uint64(topic.Partitions)
+		partition := xxhash.Sum64(key) % uint64(topic.Partitions)
 		return safeUint64ToUint32(partition), nil
 	default:
 		return r.nextRoundRobin(topic), nil

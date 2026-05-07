@@ -12,6 +12,11 @@ func DefaultConfig() Config {
 			MaxBatchPayloadBytes:         8 * 1024 * 1024,
 			MaxFetchRecords:              1000,
 			MaxFetchWaitMS:               5000,
+			MaxConcurrentConnections:     4096,
+			CommandRateLimitPerSecond:    0,
+			CommandRateLimitBurst:        0,
+			TopicCacheMaxEntries:         4096,
+			MaintenanceConcurrency:       4,
 			GroupAssignmentStrategy:      "round_robin",
 			GroupStickyAssignments:       true,
 			RetryWorkerEnabled:           true,
@@ -86,6 +91,11 @@ func normalizeBrokerIdentity(cfg *BrokerConfig) {
 }
 
 func normalizeBrokerLimits(cfg *BrokerConfig) {
+	normalizeBrokerPayloadLimits(cfg)
+	normalizeBrokerRuntimeLimits(cfg)
+}
+
+func normalizeBrokerPayloadLimits(cfg *BrokerConfig) {
 	if cfg.MaxFrameBodyBytes == 0 {
 		cfg.MaxFrameBodyBytes = 4 * 1024 * 1024
 	}
@@ -100,6 +110,27 @@ func normalizeBrokerLimits(cfg *BrokerConfig) {
 	}
 	if cfg.MaxFetchWaitMS == 0 {
 		cfg.MaxFetchWaitMS = 5000
+	}
+}
+
+func normalizeBrokerRuntimeLimits(cfg *BrokerConfig) {
+	if cfg.MaxConcurrentConnections == 0 {
+		cfg.MaxConcurrentConnections = 4096
+	}
+	if cfg.CommandRateLimitPerSecond < 0 {
+		cfg.CommandRateLimitPerSecond = 0
+	}
+	if cfg.CommandRateLimitBurst < 0 {
+		cfg.CommandRateLimitBurst = 0
+	}
+	if cfg.CommandRateLimitPerSecond > 0 && cfg.CommandRateLimitBurst == 0 {
+		cfg.CommandRateLimitBurst = int(cfg.CommandRateLimitPerSecond)
+	}
+	if cfg.TopicCacheMaxEntries == 0 {
+		cfg.TopicCacheMaxEntries = 4096
+	}
+	if cfg.MaintenanceConcurrency == 0 {
+		cfg.MaintenanceConcurrency = 4
 	}
 }
 
