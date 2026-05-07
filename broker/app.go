@@ -40,18 +40,19 @@ func NewApp(cfg Config) (*dix.App, error) {
 			dix.Value(cfg),
 			dix.Value(logger),
 			dix.Provider0(func() eventx.BusRuntime { return eventx.New() }),
+			dix.Provider2(NewMetricsRuntime),
 			dix.ProviderErr1(func(cfg Config) (*store.StorxLogStore, error) {
 				return store.OpenStorxLogStore(cfg.SegmentLogPath())
 			}),
 			dix.ProviderErr1(func(cfg Config) (*store.StorxMetadataStore, error) {
 				return store.OpenStorxMetadataStore(cfg.MetadataPath())
 			}),
-			dix.ProviderErr5(func(cfg Config, logger *slog.Logger, bus eventx.BusRuntime, logStore *store.StorxLogStore, metaStore *store.StorxMetadataStore) (*Broker, error) {
-				return NewWithStores(cfg, logStore, metaStore, WithLogger(logger), WithEventBus(bus))
+			dix.ProviderErr6(func(cfg Config, logger *slog.Logger, bus eventx.BusRuntime, metrics *MetricsRuntime, logStore *store.StorxLogStore, metaStore *store.StorxMetadataStore) (*Broker, error) {
+				return NewWithStores(cfg, logStore, metaStore, WithLogger(logger), WithEventBus(bus), WithMetrics(metrics))
 			}),
 			dix.ProviderErr3(NewScheduledRuntime),
-			dix.Provider3(NewTCPServer),
-			dix.Provider3(NewAdminServer),
+			dix.Provider4(NewTCPServer),
+			dix.Provider4(NewAdminServer),
 		),
 		dix.Hooks(
 			dix.OnStart(func(ctx context.Context, broker *Broker) error {

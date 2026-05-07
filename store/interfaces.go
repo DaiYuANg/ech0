@@ -10,6 +10,14 @@ type MessageLogStore interface {
 	LastOffset(topicPartition TopicPartition) (*uint64, error)
 }
 
+type RetentionCleaner interface {
+	EnforceRetention(nowMS uint64) (RetentionCleanupResult, error)
+}
+
+type CompactionCleaner interface {
+	Compact(nowMS uint64, sealedSegmentBatch int) (CompactionCleanupResult, error)
+}
+
 type OffsetStore interface {
 	LoadConsumerOffset(consumer string, topicPartition TopicPartition) (*uint64, error)
 	SaveConsumerOffset(consumer string, topicPartition TopicPartition, nextOffset uint64) error

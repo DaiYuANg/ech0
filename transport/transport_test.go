@@ -1,21 +1,22 @@
-//nolint:testpackage // Same-package tests keep transport frame helpers local.
-package transport
+package transport_test
 
 import (
 	"bytes"
 	"testing"
+
+	"github.com/DaiYuANg/ech0/transport"
 )
 
 func TestFrameRoundTrip(t *testing.T) {
-	frame, err := NewFrame(1, 42, []byte("hello"))
+	frame, err := transport.NewFrame(1, 42, []byte("hello"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if writeErr := WriteFrame(&buf, frame); writeErr != nil {
+	if writeErr := transport.WriteFrame(&buf, frame); writeErr != nil {
 		t.Fatal(writeErr)
 	}
-	decoded, err := ReadFrame(&buf)
+	decoded, err := transport.ReadFrame(&buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,15 +26,15 @@ func TestFrameRoundTrip(t *testing.T) {
 }
 
 func TestReadFrameWithLimitRejectsLargeBody(t *testing.T) {
-	frame, err := NewFrame(1, 42, []byte("hello"))
+	frame, err := transport.NewFrame(1, 42, []byte("hello"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if writeErr := WriteFrame(&buf, frame); writeErr != nil {
+	if writeErr := transport.WriteFrame(&buf, frame); writeErr != nil {
 		t.Fatal(writeErr)
 	}
-	if _, readErr := ReadFrameWithLimit(&buf, 4); readErr == nil {
+	if _, readErr := transport.ReadFrameWithLimit(&buf, 4); readErr == nil {
 		t.Fatal("expected body limit error")
 	}
 }

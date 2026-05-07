@@ -1,0 +1,235 @@
+package broker
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/DaiYuANg/ech0/protocol"
+	"github.com/DaiYuANg/ech0/transport"
+)
+
+type frameHandler func(*TCPServer, context.Context, transport.Frame) (transport.Frame, error)
+
+var tcpFrameHandlers = map[uint16]frameHandler{
+	protocol.CmdHandshakeRequest:                  (*TCPServer).handleHandshakeFrame,
+	protocol.CmdPingRequest:                       (*TCPServer).handlePingFrame,
+	protocol.CmdCreateTopicRequest:                (*TCPServer).handleCreateTopicFrame,
+	protocol.CmdListTopicsRequest:                 (*TCPServer).handleListTopicsFrame,
+	protocol.CmdProduceRequest:                    (*TCPServer).handleProduceFrame,
+	protocol.CmdProduceBatchRequest:               (*TCPServer).handleProduceBatchFrame,
+	protocol.CmdFetchRequest:                      (*TCPServer).handleFetchFrame,
+	protocol.CmdFetchBatchRequest:                 (*TCPServer).handleFetchBatchFrame,
+	protocol.CmdCommitOffsetRequest:               (*TCPServer).handleCommitOffsetFrame,
+	protocol.CmdNackRequest:                       (*TCPServer).handleNackFrame,
+	protocol.CmdProcessRetryRequest:               (*TCPServer).handleProcessRetryFrame,
+	protocol.CmdScheduleDelayRequest:              (*TCPServer).handleScheduleDelayFrame,
+	protocol.CmdSendDirectRequest:                 (*TCPServer).handleSendDirectFrame,
+	protocol.CmdFetchInboxRequest:                 (*TCPServer).handleFetchInboxFrame,
+	protocol.CmdAckDirectRequest:                  (*TCPServer).handleAckDirectFrame,
+	protocol.CmdJoinConsumerGroupRequest:          (*TCPServer).handleJoinConsumerGroupFrame,
+	protocol.CmdHeartbeatConsumerGroupRequest:     (*TCPServer).handleHeartbeatConsumerGroupFrame,
+	protocol.CmdRebalanceConsumerGroupRequest:     (*TCPServer).handleRebalanceConsumerGroupFrame,
+	protocol.CmdGetConsumerGroupAssignmentRequest: (*TCPServer).handleGetConsumerGroupAssignmentFrame,
+	protocol.CmdFetchConsumerGroupRequest:         (*TCPServer).handleFetchConsumerGroupFrame,
+	protocol.CmdCommitConsumerGroupOffsetRequest:  (*TCPServer).handleCommitConsumerGroupOffsetFrame,
+	protocol.CmdFetchConsumerGroupBatchRequest:    (*TCPServer).handleFetchConsumerGroupBatchFrame,
+}
+
+func (s *TCPServer) handleHandshakeFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.HandshakeRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	_ = req
+	return okFrame(protocol.CmdHandshakeResponse, protocol.HandshakeResponse{
+		ServerID:        fmt.Sprintf("%s-node-%d", s.broker.cfg.Broker.ClusterName, s.broker.cfg.Broker.NodeID),
+		ProtocolVersion: protocol.Version1,
+	})
+}
+
+func (s *TCPServer) handlePingFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.PingRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	return okFrame(protocol.CmdPingResponse, protocol.PingResponse(req))
+}
+
+func (s *TCPServer) handleCreateTopicFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.CreateTopicRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	created, err := s.broker.CreateTopic(ctx, topicConfigFromProtocol(req))
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	return okFrame(protocol.CmdCreateTopicResponse, protocol.CreateTopicResponse{Topic: created.Name, Partitions: created.Partitions})
+}
+
+func (s *TCPServer) handleListTopicsFrame(_ context.Context, _ transport.Frame) (transport.Frame, error) {
+	topics, err := s.broker.ListTopics()
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	out := make([]protocol.TopicMetadata, 0, len(topics))
+	for i := range topics {
+		topic := topics[i]
+		out = append(out, protocol.TopicMetadata{Topic: topic.Name, Partitions: topic.Partitions})
+	}
+	return okFrame(protocol.CmdListTopicsResponse, protocol.ListTopicsResponse{Topics: out})
+}
+
+func (s *TCPServer) handleProduceFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.ProduceRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	if len(req.Payload) > s.limits.MaxPayloadBytes {
+		msg := fmt.Sprintf("produce payload size %d exceeds limit %d", len(req.Payload), s.limits.MaxPayloadBytes)
+		return errorFrame("payload_too_large", msg), nil
+	}
+	result, err := s.broker.Publish(ctx, req.Topic, partitioningFromProtocol(req.Partitioning, req.Partition), req.Key, req.Tombstone, req.Payload)
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	return okFrame(protocol.CmdProduceResponse, protocol.ProduceResponse{
+		Partition:  result.Partition,
+		Offset:     result.Record.Offset,
+		NextOffset: result.Record.Offset + 1,
+	})
+}
+
+func (s *TCPServer) handleProduceBatchFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.ProduceBatchRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	records, err := batchRecordsFromProtocol(req)
+	if err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	result, err := s.broker.PublishBatch(ctx, req.Topic, partitioningFromProtocol(req.Partitioning, req.Partition), records)
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	if len(result.Records) == 0 {
+		return errorFrame("invalid_request", "produce_batch appended no records"), nil
+	}
+	return okFrame(protocol.CmdProduceBatchResponse, protocol.ProduceBatchResponse{
+		Partition:  result.Partition,
+		BaseOffset: result.Records[0].Offset,
+		LastOffset: result.Records[len(result.Records)-1].Offset,
+		NextOffset: result.Records[len(result.Records)-1].Offset + 1,
+		Appended:   len(result.Records),
+	})
+}
+
+func (s *TCPServer) handleFetchFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.FetchRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	poll, err := s.broker.Fetch(req.Consumer, req.Topic, req.Partition, req.Offset, req.MaxRecords)
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	return okFrame(protocol.CmdFetchResponse, protocol.FetchResponse{
+		Topic:         req.Topic,
+		Partition:     req.Partition,
+		Records:       fetchRecordsFromStore(poll.Records),
+		NextOffset:    poll.NextOffset,
+		HighWatermark: poll.HighWatermark,
+	})
+}
+
+func (s *TCPServer) handleFetchBatchFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.FetchBatchRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	items := make([]protocol.FetchBatchItemResponse, 0, len(req.Items))
+	for _, item := range req.Items {
+		poll, err := s.broker.Fetch(req.Consumer, item.Topic, item.Partition, item.Offset, item.MaxRecords)
+		if err != nil {
+			return errorFromErr(err), nil
+		}
+		items = append(items, protocol.FetchBatchItemResponse{
+			Topic:         item.Topic,
+			Partition:     item.Partition,
+			Records:       fetchRecordsFromStore(poll.Records),
+			NextOffset:    poll.NextOffset,
+			HighWatermark: poll.HighWatermark,
+		})
+	}
+	return okFrame(protocol.CmdFetchBatchResponse, protocol.FetchBatchResponse{Items: items})
+}
+
+func (s *TCPServer) handleCommitOffsetFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.CommitOffsetRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	if err := s.broker.CommitOffset(ctx, req.Consumer, req.Topic, req.Partition, req.NextOffset); err != nil {
+		return errorFromErr(err), nil
+	}
+	return okFrame(protocol.CmdCommitOffsetResponse, protocol.CommitOffsetResponse(req))
+}
+
+func (s *TCPServer) handleNackFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.NackRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	result, err := s.broker.Nack(ctx, req.Consumer, req.Topic, req.Partition, req.Offset, req.LastError)
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	return okFrame(protocol.CmdNackResponse, protocol.NackResponse{
+		RetryTopic:      result.RetryTopic,
+		RetryPartition:  result.RetryPartition,
+		RetryOffset:     result.RetryOffset,
+		RetryNextOffset: result.RetryNextOffset,
+		RetryCount:      result.RetryCount,
+	})
+}
+
+func (s *TCPServer) handleProcessRetryFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.ProcessRetryRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	result, err := s.broker.ProcessRetryBatch(ctx, req.Consumer, req.SourceTopic, req.Partition, req.MaxRecords)
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	return okFrame(protocol.CmdProcessRetryResponse, protocol.ProcessRetryResponse{
+		RetryTopic:          result.RetryTopic,
+		Partition:           result.Partition,
+		MovedToOrigin:       result.MovedToOrigin,
+		MovedToDeadLetter:   result.MovedToDeadLetter,
+		CommittedNextOffset: result.CommittedNextOffset,
+	})
+}
+
+func (s *TCPServer) handleScheduleDelayFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.ScheduleDelayRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	if len(req.Payload) > s.limits.MaxPayloadBytes {
+		msg := fmt.Sprintf("schedule_delay payload size %d exceeds limit %d", len(req.Payload), s.limits.MaxPayloadBytes)
+		return errorFrame("payload_too_large", msg), nil
+	}
+	result, err := s.broker.ScheduleDelay(ctx, req.Topic, req.Partition, req.Payload, req.DeliverAtMS)
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	return okFrame(protocol.CmdScheduleDelayResponse, protocol.ScheduleDelayResponse{
+		DelayTopic:  result.DelayTopic,
+		Partition:   result.Partition,
+		Offset:      result.Offset,
+		NextOffset:  result.NextOffset,
+		DeliverAtMS: result.DeliverAtMS,
+	})
+}

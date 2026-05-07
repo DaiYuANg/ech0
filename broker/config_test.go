@@ -1,11 +1,11 @@
-//nolint:testpackage // Same-package tests validate unexported config normalization.
-package broker
+package broker_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
+	broker "github.com/DaiYuANg/ech0/broker"
 	"github.com/spf13/pflag"
 )
 
@@ -34,7 +34,7 @@ enabled = false
 		t.Fatal(err)
 	}
 
-	cfg, err := LoadConfigFromFlagSet(flags, path)
+	cfg, err := broker.LoadConfigFromFlagSet(flags, path)
 	if err != nil {
 		t.Fatal(err)
 	}

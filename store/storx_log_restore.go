@@ -13,7 +13,7 @@ func (s *StorxLogStore) Restore(snapshot Snapshot) error {
 	if err := s.restoreLogTopics(snapshot.Topics); err != nil {
 		return err
 	}
-	return s.restoreLogRecords(snapshot.Records)
+	return s.restoreLogRecords(snapshot)
 }
 
 func (s *StorxLogStore) clearLogBuckets() error {
@@ -38,34 +38,67 @@ func (s *StorxLogStore) restoreLogTopics(topics []TopicConfig) error {
 	return nil
 }
 
-func (s *StorxLogStore) restoreLogRecords(records collectionmapping.Map[string, []Record]) error {
-	nextOffsets := collectionmapping.NewMap[TopicPartition, uint64]()
-	if err := s.restoreLogRecordValues(records, nextOffsets); err != nil {
+func (s *StorxLogStore) restoreLogRecords(snapshot Snapshot) error {
+	nextOffsets := restoreLogNextOffsetMap(snapshot.LogOffsets)
+	shouldComputeOffsets := nextOffsets.IsEmpty()
+	if err := s.restoreLogRecordValues(snapshot.Records, nextOffsets, shouldComputeOffsets); err != nil {
 		return err
 	}
 	return s.restoreLogNextOffsets(nextOffsets)
 }
 
-func (s *StorxLogStore) restoreLogRecordValues(records collectionmapping.Map[string, []Record], nextOffsets *collectionmapping.Map[TopicPartition, uint64]) error {
+func (s *StorxLogStore) restoreLogRecordValues(records collectionmapping.Map[string, []Record], nextOffsets *collectionmapping.Map[TopicPartition, uint64], computeOffsets bool) error {
 	var resultErr error
 	records.Range(func(key string, topicRecords []Record) bool {
-		tp, err := parsePartitionKey(key)
-		if err != nil {
+		if err := s.restoreLogPartitionRecords(key, topicRecords, nextOffsets, computeOffsets); err != nil {
 			resultErr = err
 			return false
-		}
-		for _, record := range topicRecords {
-			if err := s.records.Put(context.Background(), recordKey(tp, record.Offset), cloneRecord(record)); err != nil {
-				resultErr = wrapExternal(err, "restore log record")
-				return false
-			}
-			if record.Offset+1 > nextOffsets.GetOrDefault(tp, 0) {
-				nextOffsets.Set(tp, record.Offset+1)
-			}
 		}
 		return true
 	})
 	return resultErr
+}
+
+func (s *StorxLogStore) restoreLogPartitionRecords(
+	key string,
+	records []Record,
+	nextOffsets *collectionmapping.Map[TopicPartition, uint64],
+	computeOffsets bool,
+) error {
+	tp, err := parsePartitionKey(key)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if err := s.records.Put(context.Background(), recordKey(tp, record.Offset), cloneRecord(record)); err != nil {
+			return wrapExternal(err, "restore log record")
+		}
+		advanceRestoredNextOffset(tp, record, nextOffsets, computeOffsets)
+	}
+	return nil
+}
+
+func advanceRestoredNextOffset(
+	tp TopicPartition,
+	record Record,
+	nextOffsets *collectionmapping.Map[TopicPartition, uint64],
+	computeOffsets bool,
+) {
+	if computeOffsets && record.Offset >= nextOffsets.GetOrDefault(tp, 0) {
+		nextOffsets.Set(tp, record.Offset+1)
+	}
+}
+
+func restoreLogNextOffsetMap(snapshotOffsets collectionmapping.Map[string, uint64]) *collectionmapping.Map[TopicPartition, uint64] {
+	nextOffsets := collectionmapping.NewMap[TopicPartition, uint64]()
+	snapshotOffsets.Range(func(key string, value uint64) bool {
+		tp, err := parsePartitionKey(key)
+		if err == nil {
+			nextOffsets.Set(tp, value)
+		}
+		return true
+	})
+	return nextOffsets
 }
 
 func (s *StorxLogStore) restoreLogNextOffsets(nextOffsets *collectionmapping.Map[TopicPartition, uint64]) error {

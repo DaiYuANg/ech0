@@ -1,8 +1,9 @@
-// Package broker contains the ech0 broker runtime.
+// Package broker contains the embeddable broker runtime and operator surfaces.
 package broker
 
 import (
 	"context"
+	"embed"
 	"log/slog"
 	"strings"
 	"sync"
@@ -12,31 +13,33 @@ import (
 	"github.com/arcgolabs/httpx/adapter"
 	httpxfiber "github.com/arcgolabs/httpx/adapter/fiber"
 	"github.com/gofiber/fiber/v2"
-	"github.com/samber/oops"
+	fiberadaptor "github.com/gofiber/fiber/v2/middleware/adaptor"
 )
 
+//go:embed admin_templates/*.html
+var adminTemplates embed.FS
+
 type AdminServer struct {
-	cfg    Config
-	broker *Broker
-	logger *slog.Logger
-	app    *fiber.App
-	once   sync.Once
+	cfg     Config
+	broker  *Broker
+	logger  *slog.Logger
+	metrics *MetricsRuntime
+	app     *fiber.App
+	once    sync.Once
 }
 
-func NewAdminServer(cfg Config, broker *Broker, logger *slog.Logger) *AdminServer {
-	return &AdminServer{cfg: cfg, broker: broker, logger: logger}
+func NewAdminServer(cfg Config, broker *Broker, logger *slog.Logger, metrics *MetricsRuntime) *AdminServer {
+	if metrics == nil {
+		metrics = NewNoopMetricsRuntime(logger)
+	}
+	return &AdminServer{cfg: cfg, broker: broker, logger: logger, metrics: metrics}
 }
 
 func (s *AdminServer) Start(ctx context.Context) error {
 	if !s.cfg.Admin.Enabled {
 		return nil
 	}
-	s.once.Do(func() {
-		s.app = fiber.New(fiber.Config{
-			AppName: "ech0-admin",
-		})
-		s.registerRoutes()
-	})
+	s.ensureApp()
 	if s.logger != nil {
 		s.logger.Info("admin http listening", "addr", s.cfg.Admin.BindAddr, "runtime", "fiber")
 	}
@@ -55,6 +58,18 @@ func (s *AdminServer) Start(ctx context.Context) error {
 	case <-time.After(50 * time.Millisecond):
 		return nil
 	}
+}
+
+func (s *AdminServer) ensureApp() {
+	s.once.Do(s.initApp)
+}
+
+func (s *AdminServer) initApp() {
+	s.app = fiber.New(fiber.Config{
+		AppName: "ech0-admin",
+		Views:   adminTemplateEngine(),
+	})
+	s.registerRoutes()
 }
 
 func (s *AdminServer) Stop(ctx context.Context) error {
@@ -77,75 +92,64 @@ func (s *AdminServer) registerRoutes() {
 		httpx.WithBasePath("/api"),
 		httpx.WithValidation(),
 	)
-	httpx.MustGet(server, "/healthz", func(ctx context.Context, _ *struct{}) (*healthOutput, error) {
-		_ = ctx
-		out := &healthOutput{}
-		out.Body = s.broker.RuntimeHealth()
-		return out, nil
-	})
-	httpx.MustGet(server, "/topics", func(ctx context.Context, _ *struct{}) (*topicsOutput, error) {
-		_ = ctx
-		topics, err := s.broker.ListTopics()
-		if err != nil {
-			return nil, wrapBroker("list_topics_failed", err, "list topics")
-		}
-		out := &topicsOutput{}
-		out.Body.Topics = topics
-		return out, nil
-	})
-	httpx.MustGet(server, "/metrics", func(ctx context.Context, _ *struct{}) (*metricsOutput, error) {
-		_ = ctx
-		topics, err := s.broker.ListTopics()
-		if err != nil {
-			return nil, oops.In("admin").Code("list_topics_failed").Wrapf(err, "build metrics")
-		}
-		out := &metricsOutput{}
-		out.Body.TopicCount = len(topics)
-		out.Body.Runtime = s.broker.RuntimeHealth().RuntimeMode
-		return out, nil
-	})
+	httpx.MustGet(server, "/healthz", s.apiHealth)
+	httpx.MustGet(server, "/topics", s.apiTopics)
+	httpx.MustGet(server, "/metrics", s.apiMetrics)
 
-	s.app.Get("/healthz", func(c *fiber.Ctx) error {
-		return c.JSON(s.broker.RuntimeHealth())
-	})
-	s.app.Get("/metrics", func(c *fiber.Ctx) error {
-		topics, err := s.broker.ListTopics()
-		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
-		}
-		c.Set("Content-Type", "text/plain; version=0.0.4")
-		return c.SendString("ech0_topics_total " + itoa(len(topics)) + "\n")
-	})
+	s.app.Get("/", s.redirectRoot)
+	s.app.Get("/ui", s.uiDashboard)
+	s.app.Get("/ui/topics", s.uiTopics)
+	s.app.Get("/ui/topics/:topic/messages", s.uiTopicMessages)
+	s.app.Get("/ui/groups/:group", s.uiGroup)
+
+	s.app.Get("/healthz", s.legacyHealth)
+	s.app.Get("/metrics", s.prometheusMetrics)
+	s.app.Get("/api/groups/:group/members", s.apiGroupMembers)
+	s.app.Get("/api/groups/:group/assignment", s.apiGroupAssignment)
+	s.app.Get("/api/groups/:group/lag", s.apiGroupLag)
+	s.app.Post("/api/groups/:group/rebalance", s.apiGroupRebalance)
+	s.app.Get("/api/groups/:group/rebalance-explain", s.apiGroupRebalanceExplain)
 }
 
-type healthOutput struct {
-	Body RuntimeHealth `json:"body"`
+func (s *AdminServer) redirectRoot(c *fiber.Ctx) error {
+	return wrapBroker("admin_redirect_failed", c.Redirect("/ui", fiber.StatusTemporaryRedirect), "redirect admin root")
 }
 
-type topicsOutput struct {
-	Body struct {
-		Topics any `json:"topics"`
-	} `json:"body"`
+func (s *AdminServer) legacyHealth(c *fiber.Ctx) error {
+	return adminJSON(c, s.broker.RuntimeHealth())
 }
 
-type metricsOutput struct {
-	Body struct {
-		TopicCount int    `json:"topic_count"`
-		Runtime    string `json:"runtime"`
-	} `json:"body"`
-}
-
-func itoa(v int) string {
-	if v == 0 {
-		return "0"
+func (s *AdminServer) prometheusMetrics(c *fiber.Ctx) error {
+	if err := s.metrics.RefreshStream(c.UserContext(), s.broker); err != nil {
+		return wrapBroker("admin_metrics_refresh_failed", c.Status(fiber.StatusInternalServerError).SendString(err.Error()), "write metrics refresh error")
 	}
-	var buf [20]byte
-	i := len(buf)
-	n := v
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
+	return wrapBroker("admin_metrics_write_failed", fiberadaptor.HTTPHandler(s.metrics.Handler())(c), "write prometheus metrics")
+}
+
+type dashboardView struct {
+	Health           RuntimeHealth
+	Metrics          MetricsSnapshot
+	Topics           []TopicSummary
+	TopicsError      string
+	CommandErrorRate string
+}
+
+type topicsView struct {
+	Topics []TopicSummary
+	Error  string
+}
+
+type topicMessagesView struct {
+	Page       TopicMessagesPageSummary
+	PrevOffset uint64
+	Error      string
+}
+
+type groupView struct {
+	Group      string
+	Explain    *GroupRebalanceExplainSummary
+	Members    []GroupMemberSummary
+	Assignment *GroupAssignmentSummary
+	Lag        *GroupLagSummary
+	Error      string
 }

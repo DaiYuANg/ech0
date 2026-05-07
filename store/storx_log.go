@@ -203,6 +203,18 @@ func (s *StorxLogStore) Snapshot() (Snapshot, error) {
 		}).
 		Values()
 
+	nextOffsets := collectionmapping.NewMap[string, uint64]()
+	if err := s.nextOffsets.Walk(context.Background(), func(entry bboltx.Entry[string, uint64]) error {
+		tp, err := parseNextOffsetKey(entry.Key)
+		if err != nil {
+			return err
+		}
+		nextOffsets.Set(partitionKey(tp), entry.Value)
+		return nil
+	}); err != nil {
+		return Snapshot{}, wrapExternal(err, "walk log next offsets")
+	}
+
 	records := collectionmapping.NewMap[string, []Record]()
 	if err := s.records.Walk(context.Background(), func(entry bboltx.Entry[string, Record]) error {
 		tp, err := parseRecordKey(entry.Key)
@@ -224,7 +236,7 @@ func (s *StorxLogStore) Snapshot() (Snapshot, error) {
 			Values())
 		return true
 	})
-	return Snapshot{Topics: topics, Records: *records}, nil
+	return Snapshot{Topics: topics, Records: *records, LogOffsets: *nextOffsets}, nil
 }
 
 func (s *StorxLogStore) loadTopicForPartition(topicPartition TopicPartition) (TopicConfig, error) {
@@ -263,6 +275,18 @@ func parseRecordKey(key string) (TopicPartition, error) {
 
 func nextOffsetKey(tp TopicPartition) string {
 	return tp.Topic + "\x00" + strconv.FormatUint(uint64(tp.Partition), 10)
+}
+
+func parseNextOffsetKey(key string) (TopicPartition, error) {
+	parts := strings.Split(key, "\x00")
+	if len(parts) != 2 {
+		return TopicPartition{}, E(CodeCodec, "invalid next offset key %q", key)
+	}
+	partition, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return TopicPartition{}, E(CodeCodec, "invalid partition in next offset key %q: %v", key, err)
+	}
+	return NewTopicPartition(parts[0], uint32(partition)), nil
 }
 
 func fmtOffset(offset uint64) string {

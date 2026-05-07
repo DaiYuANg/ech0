@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ech0 Group</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
+  <header class="border-b border-zinc-200 bg-white">
+    <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <strong class="text-sm font-semibold tracking-normal">ech0</strong>
+      <nav class="flex items-center gap-4 text-sm text-zinc-500">
+        <a class="hover:text-emerald-700" href="/ui">Dashboard</a>
+        <a class="hover:text-emerald-700" href="/ui/topics">Topics</a>
+        <a class="hover:text-emerald-700" href="/docs">OpenAPI</a>
+        <a class="hover:text-emerald-700" href="/metrics">Metrics</a>
+      </nav>
+    </div>
+  </header>
+  <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+    <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <h1 class="text-2xl font-semibold tracking-normal">{{.Group}}</h1>
+      <form method="post" action="/api/groups/{{.Group}}/rebalance"><button class="h-8 rounded-md bg-emerald-700 px-3 text-sm font-medium text-white hover:bg-emerald-800" type="submit">Rebalance</button></form>
+    </div>
+    {{if .Error}}<p class="mb-3 text-sm font-semibold text-amber-700">{{.Error}}</p>{{end}}
+    <section class="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Members</div><div class="mt-1 text-2xl font-bold">{{len .Members}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Generation</div><div class="mt-1 text-2xl font-bold">{{if .Assignment}}{{.Assignment.Generation}}{{else}}0{{end}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Assignments</div><div class="mt-1 text-2xl font-bold">{{if .Assignment}}{{len .Assignment.Assignments}}{{else}}0{{end}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Lag</div><div class="mt-1 text-2xl font-bold">{{if .Lag}}{{.Lag.TotalLagRecords}}{{else}}0{{end}}</div></div>
+    </section>
+    {{if .Explain}}
+    <h2 class="mb-3 mt-6 text-base font-semibold tracking-normal">Rebalance Explain</h2>
+    <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+      <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+        <tbody class="divide-y divide-zinc-200">
+          <tr><th class="bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase text-zinc-500">Strategy</th><td class="px-3 py-2">{{.Explain.Strategy}}</td><th class="bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase text-zinc-500">Sticky</th><td class="px-3 py-2">{{.Explain.StickyAssignments}}</td></tr>
+          <tr><th class="bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase text-zinc-500">Next Generation</th><td class="px-3 py-2">{{.Explain.NextGeneration}}</td><th class="bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase text-zinc-500">Moved</th><td class="px-3 py-2">{{.Explain.MovedPartitions}}</td></tr>
+          <tr><th class="bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase text-zinc-500">Sticky Candidates</th><td class="px-3 py-2">{{.Explain.StickyCandidates}}</td><th class="bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase text-zinc-500">Sticky Applied</th><td class="px-3 py-2">{{.Explain.StickyApplied}}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    {{end}}
+    <h2 class="mb-3 mt-6 text-base font-semibold tracking-normal">Members</h2>
+    <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+      <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Member</th><th class="px-3 py-2">Topics</th><th class="px-3 py-2">Session Timeout</th><th class="px-3 py-2">Last Heartbeat</th><th class="px-3 py-2">Expires</th></tr></thead>
+        <tbody class="divide-y divide-zinc-200">
+        {{range .Members}}
+          <tr><td class="px-3 py-2">{{.MemberID}}</td><td class="px-3 py-2">{{range .Topics}}{{.}} {{end}}</td><td class="px-3 py-2">{{.SessionTimeoutMS}}</td><td class="px-3 py-2">{{.LastHeartbeatMS}}</td><td class="px-3 py-2">{{.ExpiresAtMS}}</td></tr>
+        {{else}}
+          <tr><td colspan="5" class="px-3 py-4 text-zinc-500">No active members</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    <h2 class="mb-3 mt-6 text-base font-semibold tracking-normal">Assignment</h2>
+    <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+      <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Member</th><th class="px-3 py-2">Topic</th><th class="px-3 py-2">Partition</th></tr></thead>
+        <tbody class="divide-y divide-zinc-200">
+        {{if .Assignment}}
+          {{range .Assignment.Assignments}}
+            <tr><td class="px-3 py-2">{{.MemberID}}</td><td class="px-3 py-2">{{.Topic}}</td><td class="px-3 py-2">{{.Partition}}</td></tr>
+          {{else}}
+            <tr><td colspan="3" class="px-3 py-4 text-zinc-500">No assignments</td></tr>
+          {{end}}
+        {{else}}
+          <tr><td colspan="3" class="px-3 py-4 text-zinc-500">No saved assignment</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    <h2 class="mb-3 mt-6 text-base font-semibold tracking-normal">Lag</h2>
+    <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+      <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Member</th><th class="px-3 py-2">Topic</th><th class="px-3 py-2">Partition</th><th class="px-3 py-2">Committed</th><th class="px-3 py-2">High Watermark</th><th class="px-3 py-2">Backlog</th><th class="px-3 py-2">Lag</th></tr></thead>
+        <tbody class="divide-y divide-zinc-200">
+        {{if .Lag}}
+          {{range .Lag.Partitions}}
+            <tr>
+              <td class="px-3 py-2">{{.MemberID}}</td><td class="px-3 py-2">{{.Topic}}</td><td class="px-3 py-2">{{.Partition}}</td><td class="px-3 py-2">{{.CommittedNextOffset}}</td>
+              <td class="px-3 py-2">{{fmtOffset .HighWatermark}}</td><td class="px-3 py-2">{{.BacklogRecords}}</td><td class="px-3 py-2">{{.LagRecords}}</td>
+            </tr>
+          {{else}}
+            <tr><td colspan="7" class="px-3 py-4 text-zinc-500">No assigned partitions</td></tr>
+          {{end}}
+        {{else}}
+          <tr><td colspan="7" class="px-3 py-4 text-zinc-500">No lag snapshot</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

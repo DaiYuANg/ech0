@@ -27,6 +27,9 @@ segments_dir = "segments"
 metadata_path = "meta/metadata.bbolt"
 retention_cleanup_enabled = true
 retention_cleanup_interval_secs = 30
+compaction_cleanup_enabled = true
+compaction_cleanup_interval_secs = 60
+compaction_sealed_segment_batch = 2
 
 [logging]
 level = "info,broker=info,store=info"

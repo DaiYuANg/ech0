@@ -12,6 +12,7 @@ import (
 type Snapshot struct {
 	Topics      []TopicConfig                           `json:"topics"`
 	Records     collectionmapping.Map[string, []Record] `json:"records"`
+	LogOffsets  collectionmapping.Map[string, uint64]   `json:"log_offsets"`
 	Offsets     collectionmapping.Map[string, uint64]   `json:"offsets"`
 	Members     []ConsumerGroupMember                   `json:"members"`
 	Assignments []ConsumerGroupAssignment               `json:"assignments"`
@@ -24,6 +25,7 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 	snap := Snapshot{
 		Topics:      make([]TopicConfig, 0, s.topics.Len()),
 		Records:     *collectionmapping.NewMapWithCapacity[string, []Record](s.records.Len()),
+		LogOffsets:  *collectionmapping.NewMapWithCapacity[string, uint64](s.nextOffsets.Len()),
 		Offsets:     *collectionmapping.NewMapWithCapacity[string, uint64](s.offsets.Len()),
 		Members:     make([]ConsumerGroupMember, 0, s.members.Len()),
 		Assignments: make([]ConsumerGroupAssignment, 0, s.assignments.Len()),
@@ -39,6 +41,10 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 			copied = append(copied, cloneRecord(record))
 		}
 		snap.Records.Set(partitionKey(tp), copied)
+		return true
+	})
+	s.nextOffsets.Range(func(tp TopicPartition, value uint64) bool {
+		snap.LogOffsets.Set(partitionKey(tp), value)
 		return true
 	})
 	s.offsets.Range(func(key string, value uint64) bool {
@@ -72,6 +78,7 @@ func (s *MemoryStore) Restore(snapshot Snapshot) error {
 	s.topics = state.topics
 	s.topicNames = state.topicNames
 	s.records = state.records
+	s.nextOffsets = state.nextOffsets
 	s.offsets = state.offsets
 	s.members = state.members
 	s.assignments = state.assignments
@@ -83,6 +90,7 @@ type memoryRestoreState struct {
 	topics      *collectionmapping.OrderedMap[string, TopicConfig]
 	topicNames  *collectionset.Set[string]
 	records     *collectionmapping.Map[TopicPartition, []Record]
+	nextOffsets *collectionmapping.Map[TopicPartition, uint64]
 	offsets     *collectionmapping.Map[string, uint64]
 	members     *collectionmapping.Map[string, ConsumerGroupMember]
 	assignments *collectionmapping.Map[string, ConsumerGroupAssignment]
@@ -101,11 +109,28 @@ func buildMemoryRestoreState(snapshot Snapshot) (memoryRestoreState, error) {
 		topics:      topics,
 		topicNames:  topicNames,
 		records:     records,
+		nextOffsets: restoreMemoryLogOffsets(snapshot.LogOffsets, records),
 		offsets:     restoreMemoryOffsets(snapshot.Offsets),
 		members:     restoreMemoryMembers(snapshot.Members),
 		assignments: restoreMemoryAssignments(snapshot.Assignments),
 		brokerState: cloneBrokerState(snapshot.BrokerState),
 	}, nil
+}
+
+func restoreMemoryLogOffsets(snapshotOffsets collectionmapping.Map[string, uint64], records *collectionmapping.Map[TopicPartition, []Record]) *collectionmapping.Map[TopicPartition, uint64] {
+	nextOffsets := collectionmapping.NewMap[TopicPartition, uint64]()
+	records.Range(func(tp TopicPartition, topicRecords []Record) bool {
+		nextOffsets.Set(tp, nextOffsetFromRecords(topicRecords))
+		return true
+	})
+	snapshotOffsets.Range(func(key string, value uint64) bool {
+		tp, err := parsePartitionKey(key)
+		if err == nil {
+			nextOffsets.Set(tp, value)
+		}
+		return true
+	})
+	return nextOffsets
 }
 
 func restoreMemoryTopics(topics []TopicConfig, out *collectionmapping.OrderedMap[string, TopicConfig], names *collectionset.Set[string], records *collectionmapping.Map[TopicPartition, []Record]) {

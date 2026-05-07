@@ -21,9 +21,35 @@ type ScheduledRuntime struct {
 
 func NewScheduledRuntime(cfg Config, broker *Broker, logger *slog.Logger) (*ScheduledRuntime, error) {
 	runtime := &ScheduledRuntime{cfg: cfg, broker: broker, logger: logger}
-	if !cfg.Broker.DelaySchedulerEnabled && !cfg.Broker.RetryWorkerEnabled {
+	if !scheduledRuntimeEnabled(cfg) {
 		return runtime, nil
 	}
+	scheduler, err := newScheduledRuntimeScheduler(broker)
+	if err != nil {
+		return nil, err
+	}
+	runtime.scheduler = scheduler
+	if err := registerScheduledJobs(scheduler, cfg, broker, logger); err != nil {
+		return nil, err
+	}
+	return runtime, nil
+}
+
+type scheduledJobRegistration struct {
+	enabled  bool
+	code     string
+	message  string
+	register func(gocron.Scheduler, Config, *Broker, *slog.Logger) error
+}
+
+func scheduledRuntimeEnabled(cfg Config) bool {
+	return cfg.Broker.DelaySchedulerEnabled ||
+		cfg.Broker.RetryWorkerEnabled ||
+		cfg.Storage.RetentionCleanupEnabled ||
+		cfg.Storage.CompactionCleanupEnabled
+}
+
+func newScheduledRuntimeScheduler(broker *Broker) (gocron.Scheduler, error) {
 	scheduler, err := gocron.NewScheduler(
 		gocron.WithDistributedElector(raftElector{broker: broker}),
 		gocron.WithGlobalJobOptions(gocron.WithSingletonMode(gocron.LimitModeReschedule)),
@@ -32,20 +58,48 @@ func NewScheduledRuntime(cfg Config, broker *Broker, logger *slog.Logger) (*Sche
 	if err != nil {
 		return nil, wrapBroker("scheduler_create_failed", err, "create scheduler")
 	}
-	runtime.scheduler = scheduler
+	return scheduler, nil
+}
 
-	if cfg.Broker.DelaySchedulerEnabled {
-		if err := registerDelayJob(scheduler, cfg, broker, logger); err != nil {
-			return nil, wrapBroker("delay_job_create_failed", err, "create delay scheduler job")
+func registerScheduledJobs(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
+	for _, job := range scheduledJobRegistrations(cfg) {
+		if !job.enabled {
+			continue
+		}
+		if err := job.register(scheduler, cfg, broker, logger); err != nil {
+			return wrapBroker(job.code, err, "%s", job.message)
 		}
 	}
+	return nil
+}
 
-	if cfg.Broker.RetryWorkerEnabled {
-		if err := registerRetryJob(scheduler, cfg, broker, logger); err != nil {
-			return nil, wrapBroker("retry_job_create_failed", err, "create retry worker job")
-		}
+func scheduledJobRegistrations(cfg Config) []scheduledJobRegistration {
+	return []scheduledJobRegistration{
+		{
+			enabled:  cfg.Broker.DelaySchedulerEnabled,
+			code:     "delay_job_create_failed",
+			message:  "create delay scheduler job",
+			register: registerDelayJob,
+		},
+		{
+			enabled:  cfg.Broker.RetryWorkerEnabled,
+			code:     "retry_job_create_failed",
+			message:  "create retry worker job",
+			register: registerRetryJob,
+		},
+		{
+			enabled:  cfg.Storage.RetentionCleanupEnabled,
+			code:     "retention_cleanup_job_create_failed",
+			message:  "create retention cleanup job",
+			register: registerRetentionCleanupJob,
+		},
+		{
+			enabled:  cfg.Storage.CompactionCleanupEnabled,
+			code:     "compaction_cleanup_job_create_failed",
+			message:  "create compaction cleanup job",
+			register: registerCompactionCleanupJob,
+		},
 	}
-	return runtime, nil
 }
 
 func registerDelayJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
@@ -85,6 +139,44 @@ func registerRetryJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, lo
 		gocron.WithTags("ech0", "retry"),
 	)
 	return wrapBroker("retry_job_register_failed", err, "register retry worker job")
+}
+
+func registerRetentionCleanupJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
+	interval := durationFromSeconds(cfg.Storage.RetentionCleanupIntervalSecs, 30*time.Second)
+	_, err := scheduler.NewJob(
+		gocron.DurationJob(interval),
+		gocron.NewTask(func(ctx context.Context) error {
+			result, err := broker.EnforceRetentionOnce(ctx)
+			if err != nil {
+				return err
+			}
+			logMoved(logger, "retention cleanup removed records", result.RemovedRecords)
+			return nil
+		}),
+		gocron.WithName("ech0.retention_cleanup"),
+		gocron.WithTags("ech0", "storage", "retention"),
+	)
+	return wrapBroker("retention_cleanup_job_register_failed", err, "register retention cleanup job")
+}
+
+func registerCompactionCleanupJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
+	interval := durationFromSeconds(cfg.Storage.CompactionCleanupIntervalSecs, 60*time.Second)
+	_, err := scheduler.NewJob(
+		gocron.DurationJob(interval),
+		gocron.NewTask(func(ctx context.Context) error {
+			result, err := broker.CompactOnce(ctx)
+			if err != nil {
+				return err
+			}
+			if result.RemovedRecords > 0 && logger != nil {
+				logger.Info("compaction cleanup removed records", "removed", result.RemovedRecords, "partitions", result.CompactedPartitions)
+			}
+			return nil
+		}),
+		gocron.WithName("ech0.compaction_cleanup"),
+		gocron.WithTags("ech0", "storage", "compaction"),
+	)
+	return wrapBroker("compaction_cleanup_job_register_failed", err, "register compaction cleanup job")
 }
 
 func logMoved(logger *slog.Logger, message string, moved int) {

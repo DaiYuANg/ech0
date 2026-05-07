@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ech0 Topic Messages</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
+  <header class="border-b border-zinc-200 bg-white">
+    <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <strong class="text-sm font-semibold tracking-normal">ech0</strong>
+      <nav class="flex items-center gap-4 text-sm text-zinc-500">
+        <a class="hover:text-emerald-700" href="/ui">Dashboard</a>
+        <a class="hover:text-emerald-700" href="/ui/topics">Topics</a>
+        <a class="hover:text-emerald-700" href="/docs">OpenAPI</a>
+        <a class="hover:text-emerald-700" href="/metrics">Metrics</a>
+      </nav>
+    </div>
+  </header>
+  <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+    <h1 class="text-2xl font-semibold tracking-normal">{{.Page.Topic}}</h1>
+    <div class="my-4 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
+      <span>partition {{.Page.Partition}}</span>
+      <span>offset {{.Page.Offset}}</span>
+      <span>high watermark {{fmtOffset .Page.HighWatermark}}</span>
+      <a class="font-medium text-emerald-700 hover:text-emerald-800" href="/ui/topics/{{.Page.Topic}}/messages?partition={{.Page.Partition}}&offset={{.PrevOffset}}&limit={{.Page.Limit}}">prev</a>
+      <a class="font-medium text-emerald-700 hover:text-emerald-800" href="/ui/topics/{{.Page.Topic}}/messages?partition={{.Page.Partition}}&offset={{.Page.NextOffset}}&limit={{.Page.Limit}}">next</a>
+    </div>
+    {{if .Error}}<p class="mb-3 text-sm font-semibold text-amber-700">{{.Error}}</p>{{end}}
+    <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+      <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Offset</th><th class="px-3 py-2">Timestamp</th><th class="px-3 py-2">Bytes</th><th class="px-3 py-2">UTF-8 Preview</th><th class="px-3 py-2">JSON Preview</th><th class="px-3 py-2">Hex Preview</th></tr></thead>
+        <tbody class="divide-y divide-zinc-200">
+        {{range .Page.Records}}
+          <tr>
+            <td class="px-3 py-2">{{.Offset}}</td>
+            <td class="px-3 py-2">{{.TimestampMS}}</td>
+            <td class="px-3 py-2">{{.PayloadSize}}</td>
+            <td class="px-3 py-2"><code class="block max-w-md whitespace-pre-wrap break-all font-mono text-xs">{{.PayloadUTF8Preview}}</code></td>
+            <td class="px-3 py-2"><code class="block max-w-md whitespace-pre-wrap break-all font-mono text-xs">{{if .PayloadJSONPreview}}{{.PayloadJSONPreview}}{{else}}-{{end}}</code></td>
+            <td class="px-3 py-2"><code class="block max-w-md whitespace-pre-wrap break-all font-mono text-xs">{{.PayloadHexPreview}}</code></td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" class="px-3 py-4 text-zinc-500">No records at this offset</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

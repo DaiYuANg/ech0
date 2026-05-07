@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ech0 Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
+  <header class="border-b border-zinc-200 bg-white">
+    <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <strong class="text-sm font-semibold tracking-normal">ech0</strong>
+      <nav class="flex items-center gap-4 text-sm text-zinc-500">
+        <a class="hover:text-emerald-700" href="/ui">Dashboard</a>
+        <a class="hover:text-emerald-700" href="/ui/topics">Topics</a>
+        <a class="hover:text-emerald-700" href="/docs">OpenAPI</a>
+        <a class="hover:text-emerald-700" href="/metrics">Metrics</a>
+      </nav>
+    </div>
+  </header>
+  <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+    <h1 class="mb-5 text-2xl font-semibold tracking-normal">Broker Dashboard</h1>
+    <section class="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Status</div><div class="mt-1 text-2xl font-bold {{if eq .Health.Status "ok"}}text-emerald-700{{else}}text-amber-700{{end}}">{{.Health.Status}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Runtime</div><div class="mt-1 text-2xl font-bold">{{.Health.RuntimeMode}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Uptime</div><div class="mt-1 text-2xl font-bold">{{.Metrics.UptimeSeconds}}s</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Topics</div><div class="mt-1 text-2xl font-bold">{{.Metrics.VisibleTopicsCurrent}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">TCP Connections</div><div class="mt-1 text-2xl font-bold">{{.Metrics.TCPConnectionsTotal}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Commands</div><div class="mt-1 text-2xl font-bold">{{.Metrics.CommandsTotal}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Command Error Rate</div><div class="mt-1 text-2xl font-bold">{{.CommandErrorRate}}%</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Produced Records</div><div class="mt-1 text-2xl font-bold">{{.Metrics.ProducedRecordsTotal}}</div></div>
+    </section>
+    <section class="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Topic Backlog</div><div class="mt-1 text-2xl font-bold">{{.Metrics.TotalTopicBacklogRecordsCurrent}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Max Topic Backlog</div><div class="mt-1 text-2xl font-bold">{{.Metrics.MaxTopicBacklogRecordsCurrent}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Consumer Groups</div><div class="mt-1 text-2xl font-bold">{{.Metrics.ConsumerGroupsCurrent}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Group Lag</div><div class="mt-1 text-2xl font-bold">{{.Metrics.TotalConsumerGroupLagRecordsCurrent}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Retention Runs</div><div class="mt-1 text-2xl font-bold">{{.Metrics.RetentionCleanupRunsTotal}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Retention Removed</div><div class="mt-1 text-2xl font-bold">{{.Metrics.RetentionRemovedRecordsTotal}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Compaction Runs</div><div class="mt-1 text-2xl font-bold">{{.Metrics.CompactionCleanupRunsTotal}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Compaction Removed</div><div class="mt-1 text-2xl font-bold">{{.Metrics.CompactionRemovedRecordsTotal}}</div></div>
+    </section>
+    <h2 class="mb-3 text-base font-semibold tracking-normal">Topics</h2>
+    {{if .TopicsError}}<p class="mb-3 text-sm font-semibold text-amber-700">{{.TopicsError}}</p>{{end}}
+    <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+      <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Name</th><th class="px-3 py-2">Partitions</th><th class="px-3 py-2">Produced</th><th class="px-3 py-2">Backlog</th><th class="px-3 py-2">Cleanup</th><th class="px-3 py-2">Actions</th></tr></thead>
+        <tbody class="divide-y divide-zinc-200">
+        {{range .Topics}}
+          <tr>
+            <td class="px-3 py-2">{{.Name}}</td>
+            <td class="px-3 py-2">{{.Partitions}}</td>
+            <td class="px-3 py-2">{{.ProducedRecordsTotal}}</td>
+            <td class="px-3 py-2">{{.TotalBacklogRecords}}</td>
+            <td class="px-3 py-2">{{.CleanupPolicy}}</td>
+            <td class="px-3 py-2"><a class="font-medium text-emerald-700 hover:text-emerald-800" href="/ui/topics/{{.Name}}/messages">messages</a></td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" class="px-3 py-4 text-zinc-500">No visible topics</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

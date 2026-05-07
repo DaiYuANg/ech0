@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"sync"
 
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
@@ -14,6 +13,7 @@ type MemoryStore struct {
 	topics      *collectionmapping.OrderedMap[string, TopicConfig]
 	topicNames  *collectionset.Set[string]
 	records     *collectionmapping.Map[TopicPartition, []Record]
+	nextOffsets *collectionmapping.Map[TopicPartition, uint64]
 	offsets     *collectionmapping.Map[string, uint64]
 	members     *collectionmapping.Map[string, ConsumerGroupMember]
 	assignments *collectionmapping.Map[string, ConsumerGroupAssignment]
@@ -25,6 +25,7 @@ func NewMemoryStore() *MemoryStore {
 		topics:      collectionmapping.NewOrderedMap[string, TopicConfig](),
 		topicNames:  collectionset.NewSet[string](),
 		records:     collectionmapping.NewMap[TopicPartition, []Record](),
+		nextOffsets: collectionmapping.NewMap[TopicPartition, uint64](),
 		offsets:     collectionmapping.NewMap[string, uint64](),
 		members:     collectionmapping.NewMap[string, ConsumerGroupMember](),
 		assignments: collectionmapping.NewMap[string, ConsumerGroupAssignment](),
@@ -51,6 +52,9 @@ func (s *MemoryStore) CreateTopic(topic TopicConfig) error {
 		tp := NewTopicPartition(topic.Name, partition)
 		if _, ok := s.records.Get(tp); !ok {
 			s.records.Set(tp, nil)
+		}
+		if _, ok := s.nextOffsets.Get(tp); !ok {
+			s.nextOffsets.Set(tp, 0)
 		}
 	}
 	return nil
@@ -82,7 +86,7 @@ func (s *MemoryStore) AppendRecord(topicPartition TopicPartition, appendRecord R
 	}
 
 	existing := s.records.GetOrDefault(topicPartition, nil)
-	offset := uint64(len(existing))
+	offset := s.nextOffsets.GetOrDefault(topicPartition, nextOffsetFromRecords(existing))
 	timestamp := NowMS()
 	if appendRecord.TimestampMS != nil {
 		timestamp = *appendRecord.TimestampMS
@@ -96,6 +100,7 @@ func (s *MemoryStore) AppendRecord(topicPartition TopicPartition, appendRecord R
 		Payload:     cloneBytes(appendRecord.Payload),
 	}
 	s.records.Set(topicPartition, append(existing, record))
+	s.nextOffsets.Set(topicPartition, offset+1)
 	return cloneRecord(record), nil
 }
 
@@ -124,14 +129,16 @@ func (s *MemoryStore) ReadFrom(topicPartition TopicPartition, offset uint64, max
 	if topicPartition.Partition >= topic.Partitions {
 		return nil, E(CodePartitionNotFound, "partition %s/%d not found", topicPartition.Topic, topicPartition.Partition)
 	}
-	records := s.records.GetOrDefault(topicPartition, nil)
-	if offset >= uint64(len(records)) {
-		return []Record{}, nil
-	}
+	records := sortedRecords(s.records.GetOrDefault(topicPartition, nil))
 	out := make([]Record, 0, min(maxRecords, len(records)))
-	for i, copied := offset, 0; i < uint64(len(records)) && copied < maxRecords; i, copied = i+1, copied+1 {
-		record := records[i]
+	for _, record := range records {
+		if record.Offset < offset {
+			continue
+		}
 		out = append(out, cloneRecord(record))
+		if len(out) >= maxRecords {
+			break
+		}
 	}
 	return out, nil
 }
@@ -190,6 +197,9 @@ func (s *MemoryStore) SaveTopicConfig(topic TopicConfig) error {
 		if _, ok := s.records.Get(tp); !ok {
 			s.records.Set(tp, nil)
 		}
+		if _, ok := s.nextOffsets.Get(tp); !ok {
+			s.nextOffsets.Set(tp, nextOffsetFromRecords(s.records.GetOrDefault(tp, nil)))
+		}
 	}
 	return nil
 }
@@ -216,80 +226,4 @@ func (s *MemoryStore) ListTopics() ([]TopicConfig, error) {
 		out = append(out, cloneTopic(topic))
 	}
 	return out, nil
-}
-
-func offsetKey(consumer string, tp TopicPartition) string {
-	return fmt.Sprintf("%s\x00%s\x00%d", consumer, tp.Topic, tp.Partition)
-}
-
-func groupMemberKey(group, memberID string) string {
-	return group + "\x00" + memberID
-}
-
-func normalizeTopic(topic *TopicConfig) {
-	if topic.Partitions == 0 {
-		topic.Partitions = 1
-	}
-	if topic.SegmentMaxBytes == 0 {
-		topic.SegmentMaxBytes = 16 * 1024 * 1024
-	}
-	if topic.IndexIntervalBytes == 0 {
-		topic.IndexIntervalBytes = 4 * 1024
-	}
-	if topic.RetentionMaxBytes == 0 {
-		topic.RetentionMaxBytes = 256 * 1024 * 1024
-	}
-	if topic.CleanupPolicy == "" {
-		topic.CleanupPolicy = TopicCleanupDelete
-	}
-	if topic.MaxMessageBytes == 0 {
-		topic.MaxMessageBytes = 1024 * 1024
-	}
-	if topic.MaxBatchBytes == 0 {
-		topic.MaxBatchBytes = 8 * 1024 * 1024
-	}
-	if topic.RetryPolicy.MaxAttempts == 0 {
-		topic.RetryPolicy = DefaultTopicRetryPolicy()
-	}
-}
-
-func cloneTopic(topic TopicConfig) TopicConfig {
-	if topic.RetentionMS != nil {
-		v := *topic.RetentionMS
-		topic.RetentionMS = &v
-	}
-	if topic.DeadLetterTopic != nil {
-		v := *topic.DeadLetterTopic
-		topic.DeadLetterTopic = &v
-	}
-	if topic.CompactionTombstoneRetentionMS != nil {
-		v := *topic.CompactionTombstoneRetentionMS
-		topic.CompactionTombstoneRetentionMS = &v
-	}
-	return topic
-}
-
-func cloneRecord(record Record) Record {
-	record.Key = cloneBytes(record.Key)
-	record.Payload = cloneBytes(record.Payload)
-	record.Headers = cloneHeaders(record.Headers)
-	return record
-}
-
-func cloneHeaders(headers []RecordHeader) []RecordHeader {
-	if len(headers) == 0 {
-		return nil
-	}
-	out := make([]RecordHeader, len(headers))
-	for i, header := range headers {
-		out[i] = RecordHeader{Key: header.Key, Value: cloneBytes(header.Value)}
-	}
-	return out
-}
-
-func cloneBytes(in []byte) []byte {
-	if len(in) == 0 {
-		return nil
-	}
-	return append([]byte(nil), in...)
 }
