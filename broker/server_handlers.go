@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/DaiYuANg/ech0/protocol"
+	"github.com/DaiYuANg/ech0/store"
 	"github.com/DaiYuANg/ech0/transport"
 )
 
@@ -26,6 +27,11 @@ var tcpFrameHandlers = map[uint16]frameHandler{
 	protocol.CmdSendDirectRequest:                 (*TCPServer).handleSendDirectFrame,
 	protocol.CmdFetchInboxRequest:                 (*TCPServer).handleFetchInboxFrame,
 	protocol.CmdAckDirectRequest:                  (*TCPServer).handleAckDirectFrame,
+	protocol.CmdStartRequestRequest:               (*TCPServer).handleStartRequestFrame,
+	protocol.CmdFetchRequestsRequest:              (*TCPServer).handleFetchRequestsFrame,
+	protocol.CmdReplyRequest:                      (*TCPServer).handleReplyFrame,
+	protocol.CmdReplyErrorRequest:                 (*TCPServer).handleReplyErrorFrame,
+	protocol.CmdAwaitReplyRequest:                 (*TCPServer).handleAwaitReplyFrame,
 	protocol.CmdJoinConsumerGroupRequest:          (*TCPServer).handleJoinConsumerGroupFrame,
 	protocol.CmdHeartbeatConsumerGroupRequest:     (*TCPServer).handleHeartbeatConsumerGroupFrame,
 	protocol.CmdRebalanceConsumerGroupRequest:     (*TCPServer).handleRebalanceConsumerGroupFrame,
@@ -43,7 +49,7 @@ func (s *TCPServer) handleHandshakeFrame(_ context.Context, frame transport.Fram
 	_ = req
 	return okFrame(protocol.CmdHandshakeResponse, protocol.HandshakeResponse{
 		ServerID:        fmt.Sprintf("%s-node-%d", s.broker.cfg.Broker.ClusterName, s.broker.cfg.Broker.NodeID),
-		ProtocolVersion: protocol.Version1,
+		ProtocolVersion: protocol.Version,
 	})
 }
 
@@ -89,7 +95,13 @@ func (s *TCPServer) handleProduceFrame(ctx context.Context, frame transport.Fram
 		msg := fmt.Sprintf("produce payload size %d exceeds limit %d", len(req.Payload), s.limits.MaxPayloadBytes)
 		return errorFrame("payload_too_large", msg), nil
 	}
-	result, err := s.broker.Publish(ctx, req.Topic, partitioningFromProtocol(req.Partitioning, req.Partition), req.Key, req.Tombstone, req.Payload)
+	record := store.NewRecordAppend(req.Payload)
+	record.Key = append([]byte(nil), req.Key...)
+	record.Headers = storeHeadersFromProtocol(req.Headers)
+	if req.Tombstone {
+		record.Attributes |= store.RecordAttributeTombstone
+	}
+	result, err := s.broker.PublishRecord(ctx, req.Topic, partitioningFromProtocol(req.Partitioning, req.Partition), record)
 	if err != nil {
 		return errorFromErr(err), nil
 	}

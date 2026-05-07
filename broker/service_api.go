@@ -12,13 +12,16 @@ func (b *Broker) CreateTopic(ctx context.Context, topic store.TopicConfig) (stor
 }
 
 func (b *Broker) Publish(ctx context.Context, topic string, partitioning PublishPartitioning, key []byte, tombstone bool, payload []byte) (ProduceResult, error) {
-	req := produceCommand{
-		Topic:        topic,
-		Partitioning: partitioning,
-		Key:          append([]byte(nil), key...),
-		Tombstone:    tombstone,
-		Payload:      append([]byte(nil), payload...),
+	record := store.NewRecordAppend(payload)
+	record.Key = append([]byte(nil), key...)
+	if tombstone {
+		record.Attributes |= store.RecordAttributeTombstone
 	}
+	return b.PublishRecord(ctx, topic, partitioning, record)
+}
+
+func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning PublishPartitioning, record store.RecordAppend) (ProduceResult, error) {
+	req := produceCommand{Topic: topic, Partitioning: partitioning, Record: cloneAppend(record)}
 	return proposeOrApply(ctx, b, raftCommandProduce, req, b.applyProduce)
 }
 

@@ -30,16 +30,11 @@ func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceR
 	if topic == nil {
 		return ProduceResult{}, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", req.Topic)
 	}
-	partition, err := b.router.selectPartition(*topic, req.Partitioning, req.Key)
+	partition, err := b.router.selectPartition(*topic, req.Partitioning, req.Record.Key)
 	if err != nil {
 		return ProduceResult{}, err
 	}
-	appendRecord := store.NewRecordAppend(req.Payload)
-	appendRecord.Key = append([]byte(nil), req.Key...)
-	if req.Tombstone {
-		appendRecord.Attributes |= store.RecordAttributeTombstone
-	}
-	record, err := b.queue.PublishRecord(req.Topic, partition, appendRecord)
+	record, err := b.queue.PublishRecord(req.Topic, partition, cloneAppend(req.Record))
 	if err != nil {
 		return ProduceResult{}, wrapBroker("publish_record_failed", err, "publish record")
 	}

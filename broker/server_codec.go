@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 
 	"github.com/DaiYuANg/ech0/direct"
@@ -16,7 +15,7 @@ func (s *TCPServer) recordCommandError(ctx context.Context, frame transport.Fram
 		return
 	}
 	var out protocol.ErrorResponse
-	if err := json.Unmarshal(frame.Body, &out); err != nil || out.Code == "" {
+	if err := protocol.DecodeBody(frame.Header.Command, frame.Body, &out); err != nil || out.Code == "" {
 		s.metrics.RecordCommandError(ctx, "internal_error")
 		return
 	}
@@ -24,15 +23,15 @@ func (s *TCPServer) recordCommandError(ctx context.Context, frame transport.Fram
 }
 
 func decode(frame transport.Frame, target any) error {
-	return wrapBroker("frame_decode_failed", json.Unmarshal(frame.Body, target), "decode request frame")
+	return wrapBroker("frame_decode_failed", protocol.DecodeBody(frame.Header.Command, frame.Body, target), "decode request frame")
 }
 
 func okFrame(command uint16, value any) (transport.Frame, error) {
-	body, err := protocol.EncodeJSON(value)
+	body, err := protocol.EncodeBody(command, value)
 	if err != nil {
 		return transport.Frame{}, wrapBroker("response_encode_failed", err, "encode response frame")
 	}
-	frame, err := transport.NewFrame(protocol.Version1, command, body)
+	frame, err := transport.NewFrame(protocol.Version, command, body)
 	if err != nil {
 		return transport.Frame{}, wrapBroker("response_frame_create_failed", err, "create response frame")
 	}
@@ -40,19 +39,26 @@ func okFrame(command uint16, value any) (transport.Frame, error) {
 }
 
 func errorFrame(code, message string) transport.Frame {
-	body, err := protocol.EncodeJSON(protocol.ErrorResponse{Code: code, Message: message})
+	body, err := protocol.EncodeBody(protocol.CmdErrorResponse, protocol.ErrorResponse{Code: code, Message: message})
 	if err != nil {
-		body = []byte(`{"code":"internal_error","message":"failed to encode error response"}`)
+		body = nil
 	}
-	frame, err := transport.NewFrame(protocol.Version1, protocol.CmdErrorResponse, body)
+	frame, err := transport.NewFrame(protocol.Version, protocol.CmdErrorResponse, body)
 	if err != nil {
 		bodyLen := min(len(body), int(^uint32(0)))
 		return transport.Frame{
-			Header: transport.NewFrameHeader(protocol.Version1, protocol.CmdErrorResponse, uint32(bodyLen)), // #nosec G115 -- bodyLen is clamped to max uint32 before conversion.
+			Header: errorFrameHeader(uint32(bodyLen)), // #nosec G115 -- bodyLen is clamped to max uint32 before conversion.
 			Body:   body,
 		}
 	}
+	frame.Header.Status = transport.StatusError
 	return frame
+}
+
+func errorFrameHeader(bodyLen uint32) transport.FrameHeader {
+	header := transport.NewFrameHeader(protocol.Version, protocol.CmdErrorResponse, bodyLen)
+	header.Status = transport.StatusError
+	return header
 }
 
 func errorFromErr(err error) transport.Frame {
@@ -145,6 +151,7 @@ func batchRecordItemsFromProtocol(records []protocol.ProduceBatchRecord) []store
 func recordItemFromProtocol(record protocol.ProduceBatchRecord) store.RecordAppend {
 	appendRecord := store.NewRecordAppend(record.Payload)
 	appendRecord.Key = append([]byte(nil), record.Key...)
+	appendRecord.Headers = storeHeadersFromProtocol(record.Headers)
 	if record.Tombstone {
 		appendRecord.Attributes |= store.RecordAttributeTombstone
 	}

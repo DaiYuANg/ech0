@@ -136,7 +136,7 @@ func (s *TCPServer) writeResponseFrame(conn net.Conn, response transport.Frame) 
 }
 
 func (s *TCPServer) HandleFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
-	if frame.Header.Version != protocol.Version1 {
+	if frame.Header.Version != protocol.Version {
 		return errorFrame("unsupported_version", fmt.Sprintf("unsupported protocol version %d", frame.Header.Version)), nil
 	}
 	s.metrics.RecordCommand(ctx, frame.Header.Command)

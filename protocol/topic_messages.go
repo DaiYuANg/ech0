@@ -17,6 +17,11 @@ type PingResponse struct {
 	Nonce uint64 `json:"nonce"`
 }
 
+type MessageHeader struct {
+	Key   string `json:"key"`
+	Value []byte `json:"value"`
+}
+
 type TopicRetryPolicy struct {
 	MaxAttempts      uint32 `json:"max_attempts"`
 	BackoffInitialMS uint64 `json:"backoff_initial_ms"`
@@ -48,6 +53,7 @@ type ProduceRequest struct {
 	Partition    *uint32             `json:"partition,omitempty"`
 	Partitioning ProducePartitioning `json:"partitioning"`
 	Key          []byte              `json:"key,omitempty"`
+	Headers      []MessageHeader     `json:"headers,omitempty"`
 	Tombstone    bool                `json:"tombstone,omitempty"`
 	Payload      []byte              `json:"payload"`
 }
@@ -59,9 +65,10 @@ type ProduceResponse struct {
 }
 
 type ProduceBatchRecord struct {
-	Key       []byte `json:"key,omitempty"`
-	Tombstone bool   `json:"tombstone,omitempty"`
-	Payload   []byte `json:"payload"`
+	Key       []byte          `json:"key,omitempty"`
+	Headers   []MessageHeader `json:"headers,omitempty"`
+	Tombstone bool            `json:"tombstone,omitempty"`
+	Payload   []byte          `json:"payload"`
 }
 
 type ProduceBatchRequest struct {
@@ -91,11 +98,12 @@ type FetchRequest struct {
 }
 
 type FetchRecord struct {
-	Offset      uint64 `json:"offset"`
-	TimestampMS uint64 `json:"timestamp_ms"`
-	Key         []byte `json:"key,omitempty"`
-	Tombstone   bool   `json:"tombstone,omitempty"`
-	Payload     []byte `json:"payload"`
+	Offset      uint64          `json:"offset"`
+	TimestampMS uint64          `json:"timestamp_ms"`
+	Key         []byte          `json:"key,omitempty"`
+	Headers     []MessageHeader `json:"headers,omitempty"`
+	Tombstone   bool            `json:"tombstone,omitempty"`
+	Payload     []byte          `json:"payload"`
 }
 
 type FetchResponse struct {

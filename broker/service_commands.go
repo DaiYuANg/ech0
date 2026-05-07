@@ -5,9 +5,7 @@ import "github.com/DaiYuANg/ech0/store"
 type produceCommand struct {
 	Topic        string
 	Partitioning PublishPartitioning
-	Key          []byte
-	Tombstone    bool
-	Payload      []byte
+	Record       store.RecordAppend
 }
 
 type produceBatchCommand struct {

@@ -3,6 +3,7 @@ package broker_test
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,48 @@ func TestBrokerDirectInbox(t *testing.T) {
 	requireNoError(t, err)
 	if len(inbox.Records) != 0 {
 		t.Fatalf("expected empty inbox after ack, got %#v", inbox)
+	}
+}
+
+func TestBrokerRequestReplyRoutesToOriginInstance(t *testing.T) {
+	b := newTestBroker(t)
+	ctx := context.Background()
+	createTopic(ctx, t, b, store.NewTopicConfig("svc.echo"))
+
+	pending, err := b.StartRequest(ctx, "svc.echo", []byte("ping"), broker.RequestOptions{
+		InstanceID:   " A1 ",
+		Timeout:      time.Second,
+		PollInterval: time.Millisecond,
+		Partitioning: broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0},
+	})
+	requireNoError(t, err)
+	if !strings.HasPrefix(pending.ReplyTo, "__reply/A1/") {
+		t.Fatalf("expected reply inbox to be scoped to A1, got %q", pending.ReplyTo)
+	}
+
+	requests, err := b.FetchRequests("svc-workers", "svc.echo", 0, nil, 1)
+	requireNoError(t, err)
+	if len(requests.Requests) != 1 {
+		t.Fatalf("expected one request, got %#v", requests)
+	}
+	request := requests.Requests[0]
+	if request.SenderID != "A1" || request.ReplyTo != pending.ReplyTo || string(request.Payload) != "ping" {
+		t.Fatalf("unexpected request message: %#v", request)
+	}
+
+	_, err = b.Reply(ctx, request, "B2", []byte("pong"))
+	requireNoError(t, err)
+	reply, err := b.AwaitReply(ctx, pending)
+	requireNoError(t, err)
+	if reply.SenderID != "B2" || reply.CorrelationID != pending.CorrelationID || string(reply.Payload) != "pong" {
+		t.Fatalf("unexpected reply message: %#v", reply)
+	}
+
+	a2ReplyInbox := strings.Replace(pending.ReplyTo, "/A1/", "/A2/", 1)
+	inbox, err := b.FetchInbox(a2ReplyInbox, 10)
+	requireNoError(t, err)
+	if len(inbox.Records) != 0 {
+		t.Fatalf("expected A2 reply inbox to stay empty, got %#v", inbox)
 	}
 }
 

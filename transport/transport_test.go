@@ -20,7 +20,12 @@ func TestFrameRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Header.Version != 1 || decoded.Header.Command != 42 || string(decoded.Body) != "hello" {
+	if decoded.Header.Magic != transport.Magic ||
+		decoded.Header.HeaderLen != transport.HeaderLen ||
+		decoded.Header.Version != 1 ||
+		decoded.Header.Command != 42 ||
+		decoded.Header.Status != transport.StatusOK ||
+		string(decoded.Body) != "hello" {
 		t.Fatalf("unexpected frame: %#v", decoded)
 	}
 }

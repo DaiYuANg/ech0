@@ -78,6 +78,7 @@ func fetchRecordsFromStore(records []store.Record) []protocol.FetchRecord {
 			Offset:      record.Offset,
 			TimestampMS: record.TimestampMS,
 			Key:         append([]byte(nil), record.Key...),
+			Headers:     protocolHeadersFromStore(record.Headers),
 			Tombstone:   record.IsTombstone(),
 			Payload:     append([]byte(nil), record.Payload...),
 		})

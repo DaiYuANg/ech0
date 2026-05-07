@@ -8,31 +8,62 @@ import (
 	"github.com/samber/oops"
 )
 
-const HeaderLen = 7
+const (
+	Magic     uint32 = 0x45434830
+	HeaderLen uint8  = 28
+
+	StatusOK    uint16 = 0
+	StatusError uint16 = 1
+)
 
 type FrameHeader struct {
-	Version uint8
-	Command uint16
-	BodyLen uint32
+	Magic     uint32
+	Version   uint8
+	HeaderLen uint8
+	Flags     uint16
+	Command   uint16
+	Status    uint16
+	RequestID uint64
+	BodyLen   uint32
+	Reserved  uint32
 }
 
 func NewFrameHeader(version uint8, command uint16, bodyLen uint32) FrameHeader {
-	return FrameHeader{Version: version, Command: command, BodyLen: bodyLen}
+	return FrameHeader{
+		Magic:     Magic,
+		Version:   version,
+		HeaderLen: HeaderLen,
+		Command:   command,
+		Status:    StatusOK,
+		BodyLen:   bodyLen,
+	}
 }
 
 func (h FrameHeader) Encode() [HeaderLen]byte {
 	var out [HeaderLen]byte
-	out[0] = h.Version
-	binary.BigEndian.PutUint16(out[1:3], h.Command)
-	binary.BigEndian.PutUint32(out[3:7], h.BodyLen)
+	binary.BigEndian.PutUint32(out[0:4], h.Magic)
+	out[4] = h.Version
+	out[5] = h.HeaderLen
+	binary.BigEndian.PutUint16(out[6:8], h.Flags)
+	binary.BigEndian.PutUint16(out[8:10], h.Command)
+	binary.BigEndian.PutUint16(out[10:12], h.Status)
+	binary.BigEndian.PutUint64(out[12:20], h.RequestID)
+	binary.BigEndian.PutUint32(out[20:24], h.BodyLen)
+	binary.BigEndian.PutUint32(out[24:28], h.Reserved)
 	return out
 }
 
 func DecodeHeader(data [HeaderLen]byte) FrameHeader {
 	return FrameHeader{
-		Version: data[0],
-		Command: binary.BigEndian.Uint16(data[1:3]),
-		BodyLen: binary.BigEndian.Uint32(data[3:7]),
+		Magic:     binary.BigEndian.Uint32(data[0:4]),
+		Version:   data[4],
+		HeaderLen: data[5],
+		Flags:     binary.BigEndian.Uint16(data[6:8]),
+		Command:   binary.BigEndian.Uint16(data[8:10]),
+		Status:    binary.BigEndian.Uint16(data[10:12]),
+		RequestID: binary.BigEndian.Uint64(data[12:20]),
+		BodyLen:   binary.BigEndian.Uint32(data[20:24]),
+		Reserved:  binary.BigEndian.Uint32(data[24:28]),
 	}
 }
 
@@ -70,6 +101,9 @@ func ReadFrameWithLimit(r io.Reader, maxBodyBytes uint32) (Frame, error) {
 		return Frame{}, oops.In("transport").Code("frame_header_read_failed").Wrapf(err, "read frame header")
 	}
 	header := DecodeHeader(headerBytes)
+	if err := validateHeader(header); err != nil {
+		return Frame{}, err
+	}
 	if maxBodyBytes > 0 && header.BodyLen > maxBodyBytes {
 		return Frame{}, oops.In("transport").Code("frame_body_too_large").With("body_len", header.BodyLen, "max_body_bytes", maxBodyBytes).New("frame body exceeds limit")
 	}
@@ -80,6 +114,16 @@ func ReadFrameWithLimit(r io.Reader, maxBodyBytes uint32) (Frame, error) {
 		}
 	}
 	return Frame{Header: header, Body: body}, nil
+}
+
+func validateHeader(header FrameHeader) error {
+	if header.Magic != Magic {
+		return oops.In("transport").Code("frame_bad_magic").With("magic", header.Magic).New("invalid frame magic")
+	}
+	if header.HeaderLen != HeaderLen {
+		return oops.In("transport").Code("frame_bad_header_len").With("header_len", header.HeaderLen).New("unsupported frame header length")
+	}
+	return nil
 }
 
 func WriteFrame(w io.Writer, frame Frame) error {
