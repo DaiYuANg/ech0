@@ -1,7 +1,6 @@
 package broker
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 
@@ -36,7 +35,7 @@ func (f *brokerFSM) Restore(reader io.ReadCloser) (err error) {
 		err = errors.Join(err, reader.Close())
 	}()
 	var snapshot store.Snapshot
-	if err := json.NewDecoder(reader).Decode(&snapshot); err != nil {
+	if err := newJSONDecoder(reader).Decode(&snapshot); err != nil {
 		return wrapBroker("raft_snapshot_decode_failed", err, "decode raft snapshot")
 	}
 	return f.broker.restore(snapshot)
@@ -47,7 +46,7 @@ type brokerSnapshot struct {
 }
 
 func (s *brokerSnapshot) Persist(sink hashiraft.SnapshotSink) error {
-	err := json.NewEncoder(sink).Encode(s.snapshot)
+	err := newJSONEncoder(sink).Encode(s.snapshot)
 	if err != nil {
 		err = errors.Join(err, sink.Cancel())
 		return err

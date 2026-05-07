@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/DaiYuANg/ech0/store"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
@@ -10,7 +9,7 @@ import (
 
 func (b *Broker) applyRaftCommand(data []byte) (any, error) {
 	var cmd raftCommand
-	if err := json.Unmarshal(data, &cmd); err != nil {
+	if err := unmarshalJSON(data, &cmd); err != nil {
 		return nil, wrapBroker("raft_command_decode_failed", err, "decode raft command")
 	}
 	handler, ok := b.raftCommandHandlers().Get(cmd.Type)
@@ -20,7 +19,7 @@ func (b *Broker) applyRaftCommand(data []byte) (any, error) {
 	return handler(context.Background(), cmd.Payload)
 }
 
-type raftCommandHandler func(context.Context, json.RawMessage) (any, error)
+type raftCommandHandler func(context.Context, jsonRawMessage) (any, error)
 
 func setRaftHandler[R any, T any](
 	handlers *collectionmapping.Map[string, raftCommandHandler],
@@ -28,7 +27,7 @@ func setRaftHandler[R any, T any](
 	apply func(context.Context, R) (T, error),
 	label string,
 ) {
-	handlers.Set(commandType, func(ctx context.Context, payload json.RawMessage) (any, error) {
+	handlers.Set(commandType, func(ctx context.Context, payload jsonRawMessage) (any, error) {
 		return decodeRaftCommand(ctx, payload, apply, label)
 	})
 }
@@ -67,9 +66,9 @@ func (b *Broker) registerRetryDelayRaftHandlers(handlers *collectionmapping.Map[
 	setRaftHandler(handlers, raftCommandProcessDelay, b.applyProcessDelayPartition, "decode process delay command")
 }
 
-func decodeRaftCommand[R any, T any](ctx context.Context, payload json.RawMessage, apply func(context.Context, R) (T, error), label string) (any, error) {
+func decodeRaftCommand[R any, T any](ctx context.Context, payload jsonRawMessage, apply func(context.Context, R) (T, error), label string) (any, error) {
 	var req R
-	if err := json.Unmarshal(payload, &req); err != nil {
+	if err := unmarshalJSON(payload, &req); err != nil {
 		return nil, wrapBroker("raft_payload_decode_failed", err, "%s", label)
 	}
 	return apply(ctx, req)
@@ -91,11 +90,11 @@ func proposeOrApply[T any, R any](ctx context.Context, b *Broker, commandType st
 	if ok {
 		return typed, nil
 	}
-	marshaled, err := json.Marshal(value)
+	marshaled, err := marshalJSON(value)
 	if err != nil {
 		return zero, wrapBroker("raft_result_encode_failed", err, "encode raft result")
 	}
-	if err := json.Unmarshal(marshaled, &typed); err != nil {
+	if err := unmarshalJSON(marshaled, &typed); err != nil {
 		return zero, wrapBroker("raft_result_decode_failed", err, "decode raft result")
 	}
 	return typed, nil

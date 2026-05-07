@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -22,6 +23,7 @@ type StorxLogStore struct {
 	mu          sync.Mutex
 	rootDir     string
 	segmentsDir string
+	compression segmentFrameCompression
 	index       *badgerx.DB
 	topics      *badgerx.Namespace[string, TopicConfig]
 	records     *badgerx.Namespace[string, segmentRecordPointer]
@@ -40,22 +42,35 @@ type segmentRecordPointer struct {
 }
 
 func OpenStorxLogStore(path string) (*StorxLogStore, error) {
+	return OpenStorxLogStoreWithOptions(path, StorxLogOptions{})
+}
+
+func OpenStorxLogStoreWithOptions(path string, options StorxLogOptions) (*StorxLogStore, error) {
+	options, optionsErr := options.normalize()
+	if optionsErr != nil {
+		return nil, optionsErr
+	}
+	compression, compressionErr := newSegmentFrameCompression(options.Compression)
+	if compressionErr != nil {
+		return nil, compressionErr
+	}
 	rootDir, normalizeErr := normalizeSegmentRoot(path)
 	if normalizeErr != nil {
-		return nil, normalizeErr
+		return nil, errors.Join(normalizeErr, compression.close())
 	}
 	segmentsDir := filepath.Join(rootDir, "segments")
 	if mkdirErr := os.MkdirAll(segmentsDir, 0o750); mkdirErr != nil {
-		return nil, wrapExternal(mkdirErr, "create segment log directory")
+		return nil, errors.Join(wrapExternal(mkdirErr, "create segment log directory"), compression.close())
 	}
 	index, err := openSegmentIndex(filepath.Join(rootDir, "index.badger"))
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, compression.close())
 	}
 	keyCodec := keycodec.String()
 	return &StorxLogStore{
 		rootDir:     rootDir,
 		segmentsDir: segmentsDir,
+		compression: compression,
 		index:       index,
 		topics:      badgerx.NewNamespaceWithDB(index, indexLogTopics, keyCodec, codec.JSON[TopicConfig]()),
 		records:     badgerx.NewNamespaceWithDB(index, indexLogRecords, keyCodec, codec.JSON[segmentRecordPointer]()),
@@ -90,10 +105,20 @@ func openSegmentIndex(path string) (*badgerx.DB, error) {
 }
 
 func (s *StorxLogStore) Close() error {
-	if s == nil || s.index == nil {
+	if s == nil {
 		return nil
 	}
-	return wrapExternal(s.index.Close(), "close segment index")
+	return errors.Join(
+		s.compression.close(),
+		closeSegmentIndex(s.index),
+	)
+}
+
+func closeSegmentIndex(index *badgerx.DB) error {
+	if index == nil {
+		return nil
+	}
+	return wrapExternal(index.Close(), "close segment index")
 }
 
 func (s *StorxLogStore) CreateTopic(topic TopicConfig) error {
@@ -157,7 +182,7 @@ func (s *StorxLogStore) AppendRecord(topicPartition TopicPartition, appendRecord
 		return Record{}, err
 	}
 	record := newStoredRecord(offset, appendRecord)
-	frame, err := encodeSegmentFrame(record)
+	frame, err := encodeSegmentFrameWithCompression(record, s.compression)
 	if err != nil {
 		return Record{}, err
 	}

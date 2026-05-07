@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -28,8 +27,8 @@ const (
 )
 
 type raftCommand struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Type    string         `json:"type"`
+	Payload jsonRawMessage `json:"payload"`
 }
 
 type raftNode struct {
@@ -185,11 +184,11 @@ func (n *raftNode) validateApply(ctx context.Context) error {
 }
 
 func encodeRaftCommand(commandType string, payload any) ([]byte, error) {
-	raw, err := json.Marshal(payload)
+	raw, err := marshalJSON(payload)
 	if err != nil {
 		return nil, wrapBroker("raft_payload_encode_failed", err, "encode raft payload")
 	}
-	encoded, err := json.Marshal(raftCommand{Type: commandType, Payload: raw})
+	encoded, err := marshalJSON(raftCommand{Type: commandType, Payload: raw})
 	if err != nil {
 		return nil, wrapBroker("raft_command_encode_failed", err, "encode raft command")
 	}

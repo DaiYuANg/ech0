@@ -95,7 +95,7 @@ func (s *StorxLogStore) appendRestoredRecord(tp TopicPartition, record Record) e
 	if err != nil {
 		return err
 	}
-	frame, err := encodeSegmentFrame(record)
+	frame, err := encodeSegmentFrameWithCompression(record, s.compression)
 	if err != nil {
 		return err
 	}

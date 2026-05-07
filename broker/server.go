@@ -27,7 +27,6 @@ type TCPServer struct {
 	logger   *slog.Logger
 	metrics  *MetricsRuntime
 	listener net.Listener
-	cancel   context.CancelFunc
 	group    *errgroup.Group
 	connSem  *semaphore.Weighted
 	limiter  *rate.Limiter
@@ -58,9 +57,7 @@ func (s *TCPServer) Start(ctx context.Context) error {
 	if s.logger != nil {
 		s.logger.Info("tcp broker listening", "addr", s.addr)
 	}
-	serverCtx, cancel := context.WithCancel(ctx)
-	group, groupCtx := errgroup.WithContext(serverCtx)
-	s.cancel = cancel
+	group, groupCtx := errgroup.WithContext(ctx)
 	s.group = group
 	group.Go(func() error {
 		return s.acceptLoop(groupCtx)
@@ -70,9 +67,6 @@ func (s *TCPServer) Start(ctx context.Context) error {
 
 func (s *TCPServer) Stop(ctx context.Context) error {
 	var closeErr error
-	if s.cancel != nil {
-		s.cancel()
-	}
 	if s.listener != nil {
 		closeErr = s.listener.Close()
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/store"
+	"github.com/cenkalti/backoff/v5"
 )
 
 func (b *Broker) Request(ctx context.Context, subject string, payload []byte, opts RequestOptions) (ReplyMessage, error) {
@@ -61,12 +62,13 @@ func (b *Broker) AwaitReply(ctx context.Context, pending PendingRequest) (ReplyM
 	}
 	waitCtx, cancel := context.WithDeadline(ctx, requestDeadline(pending))
 	defer cancel()
+	pollBackoff := newRequestReplyBackOff(pending.PollInterval)
 	for {
 		reply, ok, err := b.fetchReplyOnce(waitCtx, pending)
 		if err != nil || ok {
 			return reply, err
 		}
-		if err := sleepRequestPoll(waitCtx, pending.PollInterval); err != nil {
+		if err := sleepRequestPoll(waitCtx, pollBackoff.NextBackOff()); err != nil {
 			return ReplyMessage{}, err
 		}
 	}
@@ -178,6 +180,13 @@ func sleepRequestPoll(ctx context.Context, interval time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func newRequestReplyBackOff(interval time.Duration) *backoff.ConstantBackOff {
+	if interval <= 0 {
+		interval = defaultRequestPollInterval
+	}
+	return backoff.NewConstantBackOff(interval)
 }
 
 func newCorrelationID() (string, error) {

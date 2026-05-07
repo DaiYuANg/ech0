@@ -2,11 +2,17 @@ package broker
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/DaiYuANg/ech0/store"
+	"github.com/cenkalti/backoff/v5"
 )
 
 func retryBackoffMS(retryCount uint32, policy store.TopicRetryPolicy) uint64 {
+	return durationMillis(retryBackoffDuration(retryCount, policy))
+}
+
+func retryBackoffDuration(retryCount uint32, policy store.TopicRetryPolicy) time.Duration {
 	if policy.BackoffInitialMS == 0 {
 		policy = store.DefaultTopicRetryPolicy()
 	}
@@ -14,16 +20,20 @@ func retryBackoffMS(retryCount uint32, policy store.TopicRetryPolicy) uint64 {
 	if maxDelay == 0 {
 		maxDelay = policy.BackoffInitialMS
 	}
-	delay := policy.BackoffInitialMS
+	delay := newRetryBackOff(policy.BackoffInitialMS, maxDelay)
 	for i := uint32(1); i < retryCount; i++ {
-		if delay >= maxDelay/2 {
-			return maxDelay
-		}
-		delay *= 2
+		_ = delay.NextBackOff()
 	}
-	if delay > maxDelay {
-		return maxDelay
-	}
+	return delay.NextBackOff()
+}
+
+func newRetryBackOff(initialMS, maxMS uint64) *backoff.ExponentialBackOff {
+	delay := backoff.NewExponentialBackOff()
+	delay.InitialInterval = boundedDuration(initialMS, time.Millisecond)
+	delay.RandomizationFactor = 0
+	delay.Multiplier = 2
+	delay.MaxInterval = boundedDuration(maxMS, time.Millisecond)
+	delay.Reset()
 	return delay
 }
 

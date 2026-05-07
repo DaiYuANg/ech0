@@ -1,8 +1,6 @@
 package broker
 
 import (
-	"encoding/json"
-
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/store"
 )
@@ -44,7 +42,7 @@ func encodeReplyPayload(req RequestMessage, responderID string, payload []byte, 
 }
 
 func encodeRequestReplyEnvelope(envelope requestReplyEnvelope) ([]byte, error) {
-	payload, err := json.Marshal(envelope)
+	payload, err := marshalJSON(envelope)
 	if err != nil {
 		return nil, wrapBroker("request_reply_encode_failed", err, "encode request reply envelope")
 	}
@@ -85,7 +83,7 @@ func replyFromDirect(message direct.Message) (ReplyMessage, error) {
 
 func decodeRequestReplyEnvelope(payload []byte, wantType string) (requestReplyEnvelope, error) {
 	var envelope requestReplyEnvelope
-	if err := json.Unmarshal(payload, &envelope); err != nil {
+	if err := unmarshalJSON(payload, &envelope); err != nil {
 		return requestReplyEnvelope{}, wrapBroker("request_reply_decode_failed", err, "decode request reply envelope")
 	}
 	if envelope.Type != wantType {

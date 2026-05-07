@@ -8,7 +8,7 @@ ech0 separates broker metadata from message storage. Metadata uses bbolt through
 | --- | --- | --- |
 | Metadata | `StorxMetadataStore` over bbolt | Topic configs, consumer offsets, consumer group members, assignments, broker state. |
 | Message index | `StorxLogStore` Badger index | Topic existence, per-record segment pointers, next offsets. |
-| Message bytes | Segment files | Record frames containing key, headers, attributes, timestamp, and payload. |
+| Message bytes | Segment files | zstd-compressed record frames containing key, headers, attributes, timestamp, and payload. |
 
 This gives the broker ordered append/read behavior without making bbolt or Badger store large message payloads directly.
 
@@ -33,13 +33,13 @@ Each segment frame has:
 
 | Field | Description |
 | --- | --- |
-| magic | `ECH0`, encoded as `0x45434830`. |
-| checksum | CRC32 of the frame body. |
-| body | Record fields and payload. |
+| magic | `ECZ0` (`0x45435a30`) for zstd-compressed frames, or legacy `ECH0` (`0x45434830`) for uncompressed frames. |
+| checksum | CRC32 of the stored frame body. |
+| body | zstd-compressed record body for `ECZ0`, raw record body for `ECH0`. |
 
 The record body stores offset, timestamp, attributes, key, headers, and payload. Length-prefixed byte fields use an ASCII decimal length followed by `:`, then raw bytes.
 
-The checksum protects against partial or corrupted frame reads. The Badger pointer provides the exact frame position and length.
+New writes use zstd compression by default and reads continue to accept legacy uncompressed frames. The checksum protects against partial or corrupted frame reads. The Badger pointer provides the exact frame position and length.
 
 ## Metadata Store
 
@@ -90,4 +90,3 @@ Message storage is fixed to the hybrid model:
 - Segment files for actual message bytes.
 
 There is no optional bbolt message-log backend. This keeps the operational and performance model clear.
-
