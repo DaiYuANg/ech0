@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +11,12 @@ import (
 	"github.com/DaiYuANg/ech0/broker"
 	"github.com/samber/oops"
 	"github.com/spf13/cobra"
+)
+
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 func main() {
@@ -24,6 +31,7 @@ func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "ech0",
 		Short:         "Run an embedded ech0 message broker",
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -41,9 +49,21 @@ func newRootCommand() *cobra.Command {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	root.SetContext(ctx)
 	root.SetHelpCommand(&cobra.Command{Hidden: true})
+	root.AddCommand(newVersionCommand())
 	cobra.OnFinalize(stop)
 
 	return root
+}
+
+func newVersionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print build version information",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "ech0 %s\ncommit: %s\nbuilt: %s\n", version, commit, date)
+			return oops.In("cli").Code("version_write_failed").Wrapf(err, "write version")
+		},
+	}
 }
 
 func runBroker(ctx context.Context, cmd *cobra.Command, configPath string) error {

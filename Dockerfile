@@ -3,39 +3,39 @@ ARG GO_VERSION=1.26
 
 FROM golang:${GO_VERSION}-bookworm AS builder-debian
 
+ARG ENABLE_UPX=true
+
 WORKDIR /src
+
+RUN if [ "${ENABLE_UPX}" = "true" ]; then \
+  apt-get update \
+  && (apt-get install -y --no-install-recommends upx-ucl || apt-get install -y --no-install-recommends upx) \
+  && rm -rf /var/lib/apt/lists/*; \
+  fi
 
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY ech0.go ./
-COPY broker broker
-COPY cmd cmd
-COPY direct direct
-COPY protocol protocol
-COPY queue queue
-COPY store store
-COPY transport transport
+COPY . .
 
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/broker ./cmd/ech0
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ech0 ./cmd/ech0 \
+  && if [ "${ENABLE_UPX}" = "true" ]; then upx --best --lzma /out/ech0; fi
 
 FROM golang:${GO_VERSION}-alpine AS builder-alpine
 
+ARG ENABLE_UPX=true
+
 WORKDIR /src
+
+RUN if [ "${ENABLE_UPX}" = "true" ]; then apk add --no-cache upx; fi
 
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY ech0.go ./
-COPY broker broker
-COPY cmd cmd
-COPY direct direct
-COPY protocol protocol
-COPY queue queue
-COPY store store
-COPY transport transport
+COPY . .
 
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/broker ./cmd/ech0
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ech0 ./cmd/ech0 \
+  && if [ "${ENABLE_UPX}" = "true" ]; then upx --best --lzma /out/ech0; fi
 
 FROM debian:bookworm-slim AS runtime-debian
 
@@ -45,11 +45,15 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=builder-debian /out/broker /usr/local/bin/broker
+RUN mkdir -p /app/config /var/lib/ech0 /var/log/ech0
+
+COPY --from=builder-debian /out/ech0 /usr/local/bin/ech0
+COPY packaging/ech0.toml /app/config/ech0.toml
 
 EXPOSE 9090 9091 3210
 
-ENTRYPOINT ["/usr/local/bin/broker"]
+ENTRYPOINT ["/usr/local/bin/ech0"]
+CMD ["--config", "/app/config/ech0.toml"]
 
 FROM alpine:3.22 AS runtime-alpine
 
@@ -57,14 +61,19 @@ RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
-COPY --from=builder-alpine /out/broker /usr/local/bin/broker
+RUN mkdir -p /app/config /var/lib/ech0 /var/log/ech0
+
+COPY --from=builder-alpine /out/ech0 /usr/local/bin/ech0
+COPY packaging/ech0.toml /app/config/ech0.toml
 
 EXPOSE 9090 9091 3210
 
-ENTRYPOINT ["/usr/local/bin/broker"]
+ENTRYPOINT ["/usr/local/bin/ech0"]
+CMD ["--config", "/app/config/ech0.toml"]
 
 FROM runtime-${BASE_IMAGE} AS runtime
 
 EXPOSE 9090 9091 3210
 
-ENTRYPOINT ["/usr/local/bin/broker"]
+ENTRYPOINT ["/usr/local/bin/ech0"]
+CMD ["--config", "/app/config/ech0.toml"]

@@ -1,0 +1,142 @@
+version: 2
+
+project_name: ech0
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./... -count=1
+
+builds:
+  - id: ech0-linux
+    main: ./cmd/ech0
+    binary: ech0
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
+  - id: ech0-desktop
+    main: ./cmd/ech0
+    binary: ech0
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
+
+upx:
+  - enabled: '{{ eq (envOrDefault "ENABLE_UPX" "true") "true" }}'
+    ids:
+      - ech0-linux
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    compress: best
+    lzma: true
+
+archives:
+  - id: ech0
+    ids:
+      - ech0-linux
+      - ech0-desktop
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - config/ech0.toml.example
+
+nfpms:
+  - id: ech0-linux-packages
+    ids:
+      - ech0-linux
+    package_name: ech0
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: DaiYuANg
+    homepage: https://github.com/DaiYuANg/ech0
+    maintainer: DaiYuANg
+    description: Embedded library-first message broker with standalone and Raft cluster modes.
+    license: UNLICENSED
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    section: utils
+    priority: optional
+    contents:
+      - src: packaging/ech0.toml
+        dst: /etc/ech0/ech0.toml
+        type: config|noreplace
+        file_info:
+          mode: 0644
+      - src: packaging/systemd/ech0.service
+        dst: /usr/lib/systemd/system/ech0.service
+        file_info:
+          mode: 0644
+      - dst: /var/lib/ech0
+        type: dir
+        file_info:
+          mode: 0750
+      - dst: /var/log/ech0
+        type: dir
+        file_info:
+          mode: 0750
+    scripts:
+      postinstall: packaging/scripts/postinstall.sh
+      preremove: packaging/scripts/preremove.sh
+
+dockers_v2:
+  - id: ech0
+    ids:
+      - ech0-linux
+    dockerfile: Dockerfile.release
+    images:
+      - '{{ envOrDefault "IMAGE_REPOSITORY" "ghcr.io/daiyuang/ech0" }}'
+    tags:
+      - "{{ .Tag }}"
+      - "{{ .Version }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    extra_files:
+      - packaging/ech0.toml
+    labels:
+      org.opencontainers.image.title: ech0
+      org.opencontainers.image.description: Embedded library-first message broker with standalone and Raft cluster modes.
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

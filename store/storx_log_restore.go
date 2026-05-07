@@ -2,12 +2,14 @@ package store
 
 import (
 	"context"
+	"os"
 
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	"github.com/arcgolabs/storx/badgerx"
 )
 
 func (s *StorxLogStore) Restore(snapshot Snapshot) error {
-	if err := s.clearLogBuckets(); err != nil {
+	if err := s.clearLogStorage(); err != nil {
 		return err
 	}
 	if err := s.restoreLogTopics(snapshot.Topics); err != nil {
@@ -16,14 +18,24 @@ func (s *StorxLogStore) Restore(snapshot Snapshot) error {
 	return s.restoreLogRecords(snapshot)
 }
 
-func (s *StorxLogStore) clearLogBuckets() error {
-	for _, bucket := range []interface{ Clear(context.Context) error }{
-		bucketClearer[string, TopicConfig]{s.topics},
-		bucketClearer[string, Record]{s.records},
-		bucketClearer[string, uint64]{s.nextOffsets},
+func (s *StorxLogStore) clearLogStorage() error {
+	if err := s.clearLogIndexes(); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(s.segmentsDir); err != nil {
+		return wrapExternal(err, "clear segment files")
+	}
+	return wrapExternal(os.MkdirAll(s.segmentsDir, 0o750), "recreate segment directory")
+}
+
+func (s *StorxLogStore) clearLogIndexes() error {
+	for _, namespace := range []interface{ Clear(context.Context) error }{
+		badgerNamespaceClearer[string, TopicConfig]{s.topics},
+		badgerNamespaceClearer[string, segmentRecordPointer]{s.records},
+		badgerNamespaceClearer[string, uint64]{s.nextOffsets},
 	} {
-		if err := bucket.Clear(context.Background()); err != nil {
-			return wrapExternal(err, "clear log bucket")
+		if err := namespace.Clear(context.Background()); err != nil {
+			return wrapExternal(err, "clear log index")
 		}
 	}
 	return nil
@@ -70,12 +82,28 @@ func (s *StorxLogStore) restoreLogPartitionRecords(
 		return err
 	}
 	for _, record := range records {
-		if err := s.records.Put(context.Background(), recordKey(tp, record.Offset), cloneRecord(record)); err != nil {
-			return wrapExternal(err, "restore log record")
+		if err := s.appendRestoredRecord(tp, cloneRecord(record)); err != nil {
+			return err
 		}
 		advanceRestoredNextOffset(tp, record, nextOffsets, computeOffsets)
 	}
 	return nil
+}
+
+func (s *StorxLogStore) appendRestoredRecord(tp TopicPartition, record Record) error {
+	topic, err := s.loadTopicForPartition(tp)
+	if err != nil {
+		return err
+	}
+	frame, err := encodeSegmentFrame(record)
+	if err != nil {
+		return err
+	}
+	pointer, err := s.appendFrame(topic, tp, record.Offset, frame, record)
+	if err != nil {
+		return err
+	}
+	return wrapExternal(s.records.Set(context.Background(), recordKey(tp, record.Offset), pointer), "restore log record index")
 }
 
 func advanceRestoredNextOffset(
@@ -104,11 +132,28 @@ func restoreLogNextOffsetMap(snapshotOffsets collectionmapping.Map[string, uint6
 func (s *StorxLogStore) restoreLogNextOffsets(nextOffsets *collectionmapping.Map[TopicPartition, uint64]) error {
 	var resultErr error
 	nextOffsets.Range(func(tp TopicPartition, next uint64) bool {
-		if err := s.nextOffsets.Put(context.Background(), nextOffsetKey(tp), next); err != nil {
+		if err := s.nextOffsets.Set(context.Background(), nextOffsetKey(tp), next); err != nil {
 			resultErr = wrapExternal(err, "restore next log offset")
 			return false
 		}
 		return true
 	})
 	return resultErr
+}
+
+type badgerNamespaceClearer[K any, V any] struct {
+	namespace *badgerx.Namespace[K, V]
+}
+
+func (c badgerNamespaceClearer[K, V]) Clear(ctx context.Context) error {
+	keys, err := scanBadgerNamespaceKeys(ctx, c.namespace)
+	if err != nil {
+		return wrapExternal(err, "list badger namespace keys")
+	}
+	for _, key := range keys {
+		if err := c.namespace.Delete(ctx, key); err != nil {
+			return wrapExternal(err, "delete badger namespace key")
+		}
+	}
+	return nil
 }

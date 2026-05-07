@@ -1,0 +1,21 @@
+[Unit]
+Description=ech0 message broker
+Documentation=https://github.com/DaiYuANg/ech0
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ech0
+Group=ech0
+WorkingDirectory=/var/lib/ech0
+ExecStart=/usr/bin/ech0 --config /etc/ech0/ech0.toml
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+StateDirectory=ech0
+LogsDirectory=ech0
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

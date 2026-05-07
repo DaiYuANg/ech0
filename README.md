@@ -100,6 +100,28 @@ go run ./cmd/ech0 --config config/ech0.toml.example
 Docker examples:
 
 ```sh
-docker compose -f deploy/docker/docker-compose.single.yml up --build
-docker compose -f deploy/docker/docker-compose.cluster.yml up --build
+cd deploy/docker
+docker compose -f docker-compose.single.yml up --build
+docker compose -f docker-compose.cluster.yml up --build
+docker compose -f docker-compose.single.release.yml up
+docker build -f ../../Dockerfile -t ech0:upx ../..
+docker build -f ../../Dockerfile --build-arg ENABLE_UPX=false -t ech0:debug ../..
 ```
+
+## Release
+
+Releases are driven by GoReleaser. A tag such as `v0.1.0` builds:
+
+- `ech0` archives for Linux, macOS, and Windows.
+- Linux `.deb` and `.rpm` packages with `/etc/ech0/ech0.toml` and a systemd unit.
+- Multi-platform Docker images for `linux/amd64` and `linux/arm64` published to GHCR.
+- UPX-compressed Linux release and Docker binaries by default; set `ENABLE_UPX=false` to disable Dockerfile compression.
+
+Local checks:
+
+```sh
+goreleaser check
+goreleaser release --snapshot --clean
+```
+
+GitHub release publishing runs from `.github/workflows/release.yml` on `v*` tags.

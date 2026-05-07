@@ -1,0 +1,57 @@
+[broker]
+node_id = 1
+cluster_name = "ech0"
+data_dir = "/var/lib/ech0"
+bind_addr = "0.0.0.0:9090"
+max_frame_body_bytes = 4194304
+max_payload_bytes = 1048576
+max_batch_payload_bytes = 8388608
+max_fetch_records = 1000
+max_fetch_wait_ms = 5000
+group_assignment_strategy = "round_robin"
+group_sticky_assignments = true
+retry_worker_enabled = true
+retry_worker_interval_secs = 5
+retry_worker_max_records = 256
+retry_worker_consumer_prefix = "__retry_worker"
+delay_scheduler_enabled = true
+delay_scheduler_interval_secs = 1
+delay_scheduler_max_records = 256
+delay_scheduler_consumer_prefix = "__delay_scheduler"
+
+[admin]
+enabled = true
+bind_addr = "0.0.0.0:9091"
+
+[storage]
+segments_dir = "segments"
+metadata_path = "meta/metadata.bbolt"
+retention_cleanup_enabled = true
+retention_cleanup_interval_secs = 30
+compaction_cleanup_enabled = true
+compaction_cleanup_interval_secs = 60
+compaction_sealed_segment_batch = 2
+
+[logging]
+level = "info"
+format = "text"
+enable_stdout = true
+enable_file = false
+directory = "/var/log/ech0"
+file_prefix = "ech0"
+rotation = "daily"
+max_files = 14
+ansi = false
+
+[raft]
+enabled = false
+bind_addr = "0.0.0.0:3210"
+read_policy = "local"
+heartbeat_interval_ms = 150
+election_timeout_min_ms = 300
+election_timeout_max_ms = 600
+apply_timeout_ms = 5000
+
+[[raft.cluster]]
+node_id = 1
+addr = "127.0.0.1:3210"

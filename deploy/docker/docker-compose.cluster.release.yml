@@ -1,12 +1,6 @@
 services:
   ech0-node1:
-    image: ${ECH0_CLUSTER_IMAGE:-ech0:cluster-local}
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-      args:
-        BASE_IMAGE: ${ECH0_BASE_IMAGE:-debian}
-        ENABLE_UPX: ${ECH0_ENABLE_UPX:-true}
+    image: ${ECH0_IMAGE:-ghcr.io/daiyuang/ech0:latest}
     container_name: ech0-node1
     working_dir: /app
     command: ["--config", "/app/config/ech0.toml"]
@@ -22,13 +16,7 @@ services:
       - "${ECH0_NODE1_RAFT_PORT:-13210}:3210"
 
   ech0-node2:
-    image: ${ECH0_CLUSTER_IMAGE:-ech0:cluster-local}
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-      args:
-        BASE_IMAGE: ${ECH0_BASE_IMAGE:-debian}
-        ENABLE_UPX: ${ECH0_ENABLE_UPX:-true}
+    image: ${ECH0_IMAGE:-ghcr.io/daiyuang/ech0:latest}
     container_name: ech0-node2
     working_dir: /app
     command: ["--config", "/app/config/ech0.toml"]
@@ -44,13 +32,7 @@ services:
       - "${ECH0_NODE2_RAFT_PORT:-23210}:3210"
 
   ech0-node3:
-    image: ${ECH0_CLUSTER_IMAGE:-ech0:cluster-local}
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-      args:
-        BASE_IMAGE: ${ECH0_BASE_IMAGE:-debian}
-        ENABLE_UPX: ${ECH0_ENABLE_UPX:-true}
+    image: ${ECH0_IMAGE:-ghcr.io/daiyuang/ech0:latest}
     container_name: ech0-node3
     working_dir: /app
     command: ["--config", "/app/config/ech0.toml"]

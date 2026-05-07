@@ -1,0 +1,16 @@
+FROM alpine:3.22
+
+ARG TARGETPLATFORM
+
+RUN apk add --no-cache ca-certificates
+
+COPY ${TARGETPLATFORM}/ech0 /usr/local/bin/ech0
+COPY packaging/ech0.toml /etc/ech0/ech0.toml
+
+RUN mkdir -p /var/lib/ech0 /var/log/ech0
+
+EXPOSE 9090 9091 3210
+VOLUME ["/var/lib/ech0"]
+
+ENTRYPOINT ["/usr/local/bin/ech0"]
+CMD ["--config", "/etc/ech0/ech0.toml"]

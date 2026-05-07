@@ -23,9 +23,9 @@ func (c Config) SegmentLogPath() string {
 		dir = "segments"
 	}
 	if filepath.IsAbs(dir) {
-		return filepath.Join(dir, "log.bbolt")
+		return dir
 	}
-	return filepath.Join(c.DataDir(), dir, "log.bbolt")
+	return filepath.Join(c.DataDir(), dir)
 }
 
 func (c Config) MetadataPath() string {
