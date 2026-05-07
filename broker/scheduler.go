@@ -30,55 +30,67 @@ func NewScheduledRuntime(cfg Config, broker *Broker, logger *slog.Logger) (*Sche
 		gocron.WithStopTimeout(10*time.Second),
 	)
 	if err != nil {
-		return nil, err
+		return nil, wrapBroker("scheduler_create_failed", err, "create scheduler")
 	}
 	runtime.scheduler = scheduler
 
 	if cfg.Broker.DelaySchedulerEnabled {
-		interval := durationFromSeconds(cfg.Broker.DelaySchedulerIntervalSecs, time.Second)
-		if _, err := scheduler.NewJob(
-			gocron.DurationJob(interval),
-			gocron.NewTask(func(ctx context.Context) error {
-				moved, err := broker.ProcessDueDelayedOnce(ctx, cfg.Broker.DelaySchedulerConsumerPrefix, cfg.Broker.DelaySchedulerMaxRecords)
-				if err != nil {
-					return err
-				}
-				if moved > 0 && logger != nil {
-					logger.Info("delay scheduler forwarded records", "moved", moved)
-				}
-				return nil
-			}),
-			gocron.WithName("ech0.delay_scheduler"),
-			gocron.WithTags("ech0", "delay"),
-		); err != nil {
-			return nil, err
+		if err := registerDelayJob(scheduler, cfg, broker, logger); err != nil {
+			return nil, wrapBroker("delay_job_create_failed", err, "create delay scheduler job")
 		}
 	}
 
 	if cfg.Broker.RetryWorkerEnabled {
-		interval := durationFromSeconds(cfg.Broker.RetryWorkerIntervalSecs, 5*time.Second)
-		if _, err := scheduler.NewJob(
-			gocron.DurationJob(interval),
-			gocron.NewTask(func(ctx context.Context) error {
-				moved, err := broker.ProcessRetryTopicsOnce(ctx, cfg.Broker.RetryWorkerConsumerPrefix, cfg.Broker.RetryWorkerMaxRecords)
-				if err != nil {
-					if store.ErrorCode(err) == store.CodeTopicNotFound {
-						return nil
-					}
-					return err
-				}
-				if moved > 0 && logger != nil {
-					logger.Info("retry worker moved records", "moved", moved)
-				}
-				return nil
-			}),
-			gocron.WithName("ech0.retry_worker"),
-			gocron.WithTags("ech0", "retry"),
-		); err != nil {
-			return nil, err
+		if err := registerRetryJob(scheduler, cfg, broker, logger); err != nil {
+			return nil, wrapBroker("retry_job_create_failed", err, "create retry worker job")
 		}
 	}
 	return runtime, nil
+}
+
+func registerDelayJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
+	interval := durationFromSeconds(cfg.Broker.DelaySchedulerIntervalSecs, time.Second)
+	_, err := scheduler.NewJob(
+		gocron.DurationJob(interval),
+		gocron.NewTask(func(ctx context.Context) error {
+			moved, err := broker.ProcessDueDelayedOnce(ctx, cfg.Broker.DelaySchedulerConsumerPrefix, cfg.Broker.DelaySchedulerMaxRecords)
+			if err != nil {
+				return err
+			}
+			logMoved(logger, "delay scheduler forwarded records", moved)
+			return nil
+		}),
+		gocron.WithName("ech0.delay_scheduler"),
+		gocron.WithTags("ech0", "delay"),
+	)
+	return wrapBroker("delay_job_register_failed", err, "register delay scheduler job")
+}
+
+func registerRetryJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
+	interval := durationFromSeconds(cfg.Broker.RetryWorkerIntervalSecs, 5*time.Second)
+	_, err := scheduler.NewJob(
+		gocron.DurationJob(interval),
+		gocron.NewTask(func(ctx context.Context) error {
+			moved, err := broker.ProcessRetryTopicsOnce(ctx, cfg.Broker.RetryWorkerConsumerPrefix, cfg.Broker.RetryWorkerMaxRecords)
+			if err != nil {
+				if store.ErrorCode(err) == store.CodeTopicNotFound {
+					return nil
+				}
+				return err
+			}
+			logMoved(logger, "retry worker moved records", moved)
+			return nil
+		}),
+		gocron.WithName("ech0.retry_worker"),
+		gocron.WithTags("ech0", "retry"),
+	)
+	return wrapBroker("retry_job_register_failed", err, "register retry worker job")
+}
+
+func logMoved(logger *slog.Logger, message string, moved int) {
+	if moved > 0 && logger != nil {
+		logger.Info(message, "moved", moved)
+	}
 }
 
 func (r *ScheduledRuntime) Start(ctx context.Context) error {
@@ -97,7 +109,7 @@ func (r *ScheduledRuntime) Stop(ctx context.Context) error {
 	if r == nil || r.scheduler == nil {
 		return nil
 	}
-	return r.scheduler.ShutdownWithContext(ctx)
+	return wrapBroker("scheduler_shutdown_failed", r.scheduler.ShutdownWithContext(ctx), "shutdown scheduler")
 }
 
 type raftElector struct {
@@ -106,7 +118,7 @@ type raftElector struct {
 
 func (e raftElector) IsLeader(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return wrapBroker("scheduler_election_context_done", err, "check scheduled job leadership")
 	}
 	if e.broker == nil || e.broker.canRunScheduledJobs() {
 		return nil
@@ -129,5 +141,18 @@ func durationFromSeconds(seconds uint64, fallback time.Duration) time.Duration {
 	if seconds == 0 {
 		return fallback
 	}
-	return time.Duration(seconds) * time.Second
+	return boundedDuration(seconds, time.Second)
+}
+
+func durationFromMillis(milliseconds uint64) time.Duration {
+	return boundedDuration(milliseconds, time.Millisecond)
+}
+
+func boundedDuration(value uint64, unit time.Duration) time.Duration {
+	const maxDuration = time.Duration(1<<63 - 1)
+	maxValue := uint64(maxDuration / unit) // #nosec G115 -- maxDuration/unit is non-negative and bounded.
+	if value > maxValue {
+		return maxDuration
+	}
+	return time.Duration(value) * unit // #nosec G115 -- value is checked against maxValue before conversion.
 }

@@ -1,12 +1,17 @@
+// Package ech0 exposes an embedded library-first message broker API.
+//
+//nolint:revive // The embedded API surface is kept in one file while the public shape is settling.
 package ech0
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	internalbroker "github.com/DaiYuANg/ech0/broker"
 	"github.com/DaiYuANg/ech0/store"
+	"github.com/samber/oops"
 )
 
 type Options struct {
@@ -99,76 +104,80 @@ func Open(ctx context.Context, opts Options) (*Broker, error) {
 
 	logStore, err := store.OpenStorxLogStore(cfg.SegmentLogPath())
 	if err != nil {
-		return nil, err
+		return nil, oops.In("embedded").Code("open_log_store_failed").Wrapf(err, "open log store")
 	}
 	metaStore, err := store.OpenStorxMetadataStore(cfg.MetadataPath())
 	if err != nil {
-		_ = logStore.Close()
-		return nil, err
+		return nil, errors.Join(
+			oops.In("embedded").Code("open_metadata_store_failed").Wrapf(err, "open metadata store"),
+			closeLogStore(logStore),
+		)
 	}
 	b, err := internalbroker.NewWithStores(cfg, logStore, metaStore)
 	if err != nil {
-		_ = metaStore.Close()
-		_ = logStore.Close()
-		return nil, err
+		return nil, errors.Join(
+			oops.In("embedded").Code("broker_init_failed").Wrapf(err, "initialize broker"),
+			closeMetadataStore(metaStore),
+			closeLogStore(logStore),
+		)
 	}
-	if err := b.Start(ctx); err != nil {
-		_ = metaStore.Close()
-		_ = logStore.Close()
-		return nil, err
+	if startErr := b.Start(ctx); startErr != nil {
+		return nil, errors.Join(
+			oops.In("embedded").Code("broker_start_failed").Wrapf(startErr, "start broker"),
+			closeMetadataStore(metaStore),
+			closeLogStore(logStore),
+		)
 	}
 	scheduled, err := internalbroker.NewScheduledRuntime(cfg, b, slog.Default())
 	if err != nil {
-		_ = b.Stop(ctx)
-		_ = metaStore.Close()
-		_ = logStore.Close()
-		return nil, err
+		return nil, errors.Join(
+			oops.In("embedded").Code("scheduler_init_failed").Wrapf(err, "initialize scheduler"),
+			stopInternalBroker(ctx, b),
+			closeMetadataStore(metaStore),
+			closeLogStore(logStore),
+		)
 	}
 	if err := scheduled.Start(ctx); err != nil {
-		_ = b.Stop(ctx)
-		_ = metaStore.Close()
-		_ = logStore.Close()
-		return nil, err
+		return nil, errors.Join(
+			oops.In("embedded").Code("scheduler_start_failed").Wrapf(err, "start scheduler"),
+			stopInternalBroker(ctx, b),
+			closeMetadataStore(metaStore),
+			closeLogStore(logStore),
+		)
 	}
 	return &Broker{broker: b, scheduled: scheduled, logStore: logStore, metaStore: metaStore}, nil
 }
 
-func Run(ctx context.Context, opts Options) error {
+func Run(ctx context.Context, opts Options) (err error) {
 	b, err := Open(ctx, opts)
 	if err != nil {
 		return err
 	}
-	defer b.Close(context.Background())
+	defer func() {
+		err = errors.Join(err, b.Close(ctx))
+	}()
 	<-ctx.Done()
-	return ctx.Err()
+	return oops.In("embedded").Code("context_done").Wrap(ctx.Err())
 }
 
 func (b *Broker) Close(ctx context.Context) error {
 	if b == nil {
 		return nil
 	}
-	var err error
+	var result error
 	if b.scheduled != nil {
-		if closeErr := b.scheduled.Stop(ctx); closeErr != nil && err == nil {
-			err = closeErr
-		}
+		result = errors.Join(result, stopScheduler(ctx, b.scheduled))
 	}
 	if b.broker != nil {
-		if closeErr := b.broker.Stop(ctx); closeErr != nil && err == nil {
-			err = closeErr
-		}
+		result = errors.Join(result, stopInternalBroker(ctx, b.broker))
 	}
 	if b.metaStore != nil {
-		if closeErr := b.metaStore.Close(); closeErr != nil && err == nil {
-			err = closeErr
-		}
+		result = errors.Join(result, closeMetadataStore(b.metaStore))
 	}
 	if b.logStore != nil {
-		if closeErr := b.logStore.Close(); closeErr != nil && err == nil {
-			err = closeErr
-		}
+		result = errors.Join(result, closeLogStore(b.logStore))
 	}
-	return err
+	return result
 }
 
 func (b *Broker) CreateTopic(ctx context.Context, name string, opts ...TopicOption) error {
@@ -187,12 +196,12 @@ func (b *Broker) CreateTopic(ctx context.Context, name string, opts ...TopicOpti
 	if topicOpts.retryPolicy != nil {
 		topic.RetryPolicy = store.TopicRetryPolicy{
 			MaxAttempts:      topicOpts.retryPolicy.MaxAttempts,
-			BackoffInitialMS: uint64(topicOpts.retryPolicy.InitialBackoff.Milliseconds()),
-			BackoffMaxMS:     uint64(topicOpts.retryPolicy.MaxBackoff.Milliseconds()),
+			BackoffInitialMS: durationMillis(topicOpts.retryPolicy.InitialBackoff),
+			BackoffMaxMS:     durationMillis(topicOpts.retryPolicy.MaxBackoff),
 		}
 	}
 	_, err := b.broker.CreateTopic(ctx, topic)
-	return err
+	return oops.In("embedded").Code("create_topic_failed").With("topic", name).Wrapf(err, "create topic")
 }
 
 func (b *Broker) Publish(ctx context.Context, topic string, payload []byte, opts ...PublishOption) (Message, error) {
@@ -210,12 +219,12 @@ func (b *Broker) Publish(ctx context.Context, topic string, payload []byte, opts
 	}
 	result, err := b.broker.Publish(ctx, topic, partitioning, publishOpts.key, publishOpts.tombstone, payload)
 	if err != nil {
-		return Message{}, err
+		return Message{}, oops.In("embedded").Code("publish_failed").With("topic", topic).Wrapf(err, "publish message")
 	}
 	return messageFromRecord(topic, result.Partition, result.Record), nil
 }
 
-func (b *Broker) Fetch(ctx context.Context, consumer string, topic string, opts ...FetchOption) (FetchResult, error) {
+func (b *Broker) Fetch(ctx context.Context, consumer, topic string, opts ...FetchOption) (FetchResult, error) {
 	_ = ctx
 	fetchOpts := fetchOptions{maxRecords: 100}
 	for _, opt := range opts {
@@ -225,7 +234,7 @@ func (b *Broker) Fetch(ctx context.Context, consumer string, topic string, opts 
 	}
 	poll, err := b.broker.Fetch(consumer, topic, fetchOpts.partition, fetchOpts.offset, fetchOpts.maxRecords)
 	if err != nil {
-		return FetchResult{}, err
+		return FetchResult{}, oops.In("embedded").Code("fetch_failed").With("consumer", consumer, "topic", topic).Wrapf(err, "fetch messages")
 	}
 	messages := make([]Message, 0, len(poll.Records))
 	for _, record := range poll.Records {
@@ -235,11 +244,17 @@ func (b *Broker) Fetch(ctx context.Context, consumer string, topic string, opts 
 }
 
 func (b *Broker) Ack(ctx context.Context, consumer string, msg Message) error {
-	return b.broker.CommitOffset(ctx, consumer, msg.Topic, msg.Partition, msg.NextOffset)
+	return oops.In("embedded").Code("ack_failed").With("consumer", consumer, "topic", msg.Topic).Wrapf(
+		b.broker.CommitOffset(ctx, consumer, msg.Topic, msg.Partition, msg.NextOffset),
+		"ack message",
+	)
 }
 
-func (b *Broker) Commit(ctx context.Context, consumer string, topic string, partition uint32, nextOffset uint64) error {
-	return b.broker.CommitOffset(ctx, consumer, topic, partition, nextOffset)
+func (b *Broker) Commit(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64) error {
+	return oops.In("embedded").Code("commit_failed").With("consumer", consumer, "topic", topic).Wrapf(
+		b.broker.CommitOffset(ctx, consumer, topic, partition, nextOffset),
+		"commit offset",
+	)
 }
 
 func (b *Broker) Nack(ctx context.Context, consumer string, msg Message, cause error) error {
@@ -249,13 +264,13 @@ func (b *Broker) Nack(ctx context.Context, consumer string, msg Message, cause e
 		lastError = &value
 	}
 	_, err := b.broker.Nack(ctx, consumer, msg.Topic, msg.Partition, msg.Offset, lastError)
-	return err
+	return oops.In("embedded").Code("nack_failed").With("consumer", consumer, "topic", msg.Topic).Wrapf(err, "nack message")
 }
 
 func (b *Broker) Schedule(ctx context.Context, topic string, payload []byte, deliverAt time.Time) (Message, error) {
 	result, err := b.broker.ScheduleDelay(ctx, topic, 0, payload, uint64(deliverAt.UnixMilli()))
 	if err != nil {
-		return Message{}, err
+		return Message{}, oops.In("embedded").Code("schedule_failed").With("topic", topic).Wrapf(err, "schedule message")
 	}
 	return Message{Topic: result.DelayTopic, Partition: result.Partition, Offset: result.Offset, NextOffset: result.NextOffset, Payload: append([]byte(nil), payload...)}, nil
 }
@@ -371,10 +386,65 @@ func messageFromRecord(topic string, partition uint32, record store.Record) Mess
 		Topic:      topic,
 		Partition:  partition,
 		Offset:     record.Offset,
-		Timestamp:  time.UnixMilli(int64(record.TimestampMS)),
+		Timestamp:  time.UnixMilli(unixMillis(record.TimestampMS)),
 		Key:        append([]byte(nil), record.Key...),
 		Payload:    append([]byte(nil), record.Payload...),
 		NextOffset: record.Offset + 1,
 		Tombstone:  record.IsTombstone(),
 	}
+}
+
+func durationMillis(duration time.Duration) uint64 {
+	if duration <= 0 {
+		return 0
+	}
+	return uint64(duration / time.Millisecond)
+}
+
+func unixMillis(value uint64) int64 {
+	const maxInt64 = uint64(1<<63 - 1)
+	if value > maxInt64 {
+		return int64(maxInt64)
+	}
+	return int64(value)
+}
+
+func stopScheduler(ctx context.Context, scheduled *internalbroker.ScheduledRuntime) error {
+	if scheduled == nil {
+		return nil
+	}
+	if err := scheduled.Stop(ctx); err != nil {
+		return oops.In("embedded").Code("scheduler_stop_failed").Wrapf(err, "stop scheduler")
+	}
+	return nil
+}
+
+func stopInternalBroker(ctx context.Context, broker *internalbroker.Broker) error {
+	if broker == nil {
+		return nil
+	}
+	if err := broker.Stop(ctx); err != nil {
+		return oops.In("embedded").Code("broker_stop_failed").Wrapf(err, "stop broker")
+	}
+	return nil
+}
+
+func closeMetadataStore(metaStore *store.StorxMetadataStore) error {
+	if metaStore == nil {
+		return nil
+	}
+	if err := metaStore.Close(); err != nil {
+		return oops.In("embedded").Code("metadata_store_close_failed").Wrapf(err, "close metadata store")
+	}
+	return nil
+}
+
+func closeLogStore(logStore *store.StorxLogStore) error {
+	if logStore == nil {
+		return nil
+	}
+	if err := logStore.Close(); err != nil {
+		return oops.In("embedded").Code("log_store_close_failed").Wrapf(err, "close log store")
+	}
+	return nil
 }

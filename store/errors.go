@@ -1,6 +1,12 @@
+// Package store defines broker storage models and implementations.
 package store
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/samber/oops"
+)
 
 type Code string
 
@@ -27,14 +33,28 @@ func (e *Error) Error() string {
 }
 
 func E(code Code, format string, args ...any) error {
-	return &Error{Code: code, Message: fmt.Sprintf(format, args...)}
+	return oops.
+		In("store").
+		Code(code).
+		Wrap(&Error{Code: code, Message: fmt.Sprintf(format, args...)})
+}
+
+func wrapExternal(err error, format string) error {
+	if err == nil {
+		return nil
+	}
+	return oops.
+		In("store").
+		Code(CodeUnavailable).
+		Wrapf(err, "%s", format)
 }
 
 func ErrorCode(err error) Code {
 	if err == nil {
 		return ""
 	}
-	if e, ok := err.(*Error); ok {
+	var e *Error
+	if errors.As(err, &e) {
 		return e.Code
 	}
 	return CodeUnavailable

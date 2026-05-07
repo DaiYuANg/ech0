@@ -3,6 +3,7 @@ module github.com/DaiYuANg/ech0
 go 1.26.2
 
 require (
+	github.com/arcgolabs/collectionx/list v0.7.0
 	github.com/arcgolabs/collectionx/mapping v0.7.0
 	github.com/arcgolabs/collectionx/set v0.7.0
 	github.com/arcgolabs/configx v0.3.2
@@ -18,12 +19,13 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.13
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb v0.0.0-20251103221153-05f9dd7a5148
+	github.com/samber/oops v1.21.0
+	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 )
 
 require (
 	github.com/andybalholm/brotli v1.2.1 // indirect
-	github.com/arcgolabs/collectionx/list v0.7.0 // indirect
 	github.com/arcgolabs/httpx/adapter/echo v0.1.4 // indirect
 	github.com/arcgolabs/httpx/adapter/gin v0.1.4 // indirect
 	github.com/arcgolabs/httpx/adapter/std v0.1.4 // indirect
@@ -78,11 +80,9 @@ require (
 	github.com/samber/go-type-to-string v1.8.0 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/samber/mo v1.16.0 // indirect
-	github.com/samber/oops v1.21.0 // indirect
 	github.com/samber/oops/loggers/zerolog v0.0.0-20260412154111-1460827f264f // indirect
 	github.com/samber/slog-common v0.22.0 // indirect
 	github.com/samber/slog-zerolog/v2 v2.9.2 // indirect
-	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.70.0 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect

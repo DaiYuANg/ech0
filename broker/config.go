@@ -1,3 +1,4 @@
+//nolint:revive // Config schema, defaults, and path helpers are kept together for operators.
 package broker
 
 import (
@@ -12,53 +13,53 @@ import (
 )
 
 type Config struct {
-	Broker  BrokerConfig  `toml:"broker" json:"broker" mapstructure:"broker" koanf:"broker"`
-	Admin   AdminConfig   `toml:"admin" json:"admin" mapstructure:"admin" koanf:"admin"`
-	Storage StorageConfig `toml:"storage" json:"storage" mapstructure:"storage" koanf:"storage"`
-	Logging LoggingConfig `toml:"logging" json:"logging" mapstructure:"logging" koanf:"logging"`
-	Raft    RaftConfig    `toml:"raft" json:"raft" mapstructure:"raft" koanf:"raft"`
+	Broker  BrokerConfig  `json:"broker"  koanf:"broker"  mapstructure:"broker"  toml:"broker"`
+	Admin   AdminConfig   `json:"admin"   koanf:"admin"   mapstructure:"admin"   toml:"admin"`
+	Storage StorageConfig `json:"storage" koanf:"storage" mapstructure:"storage" toml:"storage"`
+	Logging LoggingConfig `json:"logging" koanf:"logging" mapstructure:"logging" toml:"logging"`
+	Raft    RaftConfig    `json:"raft"    koanf:"raft"    mapstructure:"raft"    toml:"raft"`
 }
 
 type BrokerConfig struct {
-	NodeID                       uint64 `toml:"node_id" json:"node_id" mapstructure:"node_id" koanf:"node_id"`
-	ClusterName                  string `toml:"cluster_name" json:"cluster_name" mapstructure:"cluster_name" koanf:"cluster_name"`
-	DataDir                      string `toml:"data_dir" json:"data_dir" mapstructure:"data_dir" koanf:"data_dir"`
-	BindAddr                     string `toml:"bind_addr" json:"bind_addr" mapstructure:"bind_addr" koanf:"bind_addr"`
-	MaxFrameBodyBytes            uint32 `toml:"max_frame_body_bytes" json:"max_frame_body_bytes" mapstructure:"max_frame_body_bytes" koanf:"max_frame_body_bytes"`
-	MaxPayloadBytes              int    `toml:"max_payload_bytes" json:"max_payload_bytes" mapstructure:"max_payload_bytes" koanf:"max_payload_bytes"`
-	MaxBatchPayloadBytes         int    `toml:"max_batch_payload_bytes" json:"max_batch_payload_bytes" mapstructure:"max_batch_payload_bytes" koanf:"max_batch_payload_bytes"`
-	MaxFetchRecords              int    `toml:"max_fetch_records" json:"max_fetch_records" mapstructure:"max_fetch_records" koanf:"max_fetch_records"`
-	MaxFetchWaitMS               uint64 `toml:"max_fetch_wait_ms" json:"max_fetch_wait_ms" mapstructure:"max_fetch_wait_ms" koanf:"max_fetch_wait_ms"`
-	GroupAssignmentStrategy      string `toml:"group_assignment_strategy" json:"group_assignment_strategy" mapstructure:"group_assignment_strategy" koanf:"group_assignment_strategy"`
-	GroupStickyAssignments       bool   `toml:"group_sticky_assignments" json:"group_sticky_assignments" mapstructure:"group_sticky_assignments" koanf:"group_sticky_assignments"`
-	RetryWorkerEnabled           bool   `toml:"retry_worker_enabled" json:"retry_worker_enabled" mapstructure:"retry_worker_enabled" koanf:"retry_worker_enabled"`
-	RetryWorkerIntervalSecs      uint64 `toml:"retry_worker_interval_secs" json:"retry_worker_interval_secs" mapstructure:"retry_worker_interval_secs" koanf:"retry_worker_interval_secs"`
-	RetryWorkerMaxRecords        int    `toml:"retry_worker_max_records" json:"retry_worker_max_records" mapstructure:"retry_worker_max_records" koanf:"retry_worker_max_records"`
-	RetryWorkerConsumerPrefix    string `toml:"retry_worker_consumer_prefix" json:"retry_worker_consumer_prefix" mapstructure:"retry_worker_consumer_prefix" koanf:"retry_worker_consumer_prefix"`
-	DelaySchedulerEnabled        bool   `toml:"delay_scheduler_enabled" json:"delay_scheduler_enabled" mapstructure:"delay_scheduler_enabled" koanf:"delay_scheduler_enabled"`
-	DelaySchedulerIntervalSecs   uint64 `toml:"delay_scheduler_interval_secs" json:"delay_scheduler_interval_secs" mapstructure:"delay_scheduler_interval_secs" koanf:"delay_scheduler_interval_secs"`
-	DelaySchedulerMaxRecords     int    `toml:"delay_scheduler_max_records" json:"delay_scheduler_max_records" mapstructure:"delay_scheduler_max_records" koanf:"delay_scheduler_max_records"`
-	DelaySchedulerConsumerPrefix string `toml:"delay_scheduler_consumer_prefix" json:"delay_scheduler_consumer_prefix" mapstructure:"delay_scheduler_consumer_prefix" koanf:"delay_scheduler_consumer_prefix"`
+	NodeID                       uint64 `json:"node_id"                         koanf:"node_id"                         mapstructure:"node_id"                         toml:"node_id"`
+	ClusterName                  string `json:"cluster_name"                    koanf:"cluster_name"                    mapstructure:"cluster_name"                    toml:"cluster_name"`
+	DataDir                      string `json:"data_dir"                        koanf:"data_dir"                        mapstructure:"data_dir"                        toml:"data_dir"`
+	BindAddr                     string `json:"bind_addr"                       koanf:"bind_addr"                       mapstructure:"bind_addr"                       toml:"bind_addr"`
+	MaxFrameBodyBytes            uint32 `json:"max_frame_body_bytes"            koanf:"max_frame_body_bytes"            mapstructure:"max_frame_body_bytes"            toml:"max_frame_body_bytes"`
+	MaxPayloadBytes              int    `json:"max_payload_bytes"               koanf:"max_payload_bytes"               mapstructure:"max_payload_bytes"               toml:"max_payload_bytes"`
+	MaxBatchPayloadBytes         int    `json:"max_batch_payload_bytes"         koanf:"max_batch_payload_bytes"         mapstructure:"max_batch_payload_bytes"         toml:"max_batch_payload_bytes"`
+	MaxFetchRecords              int    `json:"max_fetch_records"               koanf:"max_fetch_records"               mapstructure:"max_fetch_records"               toml:"max_fetch_records"`
+	MaxFetchWaitMS               uint64 `json:"max_fetch_wait_ms"               koanf:"max_fetch_wait_ms"               mapstructure:"max_fetch_wait_ms"               toml:"max_fetch_wait_ms"`
+	GroupAssignmentStrategy      string `json:"group_assignment_strategy"       koanf:"group_assignment_strategy"       mapstructure:"group_assignment_strategy"       toml:"group_assignment_strategy"`
+	GroupStickyAssignments       bool   `json:"group_sticky_assignments"        koanf:"group_sticky_assignments"        mapstructure:"group_sticky_assignments"        toml:"group_sticky_assignments"`
+	RetryWorkerEnabled           bool   `json:"retry_worker_enabled"            koanf:"retry_worker_enabled"            mapstructure:"retry_worker_enabled"            toml:"retry_worker_enabled"`
+	RetryWorkerIntervalSecs      uint64 `json:"retry_worker_interval_secs"      koanf:"retry_worker_interval_secs"      mapstructure:"retry_worker_interval_secs"      toml:"retry_worker_interval_secs"`
+	RetryWorkerMaxRecords        int    `json:"retry_worker_max_records"        koanf:"retry_worker_max_records"        mapstructure:"retry_worker_max_records"        toml:"retry_worker_max_records"`
+	RetryWorkerConsumerPrefix    string `json:"retry_worker_consumer_prefix"    koanf:"retry_worker_consumer_prefix"    mapstructure:"retry_worker_consumer_prefix"    toml:"retry_worker_consumer_prefix"`
+	DelaySchedulerEnabled        bool   `json:"delay_scheduler_enabled"         koanf:"delay_scheduler_enabled"         mapstructure:"delay_scheduler_enabled"         toml:"delay_scheduler_enabled"`
+	DelaySchedulerIntervalSecs   uint64 `json:"delay_scheduler_interval_secs"   koanf:"delay_scheduler_interval_secs"   mapstructure:"delay_scheduler_interval_secs"   toml:"delay_scheduler_interval_secs"`
+	DelaySchedulerMaxRecords     int    `json:"delay_scheduler_max_records"     koanf:"delay_scheduler_max_records"     mapstructure:"delay_scheduler_max_records"     toml:"delay_scheduler_max_records"`
+	DelaySchedulerConsumerPrefix string `json:"delay_scheduler_consumer_prefix" koanf:"delay_scheduler_consumer_prefix" mapstructure:"delay_scheduler_consumer_prefix" toml:"delay_scheduler_consumer_prefix"`
 }
 
 type AdminConfig struct {
-	Enabled  bool   `toml:"enabled" json:"enabled" mapstructure:"enabled" koanf:"enabled"`
-	BindAddr string `toml:"bind_addr" json:"bind_addr" mapstructure:"bind_addr" koanf:"bind_addr"`
+	Enabled  bool   `json:"enabled"   koanf:"enabled"   mapstructure:"enabled"   toml:"enabled"`
+	BindAddr string `json:"bind_addr" koanf:"bind_addr" mapstructure:"bind_addr" toml:"bind_addr"`
 }
 
 type StorageConfig struct {
-	SegmentsDir  string `toml:"segments_dir" json:"segments_dir" mapstructure:"segments_dir" koanf:"segments_dir"`
-	MetadataPath string `toml:"metadata_path" json:"metadata_path" mapstructure:"metadata_path" koanf:"metadata_path"`
+	SegmentsDir  string `json:"segments_dir"  koanf:"segments_dir"  mapstructure:"segments_dir"  toml:"segments_dir"`
+	MetadataPath string `json:"metadata_path" koanf:"metadata_path" mapstructure:"metadata_path" toml:"metadata_path"`
 }
 
 type LoggingConfig struct {
-	Level        string `toml:"level" json:"level" mapstructure:"level" koanf:"level"`
-	Format       string `toml:"format" json:"format" mapstructure:"format" koanf:"format"`
-	EnableStdout bool   `toml:"enable_stdout" json:"enable_stdout" mapstructure:"enable_stdout" koanf:"enable_stdout"`
-	EnableFile   bool   `toml:"enable_file" json:"enable_file" mapstructure:"enable_file" koanf:"enable_file"`
-	Directory    string `toml:"directory" json:"directory" mapstructure:"directory" koanf:"directory"`
-	FilePrefix   string `toml:"file_prefix" json:"file_prefix" mapstructure:"file_prefix" koanf:"file_prefix"`
-	ANSI         bool   `toml:"ansi" json:"ansi" mapstructure:"ansi" koanf:"ansi"`
+	Level        string `json:"level"         koanf:"level"         mapstructure:"level"         toml:"level"`
+	Format       string `json:"format"        koanf:"format"        mapstructure:"format"        toml:"format"`
+	EnableStdout bool   `json:"enable_stdout" koanf:"enable_stdout" mapstructure:"enable_stdout" toml:"enable_stdout"`
+	EnableFile   bool   `json:"enable_file"   koanf:"enable_file"   mapstructure:"enable_file"   toml:"enable_file"`
+	Directory    string `json:"directory"     koanf:"directory"     mapstructure:"directory"     toml:"directory"`
+	FilePrefix   string `json:"file_prefix"   koanf:"file_prefix"   mapstructure:"file_prefix"   toml:"file_prefix"`
+	ANSI         bool   `json:"ansi"          koanf:"ansi"          mapstructure:"ansi"          toml:"ansi"`
 }
 
 type RaftReadPolicy string
@@ -70,19 +71,19 @@ const (
 )
 
 type RaftConfig struct {
-	Enabled              bool             `toml:"enabled" json:"enabled" mapstructure:"enabled" koanf:"enabled"`
-	BindAddr             string           `toml:"bind_addr" json:"bind_addr" mapstructure:"bind_addr" koanf:"bind_addr"`
-	ReadPolicy           RaftReadPolicy   `toml:"read_policy" json:"read_policy" mapstructure:"read_policy" koanf:"read_policy"`
-	HeartbeatIntervalMS  uint64           `toml:"heartbeat_interval_ms" json:"heartbeat_interval_ms" mapstructure:"heartbeat_interval_ms" koanf:"heartbeat_interval_ms"`
-	ElectionTimeoutMinMS uint64           `toml:"election_timeout_min_ms" json:"election_timeout_min_ms" mapstructure:"election_timeout_min_ms" koanf:"election_timeout_min_ms"`
-	ElectionTimeoutMaxMS uint64           `toml:"election_timeout_max_ms" json:"election_timeout_max_ms" mapstructure:"election_timeout_max_ms" koanf:"election_timeout_max_ms"`
-	ApplyTimeoutMS       uint64           `toml:"apply_timeout_ms" json:"apply_timeout_ms" mapstructure:"apply_timeout_ms" koanf:"apply_timeout_ms"`
-	Cluster              []RaftPeerConfig `toml:"cluster" json:"cluster" mapstructure:"cluster" koanf:"cluster"`
+	Enabled              bool             `json:"enabled"                 koanf:"enabled"                 mapstructure:"enabled"                 toml:"enabled"`
+	BindAddr             string           `json:"bind_addr"               koanf:"bind_addr"               mapstructure:"bind_addr"               toml:"bind_addr"`
+	ReadPolicy           RaftReadPolicy   `json:"read_policy"             koanf:"read_policy"             mapstructure:"read_policy"             toml:"read_policy"`
+	HeartbeatIntervalMS  uint64           `json:"heartbeat_interval_ms"   koanf:"heartbeat_interval_ms"   mapstructure:"heartbeat_interval_ms"   toml:"heartbeat_interval_ms"`
+	ElectionTimeoutMinMS uint64           `json:"election_timeout_min_ms" koanf:"election_timeout_min_ms" mapstructure:"election_timeout_min_ms" toml:"election_timeout_min_ms"`
+	ElectionTimeoutMaxMS uint64           `json:"election_timeout_max_ms" koanf:"election_timeout_max_ms" mapstructure:"election_timeout_max_ms" toml:"election_timeout_max_ms"`
+	ApplyTimeoutMS       uint64           `json:"apply_timeout_ms"        koanf:"apply_timeout_ms"        mapstructure:"apply_timeout_ms"        toml:"apply_timeout_ms"`
+	Cluster              []RaftPeerConfig `json:"cluster"                 koanf:"cluster"                 mapstructure:"cluster"                 toml:"cluster"`
 }
 
 type RaftPeerConfig struct {
-	NodeID uint64 `toml:"node_id" json:"node_id" mapstructure:"node_id" koanf:"node_id"`
-	Addr   string `toml:"addr" json:"addr" mapstructure:"addr" koanf:"addr"`
+	NodeID uint64 `json:"node_id" koanf:"node_id" mapstructure:"node_id" toml:"node_id"`
+	Addr   string `json:"addr"    koanf:"addr"    mapstructure:"addr"    toml:"addr"`
 }
 
 func DefaultConfig() Config {
@@ -164,7 +165,7 @@ func loadConfig(paths []string, flags *pflag.FlagSet) (Config, error) {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return Config{}, err
+			return Config{}, wrapBroker("config_stat_failed", err, "stat config file %s", path)
 		}
 		files = append(files, path)
 	}
@@ -184,89 +185,117 @@ func loadConfig(paths []string, flags *pflag.FlagSet) (Config, error) {
 }
 
 func normalizeConfig(cfg *Config) {
-	if cfg.Broker.NodeID == 0 {
-		cfg.Broker.NodeID = 1
+	normalizeBrokerIdentity(&cfg.Broker)
+	normalizeBrokerLimits(&cfg.Broker)
+	normalizeBrokerWorkers(&cfg.Broker)
+	normalizeAdminConfig(&cfg.Admin)
+	normalizeStorageConfig(&cfg.Storage)
+	normalizeLoggingConfig(&cfg.Logging)
+	normalizeRaftConfig(&cfg.Raft, cfg.Broker)
+}
+
+func normalizeBrokerIdentity(cfg *BrokerConfig) {
+	if cfg.NodeID == 0 {
+		cfg.NodeID = 1
 	}
-	if cfg.Broker.ClusterName == "" {
-		cfg.Broker.ClusterName = "ech0-dev"
+	if cfg.ClusterName == "" {
+		cfg.ClusterName = "ech0-dev"
 	}
-	if cfg.Broker.DataDir == "" {
-		cfg.Broker.DataDir = "./data"
+	if cfg.DataDir == "" {
+		cfg.DataDir = "./data"
 	}
-	if cfg.Broker.BindAddr == "" {
-		cfg.Broker.BindAddr = "127.0.0.1:9090"
+	if cfg.BindAddr == "" {
+		cfg.BindAddr = "127.0.0.1:9090"
 	}
-	if cfg.Broker.MaxFrameBodyBytes == 0 {
-		cfg.Broker.MaxFrameBodyBytes = 4 * 1024 * 1024
+}
+
+func normalizeBrokerLimits(cfg *BrokerConfig) {
+	if cfg.MaxFrameBodyBytes == 0 {
+		cfg.MaxFrameBodyBytes = 4 * 1024 * 1024
 	}
-	if cfg.Broker.MaxPayloadBytes == 0 {
-		cfg.Broker.MaxPayloadBytes = 1024 * 1024
+	if cfg.MaxPayloadBytes == 0 {
+		cfg.MaxPayloadBytes = 1024 * 1024
 	}
-	if cfg.Broker.MaxBatchPayloadBytes == 0 {
-		cfg.Broker.MaxBatchPayloadBytes = 8 * 1024 * 1024
+	if cfg.MaxBatchPayloadBytes == 0 {
+		cfg.MaxBatchPayloadBytes = 8 * 1024 * 1024
 	}
-	if cfg.Broker.MaxFetchRecords == 0 {
-		cfg.Broker.MaxFetchRecords = 1000
+	if cfg.MaxFetchRecords == 0 {
+		cfg.MaxFetchRecords = 1000
 	}
-	if cfg.Broker.MaxFetchWaitMS == 0 {
-		cfg.Broker.MaxFetchWaitMS = 5000
+	if cfg.MaxFetchWaitMS == 0 {
+		cfg.MaxFetchWaitMS = 5000
 	}
-	if cfg.Broker.RetryWorkerIntervalSecs == 0 {
-		cfg.Broker.RetryWorkerIntervalSecs = 5
+}
+
+func normalizeBrokerWorkers(cfg *BrokerConfig) {
+	if cfg.RetryWorkerIntervalSecs == 0 {
+		cfg.RetryWorkerIntervalSecs = 5
 	}
-	if cfg.Broker.RetryWorkerMaxRecords == 0 {
-		cfg.Broker.RetryWorkerMaxRecords = 256
+	if cfg.RetryWorkerMaxRecords == 0 {
+		cfg.RetryWorkerMaxRecords = 256
 	}
-	if cfg.Broker.RetryWorkerConsumerPrefix == "" {
-		cfg.Broker.RetryWorkerConsumerPrefix = "__retry_worker"
+	if cfg.RetryWorkerConsumerPrefix == "" {
+		cfg.RetryWorkerConsumerPrefix = "__retry_worker"
 	}
-	if cfg.Broker.DelaySchedulerIntervalSecs == 0 {
-		cfg.Broker.DelaySchedulerIntervalSecs = 1
+	if cfg.DelaySchedulerIntervalSecs == 0 {
+		cfg.DelaySchedulerIntervalSecs = 1
 	}
-	if cfg.Broker.DelaySchedulerMaxRecords == 0 {
-		cfg.Broker.DelaySchedulerMaxRecords = 256
+	if cfg.DelaySchedulerMaxRecords == 0 {
+		cfg.DelaySchedulerMaxRecords = 256
 	}
-	if cfg.Broker.DelaySchedulerConsumerPrefix == "" {
-		cfg.Broker.DelaySchedulerConsumerPrefix = "__delay_scheduler"
+	if cfg.DelaySchedulerConsumerPrefix == "" {
+		cfg.DelaySchedulerConsumerPrefix = "__delay_scheduler"
 	}
-	if cfg.Admin.BindAddr == "" {
-		cfg.Admin.BindAddr = "127.0.0.1:9091"
+}
+
+func normalizeAdminConfig(cfg *AdminConfig) {
+	if cfg.BindAddr == "" {
+		cfg.BindAddr = "127.0.0.1:9091"
 	}
-	if cfg.Storage.SegmentsDir == "" {
-		cfg.Storage.SegmentsDir = "segments"
+}
+
+func normalizeStorageConfig(cfg *StorageConfig) {
+	if cfg.SegmentsDir == "" {
+		cfg.SegmentsDir = "segments"
 	}
-	if cfg.Storage.MetadataPath == "" {
-		cfg.Storage.MetadataPath = "meta/metadata.bbolt"
+	if cfg.MetadataPath == "" {
+		cfg.MetadataPath = "meta/metadata.bbolt"
 	}
-	if cfg.Logging.Level == "" {
-		cfg.Logging.Level = "info"
+}
+
+func normalizeLoggingConfig(cfg *LoggingConfig) {
+	if cfg.Level == "" {
+		cfg.Level = "info"
 	}
-	if cfg.Logging.Directory == "" {
-		cfg.Logging.Directory = "logs"
+	if cfg.Directory == "" {
+		cfg.Directory = "logs"
 	}
-	if cfg.Logging.FilePrefix == "" {
-		cfg.Logging.FilePrefix = "ech0"
+	if cfg.FilePrefix == "" {
+		cfg.FilePrefix = "ech0"
 	}
-	if cfg.Raft.BindAddr == "" {
-		cfg.Raft.BindAddr = "127.0.0.1:3210"
+}
+
+func normalizeRaftConfig(cfg *RaftConfig, broker BrokerConfig) {
+	if cfg.BindAddr == "" {
+		cfg.BindAddr = "127.0.0.1:3210"
 	}
-	if cfg.Raft.ReadPolicy == "" {
-		cfg.Raft.ReadPolicy = RaftReadLocal
+	if cfg.ReadPolicy == "" {
+		cfg.ReadPolicy = RaftReadLocal
 	}
-	if cfg.Raft.HeartbeatIntervalMS == 0 {
-		cfg.Raft.HeartbeatIntervalMS = 150
+	if cfg.HeartbeatIntervalMS == 0 {
+		cfg.HeartbeatIntervalMS = 150
 	}
-	if cfg.Raft.ElectionTimeoutMinMS == 0 {
-		cfg.Raft.ElectionTimeoutMinMS = 300
+	if cfg.ElectionTimeoutMinMS == 0 {
+		cfg.ElectionTimeoutMinMS = 300
 	}
-	if cfg.Raft.ElectionTimeoutMaxMS == 0 {
-		cfg.Raft.ElectionTimeoutMaxMS = 600
+	if cfg.ElectionTimeoutMaxMS == 0 {
+		cfg.ElectionTimeoutMaxMS = 600
 	}
-	if cfg.Raft.ApplyTimeoutMS == 0 {
-		cfg.Raft.ApplyTimeoutMS = 5000
+	if cfg.ApplyTimeoutMS == 0 {
+		cfg.ApplyTimeoutMS = 5000
 	}
-	if len(cfg.Raft.Cluster) == 0 {
-		cfg.Raft.Cluster = []RaftPeerConfig{{NodeID: cfg.Broker.NodeID, Addr: cfg.Raft.BindAddr}}
+	if len(cfg.Cluster) == 0 {
+		cfg.Cluster = []RaftPeerConfig{{NodeID: broker.NodeID, Addr: cfg.BindAddr}}
 	}
 }
 

@@ -1,6 +1,13 @@
+// Package protocol defines the ech0 wire protocol messages.
+//
+//nolint:revive // Protocol constants and DTOs are grouped to keep wire compatibility auditable.
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/samber/oops"
+)
 
 const Version1 uint8 = 1
 
@@ -449,11 +456,18 @@ type ErrorResponse struct {
 }
 
 func EncodeJSON[T any](value T) ([]byte, error) {
-	return json.Marshal(value)
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, oops.In("protocol").Code("json_encode_failed").Wrapf(err, "encode json")
+	}
+	return data, nil
 }
 
 func DecodeJSON[T any](data []byte) (T, error) {
 	var value T
 	err := json.Unmarshal(data, &value)
-	return value, err
+	if err != nil {
+		return value, oops.In("protocol").Code("json_decode_failed").Wrapf(err, "decode json")
+	}
+	return value, nil
 }

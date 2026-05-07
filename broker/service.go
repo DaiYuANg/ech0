@@ -1,17 +1,21 @@
+//nolint:revive // Broker service methods and raft command registration share the same runtime boundary.
 package broker
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sort"
 	"sync"
 
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/protocol"
 	"github.com/DaiYuANg/ech0/queue"
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	collectionset "github.com/arcgolabs/collectionx/set"
 	"github.com/arcgolabs/eventx"
 )
 
@@ -57,10 +61,10 @@ func New(cfg Config, opts ...Option) (*Broker, error) {
 func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadataStore, opts ...Option) (*Broker, error) {
 	normalizeConfig(&cfg)
 	if logStore == nil {
-		return nil, store.E(store.CodeInvalidArgument, "log store is required")
+		return nil, brokerStoreError(store.CodeInvalidArgument, "log store is required")
 	}
 	if metaStore == nil {
-		return nil, store.E(store.CodeInvalidArgument, "metadata store is required")
+		return nil, brokerStoreError(store.CodeInvalidArgument, "metadata store is required")
 	}
 	b := &Broker{
 		cfg:    cfg,
@@ -113,7 +117,7 @@ func (b *Broker) Start(ctx context.Context) error {
 		NodeID: fmt.Sprintf("node-%d", b.cfg.Broker.NodeID),
 		Epoch:  1,
 	}); err != nil {
-		return err
+		return wrapBrokerStore(err, "save broker state")
 	}
 	if b.cfg.Raft.Enabled {
 		node, err := startRaft(ctx, b)
@@ -139,7 +143,7 @@ func (b *Broker) Stop(ctx context.Context) error {
 		}
 	}
 	if b.events != nil {
-		return b.events.Close()
+		return wrapBroker("event_bus_close_failed", b.events.Close(), "close event bus")
 	}
 	return nil
 }
@@ -204,14 +208,18 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning Pu
 	return proposeOrApply(ctx, b, raftCommandProduceBatch, req, b.applyProduceBatch)
 }
 
-func (b *Broker) Fetch(consumer string, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
+func (b *Broker) Fetch(consumer, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
 	if maxRecords <= 0 || maxRecords > b.cfg.Broker.MaxFetchRecords {
 		maxRecords = b.cfg.Broker.MaxFetchRecords
 	}
-	return b.queue.Fetch(consumer, topic, partition, offset, maxRecords)
+	poll, err := b.queue.Fetch(consumer, topic, partition, offset, maxRecords)
+	if err != nil {
+		return store.PollResult{}, wrapBroker("queue_fetch_failed", err, "fetch records")
+	}
+	return poll, nil
 }
 
-func (b *Broker) CommitOffset(ctx context.Context, consumer string, topic string, partition uint32, nextOffset uint64) error {
+func (b *Broker) CommitOffset(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64) error {
 	req := commitOffsetCommand{Consumer: consumer, Topic: topic, Partition: partition, NextOffset: nextOffset}
 	_, err := proposeOrApply(ctx, b, raftCommandCommitOffset, req, b.applyCommitOffset)
 	return err
@@ -220,10 +228,11 @@ func (b *Broker) CommitOffset(ctx context.Context, consumer string, topic string
 func (b *Broker) ListTopics() ([]store.TopicConfig, error) {
 	topics, err := b.queue.ListTopics()
 	if err != nil {
-		return nil, err
+		return nil, wrapBroker("list_topics_failed", err, "list topics")
 	}
 	out := make([]store.TopicConfig, 0, len(topics))
-	for _, topic := range topics {
+	for i := range topics {
+		topic := topics[i]
 		if !isInternalTopicName(topic.Name) {
 			out = append(out, topic)
 		}
@@ -231,7 +240,7 @@ func (b *Broker) ListTopics() ([]store.TopicConfig, error) {
 	return out, nil
 }
 
-func (b *Broker) SendDirect(ctx context.Context, sender string, recipient string, conversationID *string, payload []byte) (direct.SendResult, error) {
+func (b *Broker) SendDirect(ctx context.Context, sender, recipient string, conversationID *string, payload []byte) (direct.SendResult, error) {
 	req := directCommand{Sender: sender, Recipient: recipient, ConversationID: conversationID, Payload: append([]byte(nil), payload...)}
 	return proposeOrApply(ctx, b, raftCommandDirectSend, req, b.applyDirectSend)
 }
@@ -240,7 +249,11 @@ func (b *Broker) FetchInbox(recipient string, maxRecords int) (direct.FetchInbox
 	if maxRecords <= 0 || maxRecords > b.cfg.Broker.MaxFetchRecords {
 		maxRecords = b.cfg.Broker.MaxFetchRecords
 	}
-	return b.direct.FetchInbox(recipient, maxRecords)
+	inbox, err := b.direct.FetchInbox(recipient, maxRecords)
+	if err != nil {
+		return direct.FetchInboxResult{}, wrapBroker("fetch_inbox_failed", err, "fetch inbox")
+	}
+	return inbox, nil
 }
 
 func (b *Broker) AckDirect(ctx context.Context, recipient string, nextOffset uint64) error {
@@ -249,12 +262,12 @@ func (b *Broker) AckDirect(ctx context.Context, recipient string, nextOffset uin
 	return err
 }
 
-func (b *Broker) JoinConsumerGroup(ctx context.Context, group string, memberID string, topics []string, sessionTimeoutMS uint64) (store.ConsumerGroupMember, error) {
+func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, topics []string, sessionTimeoutMS uint64) (store.ConsumerGroupMember, error) {
 	req := joinGroupCommand{Group: group, MemberID: memberID, Topics: append([]string(nil), topics...), SessionTimeoutMS: sessionTimeoutMS}
 	return proposeOrApply(ctx, b, raftCommandJoinGroup, req, b.applyJoinGroup)
 }
 
-func (b *Broker) HeartbeatConsumerGroup(ctx context.Context, group string, memberID string, sessionTimeoutMS *uint64) (store.ConsumerGroupMember, error) {
+func (b *Broker) HeartbeatConsumerGroup(ctx context.Context, group, memberID string, sessionTimeoutMS *uint64) (store.ConsumerGroupMember, error) {
 	req := heartbeatGroupCommand{Group: group, MemberID: memberID, SessionTimeoutMS: sessionTimeoutMS}
 	return proposeOrApply(ctx, b, raftCommandHeartbeatGroup, req, b.applyHeartbeatGroup)
 }
@@ -265,16 +278,20 @@ func (b *Broker) RebalanceConsumerGroup(ctx context.Context, group string) (stor
 }
 
 func (b *Broker) GetConsumerGroupAssignment(group string) (*store.ConsumerGroupAssignment, error) {
-	return b.meta.LoadGroupAssignment(group)
+	assignment, err := b.meta.LoadGroupAssignment(group)
+	if err != nil {
+		return nil, wrapBrokerStore(err, "load group assignment")
+	}
+	return assignment, nil
 }
 
-func (b *Broker) FetchConsumerGroup(group string, memberID string, generation uint64, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
+func (b *Broker) FetchConsumerGroup(group, memberID string, generation uint64, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
 	_ = memberID
 	_ = generation
 	return b.Fetch(groupConsumer(group), topic, partition, offset, maxRecords)
 }
 
-func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group string, memberID string, generation uint64, topic string, partition uint32, nextOffset uint64) error {
+func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, nextOffset uint64) error {
 	_ = memberID
 	_ = generation
 	return b.CommitOffset(ctx, groupConsumer(group), topic, partition, nextOffset)
@@ -283,22 +300,22 @@ func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group string, me
 func (b *Broker) applyCreateTopic(ctx context.Context, topic store.TopicConfig) (store.TopicConfig, error) {
 	normalizeTopicPolicies(&topic)
 	if isInternalTopicName(topic.Name) {
-		return store.TopicConfig{}, store.E(store.CodeInvalidArgument, "topic name %s is reserved for internal broker use", topic.Name)
+		return store.TopicConfig{}, brokerStoreError(store.CodeInvalidArgument, "topic name %s is reserved for internal broker use", topic.Name)
 	}
 	if err := b.queue.CreateTopic(topic); err != nil {
-		return store.TopicConfig{}, err
+		return store.TopicConfig{}, wrapBroker("create_topic_failed", err, "create topic")
 	}
-	_ = b.events.Publish(ctx, TopicCreatedEvent{Topic: topic.Name, Partitions: topic.Partitions})
+	b.publishEvent(ctx, TopicCreatedEvent{Topic: topic.Name, Partitions: topic.Partitions})
 	return topic, nil
 }
 
 func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceResult, error) {
 	topic, err := b.meta.LoadTopicConfig(req.Topic)
 	if err != nil {
-		return ProduceResult{}, err
+		return ProduceResult{}, wrapBrokerStore(err, "load topic config")
 	}
 	if topic == nil {
-		return ProduceResult{}, store.E(store.CodeTopicNotFound, "topic %s not found", req.Topic)
+		return ProduceResult{}, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", req.Topic)
 	}
 	partition, err := b.router.selectPartition(*topic, req.Partitioning, req.Key)
 	if err != nil {
@@ -311,9 +328,9 @@ func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceR
 	}
 	record, err := b.queue.PublishRecord(req.Topic, partition, appendRecord)
 	if err != nil {
-		return ProduceResult{}, err
+		return ProduceResult{}, wrapBroker("publish_record_failed", err, "publish record")
 	}
-	_ = b.events.Publish(ctx, RecordProducedEvent{
+	b.publishEvent(ctx, RecordProducedEvent{
 		Topic:      req.Topic,
 		Partition:  partition,
 		Offset:     record.Offset,
@@ -325,17 +342,17 @@ func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceR
 func (b *Broker) applyProduceBatch(ctx context.Context, req produceBatchCommand) (ProduceBatchResult, error) {
 	topic, err := b.meta.LoadTopicConfig(req.Topic)
 	if err != nil {
-		return ProduceBatchResult{}, err
+		return ProduceBatchResult{}, wrapBrokerStore(err, "load topic config")
 	}
 	if topic == nil {
-		return ProduceBatchResult{}, store.E(store.CodeTopicNotFound, "topic %s not found", req.Topic)
+		return ProduceBatchResult{}, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", req.Topic)
 	}
 	totalBytes := 0
 	for _, record := range req.Records {
 		totalBytes += len(record.Payload)
 	}
 	if totalBytes > b.cfg.Broker.MaxBatchPayloadBytes {
-		return ProduceBatchResult{}, store.E(store.CodeInvalidArgument, "batch payload size %d exceeds limit %d", totalBytes, b.cfg.Broker.MaxBatchPayloadBytes)
+		return ProduceBatchResult{}, brokerStoreError(store.CodeInvalidArgument, "batch payload size %d exceeds limit %d", totalBytes, b.cfg.Broker.MaxBatchPayloadBytes)
 	}
 	partition, err := b.router.selectPartition(*topic, req.Partitioning, firstRecordKey(req.Records))
 	if err != nil {
@@ -343,37 +360,37 @@ func (b *Broker) applyProduceBatch(ctx context.Context, req produceBatchCommand)
 	}
 	records, err := b.queue.PublishBatchRecords(req.Topic, partition, req.Records)
 	if err != nil {
-		return ProduceBatchResult{}, err
+		return ProduceBatchResult{}, wrapBroker("publish_batch_failed", err, "publish record batch")
 	}
 	for _, record := range records {
-		_ = b.events.Publish(ctx, RecordProducedEvent{Topic: req.Topic, Partition: partition, Offset: record.Offset, NextOffset: record.Offset + 1})
+		b.publishEvent(ctx, RecordProducedEvent{Topic: req.Topic, Partition: partition, Offset: record.Offset, NextOffset: record.Offset + 1})
 	}
 	return ProduceBatchResult{Partition: partition, Records: records}, nil
 }
 
 func (b *Broker) applyCommitOffset(ctx context.Context, req commitOffsetCommand) (struct{}, error) {
 	_ = ctx
-	return struct{}{}, b.queue.Ack(req.Consumer, req.Topic, req.Partition, req.NextOffset)
+	return struct{}{}, wrapBroker("commit_offset_failed", b.queue.Ack(req.Consumer, req.Topic, req.Partition, req.NextOffset), "commit offset")
 }
 
 func (b *Broker) applyDirectSend(ctx context.Context, req directCommand) (direct.SendResult, error) {
 	result, err := b.direct.Send(req.Sender, req.Recipient, req.ConversationID, req.Payload)
 	if err != nil {
-		return direct.SendResult{}, err
+		return direct.SendResult{}, wrapBroker("direct_send_failed", err, "send direct message")
 	}
-	_ = b.events.Publish(ctx, DirectMessageSentEvent{Sender: req.Sender, Recipient: req.Recipient, Offset: result.Offset})
+	b.publishEvent(ctx, DirectMessageSentEvent{Sender: req.Sender, Recipient: req.Recipient, Offset: result.Offset})
 	return result, nil
 }
 
 func (b *Broker) applyDirectAck(ctx context.Context, req ackDirectCommand) (struct{}, error) {
 	_ = ctx
-	return struct{}{}, b.direct.AckInbox(req.Recipient, req.NextOffset)
+	return struct{}{}, wrapBroker("direct_ack_failed", b.direct.AckInbox(req.Recipient, req.NextOffset), "ack direct inbox")
 }
 
 func (b *Broker) applyJoinGroup(ctx context.Context, req joinGroupCommand) (store.ConsumerGroupMember, error) {
 	_ = ctx
 	if req.Group == "" || req.MemberID == "" {
-		return store.ConsumerGroupMember{}, store.E(store.CodeInvalidArgument, "group and member_id are required")
+		return store.ConsumerGroupMember{}, brokerStoreError(store.CodeInvalidArgument, "group and member_id are required")
 	}
 	now := store.NowMS()
 	sessionTimeout := req.SessionTimeoutMS
@@ -389,7 +406,7 @@ func (b *Broker) applyJoinGroup(ctx context.Context, req joinGroupCommand) (stor
 		LastHeartbeatMS:  now,
 	}
 	if err := b.meta.SaveGroupMember(member); err != nil {
-		return store.ConsumerGroupMember{}, err
+		return store.ConsumerGroupMember{}, wrapBrokerStore(err, "save group member")
 	}
 	return member, nil
 }
@@ -398,17 +415,17 @@ func (b *Broker) applyHeartbeatGroup(ctx context.Context, req heartbeatGroupComm
 	_ = ctx
 	member, err := b.meta.LoadGroupMember(req.Group, req.MemberID)
 	if err != nil {
-		return store.ConsumerGroupMember{}, err
+		return store.ConsumerGroupMember{}, wrapBrokerStore(err, "load group member")
 	}
 	if member == nil {
-		return store.ConsumerGroupMember{}, store.E(store.CodeInvalidArgument, "group member %s/%s not found", req.Group, req.MemberID)
+		return store.ConsumerGroupMember{}, brokerStoreError(store.CodeInvalidArgument, "group member %s/%s not found", req.Group, req.MemberID)
 	}
 	if req.SessionTimeoutMS != nil && *req.SessionTimeoutMS > 0 {
 		member.SessionTimeoutMS = *req.SessionTimeoutMS
 	}
 	member.LastHeartbeatMS = store.NowMS()
 	if err := b.meta.SaveGroupMember(*member); err != nil {
-		return store.ConsumerGroupMember{}, err
+		return store.ConsumerGroupMember{}, wrapBrokerStore(err, "save group member heartbeat")
 	}
 	return *member, nil
 }
@@ -416,19 +433,25 @@ func (b *Broker) applyHeartbeatGroup(ctx context.Context, req heartbeatGroupComm
 func (b *Broker) applyRebalanceGroup(ctx context.Context, req rebalanceGroupCommand) (store.ConsumerGroupAssignment, error) {
 	_ = ctx
 	now := store.NowMS()
-	_, _ = b.meta.DeleteExpiredGroupMembers(now)
+	if _, err := b.meta.DeleteExpiredGroupMembers(now); err != nil {
+		return store.ConsumerGroupAssignment{}, wrapBrokerStore(err, "delete expired group members")
+	}
 	members, err := b.meta.ListGroupMembers(req.Group)
 	if err != nil {
-		return store.ConsumerGroupAssignment{}, err
+		return store.ConsumerGroupAssignment{}, wrapBrokerStore(err, "list group members")
 	}
-	active := make([]store.ConsumerGroupMember, 0, len(members))
-	for _, member := range members {
-		if !member.ExpiredAt(now) {
-			active = append(active, member)
-		}
+	active := collectionlist.FilterList(
+		collectionlist.NewList(members...),
+		func(_ int, member store.ConsumerGroupMember) bool {
+			return !member.ExpiredAt(now)
+		},
+	).Sort(func(left, right store.ConsumerGroupMember) int {
+		return cmp.Compare(left.MemberID, right.MemberID)
+	}).Values()
+	previous, err := b.meta.LoadGroupAssignment(req.Group)
+	if err != nil {
+		return store.ConsumerGroupAssignment{}, wrapBrokerStore(err, "load group assignment")
 	}
-	sort.Slice(active, func(i, j int) bool { return active[i].MemberID < active[j].MemberID })
-	previous, _ := b.meta.LoadGroupAssignment(req.Group)
 	generation := uint64(1)
 	if previous != nil {
 		generation = previous.Generation + 1
@@ -455,153 +478,131 @@ func (b *Broker) applyRebalanceGroup(ctx context.Context, req rebalanceGroupComm
 		UpdatedAtMS: now,
 	}
 	if err := b.meta.SaveGroupAssignment(assignment); err != nil {
-		return store.ConsumerGroupAssignment{}, err
+		return store.ConsumerGroupAssignment{}, wrapBrokerStore(err, "save group assignment")
 	}
 	return assignment, nil
 }
 
 func (b *Broker) groupPartitions(members []store.ConsumerGroupMember) ([]store.TopicPartition, error) {
-	wanted := map[string]struct{}{}
+	wanted := collectionset.NewSet[string]()
 	for _, member := range members {
-		for _, topic := range member.Topics {
-			wanted[topic] = struct{}{}
-		}
+		wanted.Add(member.Topics...)
 	}
 	topics, err := b.meta.ListTopics()
 	if err != nil {
-		return nil, err
+		return nil, wrapBrokerStore(err, "list topics for group partitions")
 	}
 	out := make([]store.TopicPartition, 0)
-	for _, topic := range topics {
-		if _, ok := wanted[topic.Name]; !ok {
+	for i := range topics {
+		topic := topics[i]
+		if !wanted.Contains(topic.Name) {
 			continue
 		}
-		for partition := uint32(0); partition < topic.Partitions; partition++ {
+		for partition := range topic.Partitions {
 			out = append(out, store.NewTopicPartition(topic.Name, partition))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Topic == out[j].Topic {
-			return out[i].Partition < out[j].Partition
-		}
-		return out[i].Topic < out[j].Topic
-	})
-	return out, nil
+	return collectionlist.NewList(out...).
+		Sort(func(left, right store.TopicPartition) int {
+			if left.Topic == right.Topic {
+				return cmp.Compare(left.Partition, right.Partition)
+			}
+			return cmp.Compare(left.Topic, right.Topic)
+		}).
+		Values(), nil
 }
 
 func (b *Broker) applyRaftCommand(data []byte) (any, error) {
 	var cmd raftCommand
 	if err := json.Unmarshal(data, &cmd); err != nil {
-		return nil, err
+		return nil, wrapBroker("raft_command_decode_failed", err, "decode raft command")
 	}
 	ctx := context.Background()
-	switch cmd.Type {
-	case raftCommandCreateTopic:
-		var req store.TopicConfig
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyCreateTopic(ctx, req)
-	case raftCommandProduce:
-		var req produceCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyProduce(ctx, req)
-	case raftCommandProduceBatch:
-		var req produceBatchCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyProduceBatch(ctx, req)
-	case raftCommandCommitOffset:
-		var req commitOffsetCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyCommitOffset(ctx, req)
-	case raftCommandDirectSend:
-		var req directCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyDirectSend(ctx, req)
-	case raftCommandDirectAck:
-		var req ackDirectCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyDirectAck(ctx, req)
-	case raftCommandJoinGroup:
-		var req joinGroupCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyJoinGroup(ctx, req)
-	case raftCommandHeartbeatGroup:
-		var req heartbeatGroupCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyHeartbeatGroup(ctx, req)
-	case raftCommandRebalanceGroup:
-		var req rebalanceGroupCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyRebalanceGroup(ctx, req)
-	case raftCommandNack:
-		var req nackCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyNack(ctx, req)
-	case raftCommandProcessRetry:
-		var req processRetryCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyProcessRetryBatch(ctx, req)
-	case raftCommandScheduleDelay:
-		var req scheduleDelayCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyScheduleDelay(ctx, req)
-	case raftCommandProcessDelay:
-		var req processDelayCommand
-		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
-			return nil, err
-		}
-		return b.applyProcessDelayPartition(ctx, req)
-	default:
-		return nil, store.E(store.CodeCodec, "unknown raft command %s", cmd.Type)
+	handler, ok := b.raftCommandHandlers().Get(cmd.Type)
+	if !ok {
+		return nil, brokerStoreError(store.CodeCodec, "unknown raft command %s", cmd.Type)
 	}
+	return handler(ctx, cmd.Payload)
+}
+
+type raftCommandHandler func(context.Context, json.RawMessage) (any, error)
+
+func (b *Broker) raftCommandHandlers() *collectionmapping.Map[string, raftCommandHandler] {
+	handlers := collectionmapping.NewMap[string, raftCommandHandler]()
+	handlers.Set(raftCommandCreateTopic, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyCreateTopic, "decode create topic command")
+	})
+	handlers.Set(raftCommandProduce, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyProduce, "decode produce command")
+	})
+	handlers.Set(raftCommandProduceBatch, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyProduceBatch, "decode produce batch command")
+	})
+	handlers.Set(raftCommandCommitOffset, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyCommitOffset, "decode commit offset command")
+	})
+	handlers.Set(raftCommandDirectSend, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyDirectSend, "decode direct send command")
+	})
+	handlers.Set(raftCommandDirectAck, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyDirectAck, "decode direct ack command")
+	})
+	handlers.Set(raftCommandJoinGroup, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyJoinGroup, "decode join group command")
+	})
+	handlers.Set(raftCommandHeartbeatGroup, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyHeartbeatGroup, "decode heartbeat group command")
+	})
+	handlers.Set(raftCommandRebalanceGroup, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyRebalanceGroup, "decode rebalance group command")
+	})
+	handlers.Set(raftCommandNack, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyNack, "decode nack command")
+	})
+	handlers.Set(raftCommandProcessRetry, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyProcessRetryBatch, "decode process retry command")
+	})
+	handlers.Set(raftCommandScheduleDelay, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyScheduleDelay, "decode schedule delay command")
+	})
+	handlers.Set(raftCommandProcessDelay, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		return decodeRaftCommand(ctx, payload, b.applyProcessDelayPartition, "decode process delay command")
+	})
+	return handlers
+}
+
+func decodeRaftCommand[R any, T any](ctx context.Context, payload json.RawMessage, apply func(context.Context, R) (T, error), label string) (any, error) {
+	var req R
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, wrapBroker("raft_payload_decode_failed", err, "%s", label)
+	}
+	return apply(ctx, req)
 }
 
 func proposeOrApply[T any, R any](ctx context.Context, b *Broker, commandType string, req R, apply func(context.Context, R) (T, error)) (T, error) {
 	b.raftMu.RLock()
 	node := b.raft
 	b.raftMu.RUnlock()
-	if b.cfg.Raft.Enabled && node != nil {
-		var zero T
-		value, err := node.Apply(ctx, commandType, req)
-		if err != nil {
-			return zero, err
-		}
-		typed, ok := value.(T)
-		if !ok {
-			marshaled, err := json.Marshal(value)
-			if err != nil {
-				return zero, err
-			}
-			if err := json.Unmarshal(marshaled, &typed); err != nil {
-				return zero, err
-			}
-		}
+	if !b.cfg.Raft.Enabled || node == nil {
+		return apply(ctx, req)
+	}
+	var zero T
+	value, err := node.Apply(ctx, commandType, req)
+	if err != nil {
+		return zero, err
+	}
+	typed, ok := value.(T)
+	if ok {
 		return typed, nil
 	}
-	return apply(ctx, req)
+	marshaled, err := json.Marshal(value)
+	if err != nil {
+		return zero, wrapBroker("raft_result_encode_failed", err, "encode raft result")
+	}
+	if err := json.Unmarshal(marshaled, &typed); err != nil {
+		return zero, wrapBroker("raft_result_decode_failed", err, "decode raft result")
+	}
+	return typed, nil
 }
 
 func normalizeTopicPolicies(topic *store.TopicConfig) {
@@ -679,6 +680,15 @@ func fetchRecordsFromStore(records []store.Record) []protocol.FetchRecord {
 		})
 	}
 	return out
+}
+
+func (b *Broker) publishEvent(ctx context.Context, event eventx.Event) {
+	if b.events == nil {
+		return
+	}
+	if err := b.events.Publish(ctx, event); err != nil && b.logger != nil {
+		b.logger.Warn("publish event failed", "event", event.Name(), "error", err)
+	}
 }
 
 type produceCommand struct {

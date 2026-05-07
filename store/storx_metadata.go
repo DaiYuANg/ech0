@@ -1,11 +1,13 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"path/filepath"
-	"sort"
 
+	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/arcgolabs/storx/bboltx"
 	"github.com/arcgolabs/storx/codec"
 	"github.com/arcgolabs/storx/keycodec"
@@ -34,11 +36,11 @@ func OpenStorxMetadataStore(path string) (*StorxMetadataStore, error) {
 		return nil, E(CodeInvalidArgument, "metadata path is required")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return nil, err
+		return nil, wrapExternal(err, "create metadata directory")
 	}
 	db, err := bboltx.Open(path, 0o600, nil)
 	if err != nil {
-		return nil, err
+		return nil, wrapExternal(err, "open metadata store")
 	}
 	keyCodec := keycodec.String()
 	return &StorxMetadataStore{
@@ -55,7 +57,7 @@ func (s *StorxMetadataStore) Close() error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	return s.db.Close()
+	return wrapExternal(s.db.Close(), "close metadata store")
 }
 
 func (s *StorxMetadataStore) SaveTopicConfig(topic TopicConfig) error {
@@ -63,13 +65,17 @@ func (s *StorxMetadataStore) SaveTopicConfig(topic TopicConfig) error {
 		return E(CodeInvalidArgument, "topic name is required")
 	}
 	normalizeTopic(&topic)
-	return s.topics.Put(context.Background(), topic.Name, cloneTopic(topic))
+	return wrapExternal(s.topics.Put(context.Background(), topic.Name, cloneTopic(topic)), "save topic metadata")
 }
 
 func (s *StorxMetadataStore) LoadTopicConfig(topic string) (*TopicConfig, error) {
 	cfg, ok, err := s.topics.Get(context.Background(), topic)
-	if err != nil || !ok {
-		return nil, err
+	if err != nil {
+		return nil, wrapExternal(err, "load topic metadata")
+	}
+	if !ok {
+		var absent *TopicConfig
+		return absent, nil
 	}
 	cfg = cloneTopic(cfg)
 	return &cfg, nil
@@ -81,14 +87,21 @@ func (s *StorxMetadataStore) ListTopics() ([]TopicConfig, error) {
 		out = append(out, cloneTopic(entry.Value))
 		return nil
 	})
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, err
+	return collectionlist.NewList(out...).
+		Sort(func(left, right TopicConfig) int {
+			return cmp.Compare(left.Name, right.Name)
+		}).
+		Values(), err
 }
 
 func (s *StorxMetadataStore) LoadConsumerOffset(consumer string, topicPartition TopicPartition) (*uint64, error) {
 	value, ok, err := s.offsets.Get(context.Background(), offsetKey(consumer, topicPartition))
-	if err != nil || !ok {
-		return nil, err
+	if err != nil {
+		return nil, wrapExternal(err, "load consumer offset")
+	}
+	if !ok {
+		var absent *uint64
+		return absent, nil
 	}
 	return &value, nil
 }
@@ -97,24 +110,27 @@ func (s *StorxMetadataStore) SaveConsumerOffset(consumer string, topicPartition 
 	if consumer == "" {
 		return E(CodeInvalidArgument, "consumer is required")
 	}
-	return s.offsets.Put(context.Background(), offsetKey(consumer, topicPartition), nextOffset)
+	return wrapExternal(s.offsets.Put(context.Background(), offsetKey(consumer, topicPartition), nextOffset), "save consumer offset")
 }
 
 func (s *StorxMetadataStore) SaveGroupMember(member ConsumerGroupMember) error {
 	if member.Group == "" || member.MemberID == "" {
 		return E(CodeInvalidArgument, "group and member_id are required")
 	}
-	member.Topics = append([]string(nil), member.Topics...)
-	sort.Strings(member.Topics)
-	return s.members.Put(context.Background(), groupMemberKey(member.Group, member.MemberID), member)
+	member.Topics = sortedStrings(member.Topics)
+	return wrapExternal(s.members.Put(context.Background(), groupMemberKey(member.Group, member.MemberID), member), "save group member")
 }
 
-func (s *StorxMetadataStore) LoadGroupMember(group string, memberID string) (*ConsumerGroupMember, error) {
+func (s *StorxMetadataStore) LoadGroupMember(group, memberID string) (*ConsumerGroupMember, error) {
 	member, ok, err := s.members.Get(context.Background(), groupMemberKey(group, memberID))
-	if err != nil || !ok {
-		return nil, err
+	if err != nil {
+		return nil, wrapExternal(err, "load group member")
 	}
-	member.Topics = append([]string(nil), member.Topics...)
+	if !ok {
+		var absent *ConsumerGroupMember
+		return absent, nil
+	}
+	member.Topics = sortedStrings(member.Topics)
 	return &member, nil
 }
 
@@ -123,17 +139,20 @@ func (s *StorxMetadataStore) ListGroupMembers(group string) ([]ConsumerGroupMemb
 	err := s.members.Walk(context.Background(), func(entry bboltx.Entry[string, ConsumerGroupMember]) error {
 		if entry.Value.Group == group {
 			member := entry.Value
-			member.Topics = append([]string(nil), member.Topics...)
+			member.Topics = sortedStrings(member.Topics)
 			out = append(out, member)
 		}
 		return nil
 	})
-	sort.Slice(out, func(i, j int) bool { return out[i].MemberID < out[j].MemberID })
-	return out, err
+	return collectionlist.NewList(out...).
+		Sort(func(left, right ConsumerGroupMember) int {
+			return cmp.Compare(left.MemberID, right.MemberID)
+		}).
+		Values(), err
 }
 
-func (s *StorxMetadataStore) DeleteGroupMember(group string, memberID string) error {
-	return s.members.Delete(context.Background(), groupMemberKey(group, memberID))
+func (s *StorxMetadataStore) DeleteGroupMember(group, memberID string) error {
+	return wrapExternal(s.members.Delete(context.Background(), groupMemberKey(group, memberID)), "delete group member")
 }
 
 func (s *StorxMetadataStore) DeleteExpiredGroupMembers(nowMS uint64) (int, error) {
@@ -158,13 +177,17 @@ func (s *StorxMetadataStore) SaveGroupAssignment(assignment ConsumerGroupAssignm
 		return E(CodeInvalidArgument, "group is required")
 	}
 	assignment.Assignments = append([]GroupPartitionAssignment(nil), assignment.Assignments...)
-	return s.assignments.Put(context.Background(), assignment.Group, assignment)
+	return wrapExternal(s.assignments.Put(context.Background(), assignment.Group, assignment), "save group assignment")
 }
 
 func (s *StorxMetadataStore) LoadGroupAssignment(group string) (*ConsumerGroupAssignment, error) {
 	assignment, ok, err := s.assignments.Get(context.Background(), group)
-	if err != nil || !ok {
-		return nil, err
+	if err != nil {
+		return nil, wrapExternal(err, "load group assignment")
+	}
+	if !ok {
+		var absent *ConsumerGroupAssignment
+		return absent, nil
 	}
 	assignment.Assignments = append([]GroupPartitionAssignment(nil), assignment.Assignments...)
 	return &assignment, nil
@@ -178,18 +201,25 @@ func (s *StorxMetadataStore) ListGroupAssignments() ([]ConsumerGroupAssignment, 
 		out = append(out, assignment)
 		return nil
 	})
-	sort.Slice(out, func(i, j int) bool { return out[i].Group < out[j].Group })
-	return out, err
+	return collectionlist.NewList(out...).
+		Sort(func(left, right ConsumerGroupAssignment) int {
+			return cmp.Compare(left.Group, right.Group)
+		}).
+		Values(), err
 }
 
 func (s *StorxMetadataStore) SaveBrokerState(state BrokerState) error {
-	return s.brokerState.Put(context.Background(), brokerStateKey, state)
+	return wrapExternal(s.brokerState.Put(context.Background(), brokerStateKey, state), "save broker state")
 }
 
 func (s *StorxMetadataStore) LoadBrokerState() (*BrokerState, error) {
 	state, ok, err := s.brokerState.Get(context.Background(), brokerStateKey)
-	if err != nil || !ok {
-		return nil, err
+	if err != nil {
+		return nil, wrapExternal(err, "load broker state")
+	}
+	if !ok {
+		var absent *BrokerState
+		return absent, nil
 	}
 	return &state, nil
 }
@@ -211,76 +241,39 @@ func (s *StorxMetadataStore) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	offsets := make(map[string]uint64)
+	offsets := collectionmapping.NewMap[string, uint64]()
 	err = s.offsets.Walk(context.Background(), func(entry bboltx.Entry[string, uint64]) error {
-		offsets[entry.Key] = entry.Value
+		offsets.Set(entry.Key, entry.Value)
 		return nil
 	})
 	if err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, wrapExternal(err, "walk consumer offsets")
 	}
 	return Snapshot{
 		Topics:      topics,
-		Offsets:     offsets,
+		Offsets:     *offsets,
 		Members:     members,
 		Assignments: assignments,
 		BrokerState: state,
 	}, nil
 }
 
-func (s *StorxMetadataStore) Restore(snapshot Snapshot) error {
-	for _, bucket := range []interface{ Clear(context.Context) error }{
-		bucketClearer[string, TopicConfig]{s.topics},
-		bucketClearer[string, uint64]{s.offsets},
-		bucketClearer[string, ConsumerGroupMember]{s.members},
-		bucketClearer[string, ConsumerGroupAssignment]{s.assignments},
-		bucketClearer[string, BrokerState]{s.brokerState},
-	} {
-		if err := bucket.Clear(context.Background()); err != nil {
-			return err
-		}
-	}
-	for _, topic := range snapshot.Topics {
-		if err := s.SaveTopicConfig(topic); err != nil {
-			return err
-		}
-	}
-	for key, offset := range snapshot.Offsets {
-		if err := s.offsets.Put(context.Background(), key, offset); err != nil {
-			return err
-		}
-	}
-	for _, member := range snapshot.Members {
-		if err := s.SaveGroupMember(member); err != nil {
-			return err
-		}
-	}
-	for _, assignment := range snapshot.Assignments {
-		if err := s.SaveGroupAssignment(assignment); err != nil {
-			return err
-		}
-	}
-	if snapshot.BrokerState != nil {
-		return s.SaveBrokerState(*snapshot.BrokerState)
-	}
-	return nil
-}
-
 func (s *StorxMetadataStore) listAllMembers() ([]ConsumerGroupMember, error) {
 	out := make([]ConsumerGroupMember, 0)
 	err := s.members.Walk(context.Background(), func(entry bboltx.Entry[string, ConsumerGroupMember]) error {
 		member := entry.Value
-		member.Topics = append([]string(nil), member.Topics...)
+		member.Topics = sortedStrings(member.Topics)
 		out = append(out, member)
 		return nil
 	})
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Group == out[j].Group {
-			return out[i].MemberID < out[j].MemberID
-		}
-		return out[i].Group < out[j].Group
-	})
-	return out, err
+	return collectionlist.NewList(out...).
+		Sort(func(left, right ConsumerGroupMember) int {
+			if left.Group == right.Group {
+				return cmp.Compare(left.MemberID, right.MemberID)
+			}
+			return cmp.Compare(left.Group, right.Group)
+		}).
+		Values(), err
 }
 
 type bucketClearer[K any, V any] struct {
@@ -288,16 +281,16 @@ type bucketClearer[K any, V any] struct {
 }
 
 func (c bucketClearer[K, V]) Clear(ctx context.Context) error {
-	keys := make([]K, 0)
+	keys := collectionlist.NewList[K]()
 	if err := c.bucket.Walk(ctx, func(entry bboltx.Entry[K, V]) error {
-		keys = append(keys, entry.Key)
+		keys.Add(entry.Key)
 		return nil
 	}); err != nil {
-		return err
+		return wrapExternal(err, "walk bucket keys")
 	}
-	for _, key := range keys {
+	for _, key := range keys.Values() {
 		if err := c.bucket.Delete(ctx, key); err != nil {
-			return err
+			return wrapExternal(err, "delete bucket key")
 		}
 	}
 	return nil

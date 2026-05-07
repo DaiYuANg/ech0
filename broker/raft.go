@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -39,49 +40,49 @@ type raftNode struct {
 	store     *raftboltdb.BoltStore
 }
 
+//nolint:cyclop,gocyclo,gocognit,funlen // Raft startup is linear resource setup with paired cleanup paths.
 func startRaft(ctx context.Context, b *Broker) (*raftNode, error) {
 	_ = ctx
 	snapshotter, ok := b.meta.(store.Snapshotter)
 	if !ok {
-		return nil, store.E(store.CodeInvalidArgument, "raft mode requires metadata store to implement store.Snapshotter")
+		return nil, brokerStoreError(store.CodeInvalidArgument, "raft mode requires metadata store to implement store.Snapshotter")
 	}
 	if _, ok := b.log.(store.Snapshotter); !ok {
-		return nil, store.E(store.CodeInvalidArgument, "raft mode requires log store to implement store.Snapshotter")
+		return nil, brokerStoreError(store.CodeInvalidArgument, "raft mode requires log store to implement store.Snapshotter")
 	}
 	_ = snapshotter
 
 	raftDir := b.cfg.RaftDir()
 	if err := os.MkdirAll(raftDir, 0o750); err != nil {
-		return nil, err
+		return nil, wrapBroker("raft_directory_create_failed", err, "create raft directory")
 	}
 
 	conf := hashiraft.DefaultConfig()
 	conf.LocalID = hashiraft.ServerID(strconv.FormatUint(b.cfg.Broker.NodeID, 10))
-	conf.HeartbeatTimeout = time.Duration(b.cfg.Raft.HeartbeatIntervalMS) * time.Millisecond
-	conf.ElectionTimeout = time.Duration(b.cfg.Raft.ElectionTimeoutMaxMS) * time.Millisecond
+	conf.HeartbeatTimeout = durationFromMillis(b.cfg.Raft.HeartbeatIntervalMS)
+	conf.ElectionTimeout = durationFromMillis(b.cfg.Raft.ElectionTimeoutMaxMS)
 	conf.LeaderLeaseTimeout = conf.HeartbeatTimeout
 	conf.CommitTimeout = 50 * time.Millisecond
 
 	transport, err := hashiraft.NewTCPTransport(b.cfg.Raft.BindAddr, nil, 3, 10*time.Second, io.Discard)
 	if err != nil {
-		return nil, err
+		return nil, wrapBroker("raft_transport_create_failed", err, "create raft transport")
 	}
 	snapshots, err := hashiraft.NewFileSnapshotStore(filepath.Join(raftDir, "snapshots"), 2, io.Discard)
 	if err != nil {
-		_ = transport.Close()
+		err = errors.Join(err, transport.Close())
 		return nil, err
 	}
 	bolt, err := raftboltdb.NewBoltStore(filepath.Join(raftDir, "raft.db"))
 	if err != nil {
-		_ = transport.Close()
+		err = errors.Join(err, transport.Close())
 		return nil, err
 	}
 
 	fsm := &brokerFSM{broker: b}
 	hasState, err := hashiraft.HasExistingState(bolt, bolt, snapshots)
 	if err != nil {
-		_ = bolt.Close()
-		_ = transport.Close()
+		err = errors.Join(err, bolt.Close(), transport.Close())
 		return nil, err
 	}
 	if !hasState {
@@ -92,44 +93,43 @@ func startRaft(ctx context.Context, b *Broker) (*raftNode, error) {
 				Address: hashiraft.ServerAddress(peer.Addr),
 			})
 		}
-		if err := hashiraft.BootstrapCluster(conf, bolt, bolt, snapshots, transport, configuration); err != nil {
-			_ = bolt.Close()
-			_ = transport.Close()
-			return nil, err
+		if bootstrapErr := hashiraft.BootstrapCluster(conf, bolt, bolt, snapshots, transport, configuration); bootstrapErr != nil {
+			bootstrapErr = errors.Join(bootstrapErr, bolt.Close(), transport.Close())
+			return nil, bootstrapErr
 		}
 	}
 
 	r, err := hashiraft.NewRaft(conf, fsm, bolt, bolt, snapshots, transport)
 	if err != nil {
-		_ = bolt.Close()
-		_ = transport.Close()
+		err = errors.Join(err, bolt.Close(), transport.Close())
 		return nil, err
 	}
 	return &raftNode{cfg: b.cfg, broker: b, raft: r, transport: transport, store: bolt}, nil
 }
 
+//nolint:cyclop,gocyclo,gocognit // Raft apply centralizes validation, encoding, and leadership error mapping.
 func (n *raftNode) Apply(ctx context.Context, commandType string, payload any) (any, error) {
 	if n == nil || n.raft == nil {
-		return nil, store.E(store.CodeUnavailable, "raft runtime is not started")
+		return nil, brokerStoreError(store.CodeUnavailable, "raft runtime is not started")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, wrapBroker("raft_apply_context_done", err, "apply raft command")
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, wrapBroker("raft_payload_encode_failed", err, "encode raft payload")
 	}
 	encoded, err := json.Marshal(raftCommand{Type: commandType, Payload: raw})
 	if err != nil {
-		return nil, err
+		return nil, wrapBroker("raft_command_encode_failed", err, "encode raft command")
 	}
-	timeout := time.Duration(n.cfg.Raft.ApplyTimeoutMS) * time.Millisecond
+	timeout := durationFromMillis(n.cfg.Raft.ApplyTimeoutMS)
 	future := n.raft.Apply(encoded, timeout)
 	if err := future.Error(); err != nil {
-		if err == hashiraft.ErrNotLeader || err == hashiraft.ErrLeadershipLost {
-			return nil, store.E(store.CodeNotLeader, "node is not raft leader")
+		if errors.Is(err, hashiraft.ErrNotLeader) || errors.Is(err, hashiraft.ErrLeadershipLost) {
+			return nil, brokerStoreError(store.CodeNotLeader, "node is not raft leader")
 		}
-		return nil, err
+		return nil, wrapBroker("raft_apply_failed", err, "apply raft command")
 	}
 	response := future.Response()
 	if err, ok := response.(error); ok {
@@ -149,7 +149,10 @@ func (n *raftNode) Health() *RaftHealth {
 		return &RaftHealth{NodeID: n.cfg.Broker.NodeID, KnownNodes: len(n.cfg.Raft.Cluster)}
 	}
 	_, leaderID := n.raft.LeaderWithID()
-	parsedLeader, _ := strconv.ParseUint(string(leaderID), 10, 64)
+	parsedLeader, err := strconv.ParseUint(string(leaderID), 10, 64)
+	if err != nil {
+		parsedLeader = 0
+	}
 	return &RaftHealth{
 		NodeID:        n.cfg.Broker.NodeID,
 		KnownNodes:    len(n.cfg.Raft.Cluster),
@@ -190,7 +193,7 @@ type brokerFSM struct {
 	broker *Broker
 }
 
-func (f *brokerFSM) Apply(log *hashiraft.Log) interface{} {
+func (f *brokerFSM) Apply(log *hashiraft.Log) any {
 	value, err := f.broker.applyRaftCommand(log.Data)
 	return applyResult{Value: value, Err: err}
 }
@@ -203,11 +206,13 @@ func (f *brokerFSM) Snapshot() (hashiraft.FSMSnapshot, error) {
 	return &brokerSnapshot{snapshot: snapshot}, nil
 }
 
-func (f *brokerFSM) Restore(reader io.ReadCloser) error {
-	defer reader.Close()
+func (f *brokerFSM) Restore(reader io.ReadCloser) (err error) {
+	defer func() {
+		err = errors.Join(err, reader.Close())
+	}()
 	var snapshot store.Snapshot
 	if err := json.NewDecoder(reader).Decode(&snapshot); err != nil {
-		return err
+		return wrapBroker("raft_snapshot_decode_failed", err, "decode raft snapshot")
 	}
 	return f.broker.restore(snapshot)
 }
@@ -219,10 +224,10 @@ type brokerSnapshot struct {
 func (s *brokerSnapshot) Persist(sink hashiraft.SnapshotSink) error {
 	err := json.NewEncoder(sink).Encode(s.snapshot)
 	if err != nil {
-		_ = sink.Cancel()
+		err = errors.Join(err, sink.Cancel())
 		return err
 	}
-	return sink.Close()
+	return wrapBroker("raft_snapshot_close_failed", sink.Close(), "close raft snapshot sink")
 }
 
 func (s *brokerSnapshot) Release() {}

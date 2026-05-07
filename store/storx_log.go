@@ -1,14 +1,16 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
+	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/arcgolabs/storx/bboltx"
 	"github.com/arcgolabs/storx/codec"
 	"github.com/arcgolabs/storx/keycodec"
@@ -33,11 +35,11 @@ func OpenStorxLogStore(path string) (*StorxLogStore, error) {
 		return nil, E(CodeInvalidArgument, "segment log path is required")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return nil, err
+		return nil, wrapExternal(err, "create segment log directory")
 	}
 	db, err := bboltx.Open(path, 0o600, nil)
 	if err != nil {
-		return nil, err
+		return nil, wrapExternal(err, "open segment log store")
 	}
 	keyCodec := keycodec.String()
 	return &StorxLogStore{
@@ -52,7 +54,7 @@ func (s *StorxLogStore) Close() error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	return s.db.Close()
+	return wrapExternal(s.db.Close(), "close segment log store")
 }
 
 func (s *StorxLogStore) CreateTopic(topic TopicConfig) error {
@@ -68,24 +70,28 @@ func (s *StorxLogStore) CreateTopic(topic TopicConfig) error {
 	defer s.mu.Unlock()
 	exists, err := s.topics.Exists(context.Background(), topic.Name)
 	if err != nil {
-		return err
+		return wrapExternal(err, "check log topic")
 	}
 	if exists {
 		return E(CodeTopicExists, "topic %s already exists", topic.Name)
 	}
 	if err := s.topics.Put(context.Background(), topic.Name, cloneTopic(topic)); err != nil {
-		return err
+		return wrapExternal(err, "save log topic")
 	}
-	for partition := uint32(0); partition < topic.Partitions; partition++ {
+	for partition := range topic.Partitions {
 		if err := s.nextOffsets.Put(context.Background(), nextOffsetKey(NewTopicPartition(topic.Name, partition)), 0); err != nil {
-			return err
+			return wrapExternal(err, "initialize log partition offset")
 		}
 	}
 	return nil
 }
 
 func (s *StorxLogStore) TopicExists(topic string) (bool, error) {
-	return s.topics.Exists(context.Background(), topic)
+	exists, err := s.topics.Exists(context.Background(), topic)
+	if err != nil {
+		return false, wrapExternal(err, "check log topic")
+	}
+	return exists, nil
 }
 
 func (s *StorxLogStore) Append(topicPartition TopicPartition, payload []byte) (Record, error) {
@@ -100,13 +106,13 @@ func (s *StorxLogStore) AppendRecord(topicPartition TopicPartition, appendRecord
 	if err != nil {
 		return Record{}, err
 	}
-	if uint32(len(appendRecord.Payload)) > topic.MaxMessageBytes {
+	if len(appendRecord.Payload) > int(topic.MaxMessageBytes) {
 		return Record{}, E(CodeInvalidArgument, "payload size %d exceeds max_message_bytes %d", len(appendRecord.Payload), topic.MaxMessageBytes)
 	}
 	offsetKey := nextOffsetKey(topicPartition)
 	offset, ok, err := s.nextOffsets.Get(context.Background(), offsetKey)
 	if err != nil {
-		return Record{}, err
+		return Record{}, wrapExternal(err, "load next log offset")
 	}
 	if !ok {
 		offset = 0
@@ -124,10 +130,10 @@ func (s *StorxLogStore) AppendRecord(topicPartition TopicPartition, appendRecord
 		Payload:     cloneBytes(appendRecord.Payload),
 	}
 	if err := s.records.Put(context.Background(), recordKey(topicPartition, offset), record); err != nil {
-		return Record{}, err
+		return Record{}, wrapExternal(err, "append log record")
 	}
 	if err := s.nextOffsets.Put(context.Background(), offsetKey, offset+1); err != nil {
-		return Record{}, err
+		return Record{}, wrapExternal(err, "advance next log offset")
 	}
 	return cloneRecord(record), nil
 }
@@ -158,7 +164,7 @@ func (s *StorxLogStore) ReadFrom(topicPartition TopicPartition, offset uint64, m
 		bboltx.WithLimit[string](maxRecords),
 	)
 	if err != nil {
-		return nil, err
+		return nil, wrapExternal(err, "list log records")
 	}
 	out := make([]Record, 0, len(entries))
 	for _, entry := range entries {
@@ -172,8 +178,12 @@ func (s *StorxLogStore) LastOffset(topicPartition TopicPartition) (*uint64, erro
 		return nil, err
 	}
 	next, ok, err := s.nextOffsets.Get(context.Background(), nextOffsetKey(topicPartition))
-	if err != nil || !ok || next == 0 {
-		return nil, err
+	if err != nil {
+		return nil, wrapExternal(err, "load next log offset")
+	}
+	if !ok || next == 0 {
+		var absent *uint64
+		return absent, nil
 	}
 	last := next - 1
 	return &last, nil
@@ -185,70 +195,42 @@ func (s *StorxLogStore) Snapshot() (Snapshot, error) {
 		topics = append(topics, cloneTopic(entry.Value))
 		return nil
 	}); err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, wrapExternal(err, "walk log topics")
 	}
-	sort.Slice(topics, func(i, j int) bool { return topics[i].Name < topics[j].Name })
+	topics = collectionlist.NewList(topics...).
+		Sort(func(left, right TopicConfig) int {
+			return cmp.Compare(left.Name, right.Name)
+		}).
+		Values()
 
-	records := make(map[string][]Record)
+	records := collectionmapping.NewMap[string, []Record]()
 	if err := s.records.Walk(context.Background(), func(entry bboltx.Entry[string, Record]) error {
 		tp, err := parseRecordKey(entry.Key)
 		if err != nil {
 			return err
 		}
 		key := partitionKey(tp)
-		records[key] = append(records[key], cloneRecord(entry.Value))
+		topicRecords := records.GetOrDefault(key, nil)
+		records.Set(key, append(topicRecords, cloneRecord(entry.Value)))
 		return nil
 	}); err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, wrapExternal(err, "walk log records")
 	}
-	for key := range records {
-		sort.Slice(records[key], func(i, j int) bool { return records[key][i].Offset < records[key][j].Offset })
-	}
-	return Snapshot{Topics: topics, Records: records}, nil
-}
-
-func (s *StorxLogStore) Restore(snapshot Snapshot) error {
-	for _, bucket := range []interface{ Clear(context.Context) error }{
-		bucketClearer[string, TopicConfig]{s.topics},
-		bucketClearer[string, Record]{s.records},
-		bucketClearer[string, uint64]{s.nextOffsets},
-	} {
-		if err := bucket.Clear(context.Background()); err != nil {
-			return err
-		}
-	}
-	for _, topic := range snapshot.Topics {
-		if err := s.CreateTopic(topic); err != nil {
-			return err
-		}
-	}
-	nextOffsets := make(map[TopicPartition]uint64)
-	for key, topicRecords := range snapshot.Records {
-		tp, err := parsePartitionKey(key)
-		if err != nil {
-			return err
-		}
-		for _, record := range topicRecords {
-			if err := s.records.Put(context.Background(), recordKey(tp, record.Offset), cloneRecord(record)); err != nil {
-				return err
-			}
-			if record.Offset+1 > nextOffsets[tp] {
-				nextOffsets[tp] = record.Offset + 1
-			}
-		}
-	}
-	for tp, next := range nextOffsets {
-		if err := s.nextOffsets.Put(context.Background(), nextOffsetKey(tp), next); err != nil {
-			return err
-		}
-	}
-	return nil
+	records.Range(func(key string, topicRecords []Record) bool {
+		records.Set(key, collectionlist.NewList(topicRecords...).
+			Sort(func(left, right Record) int {
+				return cmp.Compare(left.Offset, right.Offset)
+			}).
+			Values())
+		return true
+	})
+	return Snapshot{Topics: topics, Records: *records}, nil
 }
 
 func (s *StorxLogStore) loadTopicForPartition(topicPartition TopicPartition) (TopicConfig, error) {
 	topic, ok, err := s.topics.Get(context.Background(), topicPartition.Topic)
 	if err != nil {
-		return TopicConfig{}, err
+		return TopicConfig{}, wrapExternal(err, "load log topic")
 	}
 	if !ok {
 		return TopicConfig{}, E(CodeTopicNotFound, "topic %s not found", topicPartition.Topic)

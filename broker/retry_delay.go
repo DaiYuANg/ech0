@@ -1,3 +1,4 @@
+//nolint:revive // Retry and delay internals are grouped by shared headers and topic conventions.
 package broker
 
 import (
@@ -8,6 +9,7 @@ import (
 
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/store"
+	collectionset "github.com/arcgolabs/collectionx/set"
 )
 
 const (
@@ -64,16 +66,17 @@ type DelayScheduleResult struct {
 	DeliverAtMS uint64
 }
 
-func (b *Broker) Nack(ctx context.Context, consumer string, topic string, partition uint32, offset uint64, lastError *string) (RetryResult, error) {
+func (b *Broker) Nack(ctx context.Context, consumer, topic string, partition uint32, offset uint64, lastError *string) (RetryResult, error) {
 	req := nackCommand{Consumer: consumer, Topic: topic, Partition: partition, Offset: offset, LastError: lastError}
 	return proposeOrApply(ctx, b, raftCommandNack, req, b.applyNack)
 }
 
-func (b *Broker) ProcessRetryBatch(ctx context.Context, consumer string, sourceTopic string, partition uint32, maxRecords int) (ProcessRetryResult, error) {
+func (b *Broker) ProcessRetryBatch(ctx context.Context, consumer, sourceTopic string, partition uint32, maxRecords int) (ProcessRetryResult, error) {
 	req := processRetryCommand{Consumer: consumer, SourceTopic: sourceTopic, Partition: partition, MaxRecords: maxRecords, NowMS: store.NowMS()}
 	return proposeOrApply(ctx, b, raftCommandProcessRetry, req, b.applyProcessRetryBatch)
 }
 
+//nolint:gocognit // Retry worker iteration keeps topic and partition progress accounting together.
 func (b *Broker) ProcessRetryTopicsOnce(ctx context.Context, consumerPrefix string, maxRecordsPerPartition int) (int, error) {
 	if consumerPrefix == "" {
 		consumerPrefix = b.cfg.Broker.RetryWorkerConsumerPrefix
@@ -83,22 +86,23 @@ func (b *Broker) ProcessRetryTopicsOnce(ctx context.Context, consumerPrefix stri
 	}
 	topics, err := b.meta.ListTopics()
 	if err != nil {
-		return 0, err
+		return 0, wrapBrokerStore(err, "list topics for retry worker")
 	}
 	movedTotal := 0
-	for _, topic := range topics {
+	for i := range topics {
+		topic := topics[i]
 		if isInternalTopicName(topic.Name) {
 			continue
 		}
 		retryTopic := retryTopicName(topic.Name)
 		exists, err := b.log.TopicExists(retryTopic)
 		if err != nil {
-			return movedTotal, err
+			return movedTotal, wrapBrokerStore(err, "check retry topic")
 		}
 		if !exists {
 			continue
 		}
-		for partition := uint32(0); partition < topic.Partitions; partition++ {
+		for partition := range topic.Partitions {
 			consumer := fmt.Sprintf("%s:%s:%d", consumerPrefix, topic.Name, partition)
 			result, err := b.ProcessRetryBatch(ctx, consumer, topic.Name, partition, maxRecordsPerPartition)
 			if err != nil {
@@ -115,6 +119,7 @@ func (b *Broker) ScheduleDelay(ctx context.Context, topic string, partition uint
 	return proposeOrApply(ctx, b, raftCommandScheduleDelay, req, b.applyScheduleDelay)
 }
 
+//nolint:gocognit // Delay scheduler iteration keeps topic and partition progress accounting together.
 func (b *Broker) ProcessDueDelayedOnce(ctx context.Context, consumerPrefix string, maxRecordsPerPartition int) (int, error) {
 	if consumerPrefix == "" {
 		consumerPrefix = b.cfg.Broker.DelaySchedulerConsumerPrefix
@@ -124,16 +129,17 @@ func (b *Broker) ProcessDueDelayedOnce(ctx context.Context, consumerPrefix strin
 	}
 	topics, err := b.meta.ListTopics()
 	if err != nil {
-		return 0, err
+		return 0, wrapBrokerStore(err, "list topics for delay scheduler")
 	}
 	movedTotal := 0
 	nowMS := store.NowMS()
-	for _, topic := range topics {
+	for i := range topics {
+		topic := topics[i]
 		if !isDelayTopicName(topic.Name) {
 			continue
 		}
 		defaultTarget := strings.TrimPrefix(topic.Name, internalDelayTopicPrefix+".")
-		for partition := uint32(0); partition < topic.Partitions; partition++ {
+		for partition := range topic.Partitions {
 			consumer := fmt.Sprintf("%s:%s:%d", consumerPrefix, topic.Name, partition)
 			req := processDelayCommand{
 				Consumer:           consumer,
@@ -156,7 +162,7 @@ func (b *Broker) ProcessDueDelayedOnce(ctx context.Context, consumerPrefix strin
 func (b *Broker) applyNack(ctx context.Context, req nackCommand) (RetryResult, error) {
 	_ = ctx
 	if req.Consumer == "" {
-		return RetryResult{}, store.E(store.CodeInvalidArgument, "consumer is required")
+		return RetryResult{}, brokerStoreError(store.CodeInvalidArgument, "consumer is required")
 	}
 	sourceRecord, err := b.readRecordAtOffset(store.NewTopicPartition(req.Topic, req.Partition), req.Offset)
 	if err != nil {
@@ -171,8 +177,8 @@ func (b *Broker) applyNack(ctx context.Context, req nackCommand) (RetryResult, e
 		return RetryResult{}, err
 	}
 	retryTopic := retryTopicName(origin.Topic)
-	if err := b.ensureAuxTopic(*sourceTopic, retryTopic); err != nil {
-		return RetryResult{}, err
+	if ensureErr := b.ensureAuxTopic(*sourceTopic, retryTopic); ensureErr != nil {
+		return RetryResult{}, ensureErr
 	}
 
 	nextRetryCount := origin.RetryCount + 1
@@ -188,7 +194,7 @@ func (b *Broker) applyNack(ctx context.Context, req nackCommand) (RetryResult, e
 
 	appended, err := b.queue.PublishRecord(retryTopic, origin.Partition, retryRecord)
 	if err != nil {
-		return RetryResult{}, err
+		return RetryResult{}, wrapBroker("retry_record_publish_failed", err, "publish retry record")
 	}
 	return RetryResult{
 		RetryTopic:      retryTopic,
@@ -200,10 +206,11 @@ func (b *Broker) applyNack(ctx context.Context, req nackCommand) (RetryResult, e
 	}, nil
 }
 
+//nolint:cyclop,gocyclo,gocognit // Retry batch handling keeps delivery, DLQ routing, and offset advancement atomic.
 func (b *Broker) applyProcessRetryBatch(ctx context.Context, req processRetryCommand) (ProcessRetryResult, error) {
 	_ = ctx
 	if req.Consumer == "" {
-		return ProcessRetryResult{}, store.E(store.CodeInvalidArgument, "consumer is required")
+		return ProcessRetryResult{}, brokerStoreError(store.CodeInvalidArgument, "consumer is required")
 	}
 	if req.MaxRecords <= 0 {
 		req.MaxRecords = b.cfg.Broker.RetryWorkerMaxRecords
@@ -211,7 +218,7 @@ func (b *Broker) applyProcessRetryBatch(ctx context.Context, req processRetryCom
 	retryTopic := retryTopicName(req.SourceTopic)
 	fetched, err := b.queue.Fetch(req.Consumer, retryTopic, req.Partition, nil, req.MaxRecords)
 	if err != nil {
-		return ProcessRetryResult{}, err
+		return ProcessRetryResult{}, wrapBroker("retry_fetch_failed", err, "fetch retry records")
 	}
 	result := ProcessRetryResult{RetryTopic: retryTopic, Partition: req.Partition}
 	var lastProcessedOffset *uint64
@@ -235,22 +242,13 @@ func (b *Broker) applyProcessRetryBatch(ctx context.Context, req processRetryCom
 		if err != nil {
 			return ProcessRetryResult{}, err
 		}
-		if origin.RetryCount >= originTopic.RetryPolicy.MaxAttempts {
-			deadLetterTopic := dlqTopicName(origin.Topic)
-			if originTopic.DeadLetterTopic != nil && *originTopic.DeadLetterTopic != "" {
-				deadLetterTopic = *originTopic.DeadLetterTopic
-			}
-			if err := b.ensureAuxTopic(*originTopic, deadLetterTopic); err != nil {
-				return ProcessRetryResult{}, err
-			}
-			if _, err := b.queue.PublishRecord(deadLetterTopic, origin.Partition, buildDLQAppend(retryRecord, origin)); err != nil {
-				return ProcessRetryResult{}, err
-			}
+		deadLettered, err := b.moveRetryRecord(retryRecord, origin, *originTopic)
+		if err != nil {
+			return ProcessRetryResult{}, err
+		}
+		if deadLettered {
 			result.MovedToDeadLetter++
 		} else {
-			if _, err := b.queue.PublishRecord(origin.Topic, origin.Partition, cloneAsAppend(retryRecord)); err != nil {
-				return ProcessRetryResult{}, err
-			}
 			result.MovedToOrigin++
 		}
 		next := retryRecord.Offset + 1
@@ -258,11 +256,27 @@ func (b *Broker) applyProcessRetryBatch(ctx context.Context, req processRetryCom
 	}
 	if lastProcessedOffset != nil {
 		if err := b.queue.Ack(req.Consumer, retryTopic, req.Partition, *lastProcessedOffset); err != nil {
-			return ProcessRetryResult{}, err
+			return ProcessRetryResult{}, wrapBroker("retry_ack_failed", err, "ack retry records")
 		}
 		result.CommittedNextOffset = lastProcessedOffset
 	}
 	return result, nil
+}
+
+func (b *Broker) moveRetryRecord(retryRecord store.Record, origin retryOrigin, originTopic store.TopicConfig) (bool, error) {
+	if origin.RetryCount < originTopic.RetryPolicy.MaxAttempts {
+		_, err := b.queue.PublishRecord(origin.Topic, origin.Partition, cloneAsAppend(retryRecord))
+		return false, wrapBroker("retry_restore_failed", err, "publish retry record to origin topic")
+	}
+	deadLetterTopic := dlqTopicName(origin.Topic)
+	if originTopic.DeadLetterTopic != nil && *originTopic.DeadLetterTopic != "" {
+		deadLetterTopic = *originTopic.DeadLetterTopic
+	}
+	if err := b.ensureAuxTopic(originTopic, deadLetterTopic); err != nil {
+		return false, err
+	}
+	_, err := b.queue.PublishRecord(deadLetterTopic, origin.Partition, buildDLQAppend(retryRecord, origin))
+	return true, wrapBroker("retry_dead_letter_failed", err, "publish retry record to dead letter topic")
 }
 
 func (b *Broker) applyScheduleDelay(ctx context.Context, req scheduleDelayCommand) (DelayScheduleResult, error) {
@@ -272,11 +286,11 @@ func (b *Broker) applyScheduleDelay(ctx context.Context, req scheduleDelayComman
 		return DelayScheduleResult{}, err
 	}
 	if req.Partition >= target.Partitions {
-		return DelayScheduleResult{}, store.E(store.CodePartitionNotFound, "partition %s/%d not found", req.Topic, req.Partition)
+		return DelayScheduleResult{}, brokerStoreError(store.CodePartitionNotFound, "partition %s/%d not found", req.Topic, req.Partition)
 	}
 	delayTopic := delayTopicName(req.Topic)
-	if err := b.ensureAuxTopic(*target, delayTopic); err != nil {
-		return DelayScheduleResult{}, err
+	if ensureErr := b.ensureAuxTopic(*target, delayTopic); ensureErr != nil {
+		return DelayScheduleResult{}, ensureErr
 	}
 	appendRecord := store.NewRecordAppend(req.Payload)
 	appendRecord.Headers = []store.RecordHeader{
@@ -286,7 +300,7 @@ func (b *Broker) applyScheduleDelay(ctx context.Context, req scheduleDelayComman
 	}
 	appended, err := b.queue.PublishRecord(delayTopic, req.Partition, appendRecord)
 	if err != nil {
-		return DelayScheduleResult{}, err
+		return DelayScheduleResult{}, wrapBroker("delay_publish_failed", err, "publish delayed record")
 	}
 	return DelayScheduleResult{
 		DelayTopic:  delayTopic,
@@ -297,6 +311,7 @@ func (b *Broker) applyScheduleDelay(ctx context.Context, req scheduleDelayComman
 	}, nil
 }
 
+//nolint:cyclop,gocyclo,gocognit // Delay partition handling keeps due checks, forwarding, and offset advancement atomic.
 func (b *Broker) applyProcessDelayPartition(ctx context.Context, req processDelayCommand) (int, error) {
 	_ = ctx
 	if req.MaxRecords <= 0 {
@@ -305,13 +320,13 @@ func (b *Broker) applyProcessDelayPartition(ctx context.Context, req processDela
 	delayTP := store.NewTopicPartition(req.DelayTopic, req.Partition)
 	startOffset := uint64(0)
 	if committed, err := b.meta.LoadConsumerOffset(req.Consumer, delayTP); err != nil {
-		return 0, err
+		return 0, wrapBrokerStore(err, "load delay consumer offset")
 	} else if committed != nil {
 		startOffset = *committed
 	}
 	records, err := b.log.ReadFrom(delayTP, startOffset, req.MaxRecords)
 	if err != nil {
-		return 0, err
+		return 0, wrapBrokerStore(err, "read delayed records")
 	}
 	nowMS := req.NowMS
 	if nowMS == 0 {
@@ -325,7 +340,7 @@ func (b *Broker) applyProcessDelayPartition(ctx context.Context, req processDela
 			return moved, err
 		}
 		if deliverAt == nil {
-			return moved, store.E(store.CodeCodec, "delay record missing %s header", delayHeaderDeliverAtMS)
+			return moved, brokerStoreError(store.CodeCodec, "delay record missing %s header", delayHeaderDeliverAtMS)
 		}
 		if *deliverAt > nowMS {
 			break
@@ -343,7 +358,7 @@ func (b *Broker) applyProcessDelayPartition(ctx context.Context, req processDela
 		appendRecord := cloneAsAppend(record)
 		appendRecord.Headers = removeHeaders(appendRecord.Headers, delayHeaderDeliverAtMS, delayHeaderTargetTopic, delayHeaderTargetPartition)
 		if _, err := b.queue.PublishRecord(targetTopic, targetPartition, appendRecord); err != nil {
-			return moved, err
+			return moved, wrapBroker("delay_forward_failed", err, "forward delayed record")
 		}
 		moved++
 		next := record.Offset + 1
@@ -351,7 +366,7 @@ func (b *Broker) applyProcessDelayPartition(ctx context.Context, req processDela
 	}
 	if commitNext != nil {
 		if err := b.meta.SaveConsumerOffset(req.Consumer, delayTP, *commitNext); err != nil {
-			return moved, err
+			return moved, wrapBrokerStore(err, "save delay consumer offset")
 		}
 	}
 	return moved, nil
@@ -360,10 +375,10 @@ func (b *Broker) applyProcessDelayPartition(ctx context.Context, req processDela
 func (b *Broker) readRecordAtOffset(tp store.TopicPartition, offset uint64) (store.Record, error) {
 	records, err := b.log.ReadFrom(tp, offset, 1)
 	if err != nil {
-		return store.Record{}, err
+		return store.Record{}, wrapBrokerStore(err, "read record by offset")
 	}
 	if len(records) == 0 || records[0].Offset != offset {
-		return store.Record{}, store.E(store.CodeInvalidArgument, "record %s/%d@%d not found", tp.Topic, tp.Partition, offset)
+		return store.Record{}, brokerStoreError(store.CodeInvalidArgument, "record %s/%d@%d not found", tp.Topic, tp.Partition, offset)
 	}
 	return records[0], nil
 }
@@ -371,10 +386,10 @@ func (b *Broker) readRecordAtOffset(tp store.TopicPartition, offset uint64) (sto
 func (b *Broker) loadTopicConfig(topic string) (*store.TopicConfig, error) {
 	cfg, err := b.meta.LoadTopicConfig(topic)
 	if err != nil {
-		return nil, err
+		return nil, wrapBrokerStore(err, "load topic config")
 	}
 	if cfg == nil {
-		return nil, store.E(store.CodeTopicNotFound, "topic %s not found", topic)
+		return nil, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", topic)
 	}
 	return cfg, nil
 }
@@ -394,13 +409,13 @@ func (b *Broker) ensureAuxTopic(source store.TopicConfig, auxTopic string) error
 	cfg.CompactionEnabled = false
 	exists, err := b.log.TopicExists(auxTopic)
 	if err != nil {
-		return err
+		return wrapBrokerStore(err, "check auxiliary topic")
 	}
 	if exists {
-		return b.meta.SaveTopicConfig(cfg)
+		return wrapBrokerStore(b.meta.SaveTopicConfig(cfg), "save auxiliary topic config")
 	}
 	if err := b.queue.CreateTopic(cfg); err != nil && store.ErrorCode(err) != store.CodeTopicExists {
-		return err
+		return wrapBroker("auxiliary_topic_create_failed", err, "create auxiliary topic")
 	}
 	return nil
 }
@@ -433,7 +448,7 @@ func isDLQTopicName(topic string) bool {
 	return hasInternalPrefix(topic, internalDLQTopicPrefix)
 }
 
-func hasInternalPrefix(topic string, prefix string) bool {
+func hasInternalPrefix(topic, prefix string) bool {
 	return topic == prefix || strings.HasPrefix(topic, prefix+".") || strings.HasPrefix(topic, prefix+"/")
 }
 
@@ -482,7 +497,7 @@ func retryOriginFromRecord(record store.Record, topic string, partition uint32) 
 	return origin, nil
 }
 
-func header(key string, value string) store.RecordHeader {
+func header(key, value string) store.RecordHeader {
 	return store.RecordHeader{Key: key, Value: []byte(value)}
 }
 
@@ -498,11 +513,12 @@ func headerString(headers []store.RecordHeader, key string) string {
 func headerUint64(headers []store.RecordHeader, key string) (*uint64, error) {
 	raw := headerString(headers, key)
 	if raw == "" {
-		return nil, nil
+		var absent *uint64
+		return absent, nil
 	}
 	parsed, err := strconv.ParseUint(raw, 10, 64)
 	if err != nil {
-		return nil, store.E(store.CodeCodec, "invalid header %s: %v", key, err)
+		return nil, brokerStoreError(store.CodeCodec, "invalid header %s: %v", key, err)
 	}
 	return &parsed, nil
 }
@@ -510,17 +526,18 @@ func headerUint64(headers []store.RecordHeader, key string) (*uint64, error) {
 func headerUint32(headers []store.RecordHeader, key string) (*uint32, error) {
 	raw := headerString(headers, key)
 	if raw == "" {
-		return nil, nil
+		var absent *uint32
+		return absent, nil
 	}
 	parsed, err := strconv.ParseUint(raw, 10, 32)
 	if err != nil {
-		return nil, store.E(store.CodeCodec, "invalid header %s: %v", key, err)
+		return nil, brokerStoreError(store.CodeCodec, "invalid header %s: %v", key, err)
 	}
 	value := uint32(parsed)
 	return &value, nil
 }
 
-func upsertHeader(headers *[]store.RecordHeader, key string, value string) {
+func upsertHeader(headers *[]store.RecordHeader, key, value string) {
 	for i := range *headers {
 		if (*headers)[i].Key == key {
 			(*headers)[i].Value = []byte(value)
@@ -531,13 +548,10 @@ func upsertHeader(headers *[]store.RecordHeader, key string, value string) {
 }
 
 func removeHeaders(headers []store.RecordHeader, keys ...string) []store.RecordHeader {
-	remove := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		remove[key] = struct{}{}
-	}
+	remove := collectionset.NewSet(keys...)
 	out := headers[:0]
 	for _, header := range headers {
-		if _, ok := remove[header.Key]; !ok {
+		if !remove.Contains(header.Key) {
 			out = append(out, header)
 		}
 	}
@@ -589,7 +603,7 @@ func stringValue(value *string, fallback string) string {
 	return *value
 }
 
-func valueOr(value string, fallback string) string {
+func valueOr(value, fallback string) string {
 	if value == "" {
 		return fallback
 	}

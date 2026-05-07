@@ -1,3 +1,4 @@
+//nolint:testpackage // Same-package tests keep transport frame helpers local.
 package transport
 
 import (
@@ -11,8 +12,8 @@ func TestFrameRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := WriteFrame(&buf, frame); err != nil {
-		t.Fatal(err)
+	if writeErr := WriteFrame(&buf, frame); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	decoded, err := ReadFrame(&buf)
 	if err != nil {
@@ -29,10 +30,10 @@ func TestReadFrameWithLimitRejectsLargeBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := WriteFrame(&buf, frame); err != nil {
-		t.Fatal(err)
+	if writeErr := WriteFrame(&buf, frame); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if _, err := ReadFrameWithLimit(&buf, 4); err == nil {
+	if _, readErr := ReadFrameWithLimit(&buf, 4); readErr == nil {
 		t.Fatal("expected body limit error")
 	}
 }

@@ -22,9 +22,9 @@ const (
 )
 
 type TopicRetryPolicy struct {
-	MaxAttempts      uint32 `json:"max_attempts" toml:"max_attempts"`
+	MaxAttempts      uint32 `json:"max_attempts"       toml:"max_attempts"`
 	BackoffInitialMS uint64 `json:"backoff_initial_ms" toml:"backoff_initial_ms"`
-	BackoffMaxMS     uint64 `json:"backoff_max_ms" toml:"backoff_max_ms"`
+	BackoffMaxMS     uint64 `json:"backoff_max_ms"     toml:"backoff_max_ms"`
 }
 
 func DefaultTopicRetryPolicy() TopicRetryPolicy {
@@ -36,19 +36,19 @@ func DefaultTopicRetryPolicy() TopicRetryPolicy {
 }
 
 type TopicConfig struct {
-	Name                           string             `json:"name" toml:"name"`
-	Partitions                     uint32             `json:"partitions" toml:"partitions"`
-	SegmentMaxBytes                uint64             `json:"segment_max_bytes" toml:"segment_max_bytes"`
-	IndexIntervalBytes             uint64             `json:"index_interval_bytes" toml:"index_interval_bytes"`
-	RetentionMaxBytes              uint64             `json:"retention_max_bytes" toml:"retention_max_bytes"`
-	CleanupPolicy                  TopicCleanupPolicy `json:"cleanup_policy" toml:"cleanup_policy"`
-	MaxMessageBytes                uint32             `json:"max_message_bytes" toml:"max_message_bytes"`
-	MaxBatchBytes                  uint32             `json:"max_batch_bytes" toml:"max_batch_bytes"`
-	RetentionMS                    *uint64            `json:"retention_ms,omitempty" toml:"retention_ms"`
-	RetryPolicy                    TopicRetryPolicy   `json:"retry_policy" toml:"retry_policy"`
-	DeadLetterTopic                *string            `json:"dead_letter_topic,omitempty" toml:"dead_letter_topic"`
-	DelayEnabled                   bool               `json:"delay_enabled" toml:"delay_enabled"`
-	CompactionEnabled              bool               `json:"compaction_enabled" toml:"compaction_enabled"`
+	Name                           string             `json:"name"                                        toml:"name"`
+	Partitions                     uint32             `json:"partitions"                                  toml:"partitions"`
+	SegmentMaxBytes                uint64             `json:"segment_max_bytes"                           toml:"segment_max_bytes"`
+	IndexIntervalBytes             uint64             `json:"index_interval_bytes"                        toml:"index_interval_bytes"`
+	RetentionMaxBytes              uint64             `json:"retention_max_bytes"                         toml:"retention_max_bytes"`
+	CleanupPolicy                  TopicCleanupPolicy `json:"cleanup_policy"                              toml:"cleanup_policy"`
+	MaxMessageBytes                uint32             `json:"max_message_bytes"                           toml:"max_message_bytes"`
+	MaxBatchBytes                  uint32             `json:"max_batch_bytes"                             toml:"max_batch_bytes"`
+	RetentionMS                    *uint64            `json:"retention_ms,omitempty"                      toml:"retention_ms"`
+	RetryPolicy                    TopicRetryPolicy   `json:"retry_policy"                                toml:"retry_policy"`
+	DeadLetterTopic                *string            `json:"dead_letter_topic,omitempty"                 toml:"dead_letter_topic"`
+	DelayEnabled                   bool               `json:"delay_enabled"                               toml:"delay_enabled"`
+	CompactionEnabled              bool               `json:"compaction_enabled"                          toml:"compaction_enabled"`
 	CompactionTombstoneRetentionMS *uint64            `json:"compaction_tombstone_retention_ms,omitempty" toml:"compaction_tombstone_retention_ms"`
 }
 

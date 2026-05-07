@@ -1,23 +1,26 @@
 package broker
 
-import "github.com/DaiYuANg/ech0/store"
+import (
+	"github.com/DaiYuANg/ech0/store"
+	"github.com/samber/oops"
+)
 
 func (b *Broker) snapshot() (store.Snapshot, error) {
 	metaSnapshotter, ok := b.meta.(store.Snapshotter)
 	if !ok {
-		return store.Snapshot{}, store.E(store.CodeInvalidArgument, "metadata store does not support snapshots")
+		return store.Snapshot{}, oops.In("broker").Code("metadata_snapshot_unsupported").Wrapf(store.E(store.CodeInvalidArgument, "metadata store does not support snapshots"), "create snapshot")
 	}
 	logSnapshotter, ok := b.log.(store.Snapshotter)
 	if !ok {
-		return store.Snapshot{}, store.E(store.CodeInvalidArgument, "log store does not support snapshots")
+		return store.Snapshot{}, oops.In("broker").Code("log_snapshot_unsupported").Wrapf(store.E(store.CodeInvalidArgument, "log store does not support snapshots"), "create snapshot")
 	}
 	metaSnapshot, err := metaSnapshotter.Snapshot()
 	if err != nil {
-		return store.Snapshot{}, err
+		return store.Snapshot{}, oops.In("broker").Code("metadata_snapshot_failed").Wrapf(err, "snapshot metadata store")
 	}
 	logSnapshot, err := logSnapshotter.Snapshot()
 	if err != nil {
-		return store.Snapshot{}, err
+		return store.Snapshot{}, oops.In("broker").Code("log_snapshot_failed").Wrapf(err, "snapshot log store")
 	}
 	if len(metaSnapshot.Topics) == 0 {
 		metaSnapshot.Topics = logSnapshot.Topics
@@ -29,14 +32,14 @@ func (b *Broker) snapshot() (store.Snapshot, error) {
 func (b *Broker) restore(snapshot store.Snapshot) error {
 	logSnapshotter, ok := b.log.(store.Snapshotter)
 	if !ok {
-		return store.E(store.CodeInvalidArgument, "log store does not support snapshots")
+		return oops.In("broker").Code("log_restore_unsupported").Wrapf(store.E(store.CodeInvalidArgument, "log store does not support snapshots"), "restore snapshot")
 	}
 	if err := logSnapshotter.Restore(snapshot); err != nil {
-		return err
+		return oops.In("broker").Code("log_restore_failed").Wrapf(err, "restore log store")
 	}
 	metaSnapshotter, ok := b.meta.(store.Snapshotter)
 	if !ok {
-		return store.E(store.CodeInvalidArgument, "metadata store does not support snapshots")
+		return oops.In("broker").Code("metadata_restore_unsupported").Wrapf(store.E(store.CodeInvalidArgument, "metadata store does not support snapshots"), "restore snapshot")
 	}
-	return metaSnapshotter.Restore(snapshot)
+	return oops.In("broker").Code("metadata_restore_failed").Wrapf(metaSnapshotter.Restore(snapshot), "restore metadata store")
 }

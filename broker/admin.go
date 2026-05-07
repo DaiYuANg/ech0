@@ -1,3 +1,4 @@
+// Package broker contains the ech0 broker runtime.
 package broker
 
 import (
@@ -11,6 +12,7 @@ import (
 	"github.com/arcgolabs/httpx/adapter"
 	httpxfiber "github.com/arcgolabs/httpx/adapter/fiber"
 	"github.com/gofiber/fiber/v2"
+	"github.com/samber/oops"
 )
 
 type AdminServer struct {
@@ -44,10 +46,10 @@ func (s *AdminServer) Start(ctx context.Context) error {
 	}()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return wrapBroker("admin_start_canceled", ctx.Err(), "start admin server")
 	case err := <-errCh:
 		if err != nil && !strings.Contains(err.Error(), "server is not running") {
-			return err
+			return wrapBroker("admin_listen_failed", err, "listen admin server")
 		}
 		return nil
 	case <-time.After(50 * time.Millisecond):
@@ -59,7 +61,7 @@ func (s *AdminServer) Stop(ctx context.Context) error {
 	if s.app == nil {
 		return nil
 	}
-	return s.app.ShutdownWithContext(ctx)
+	return wrapBroker("admin_shutdown_failed", s.app.ShutdownWithContext(ctx), "shutdown admin server")
 }
 
 func (s *AdminServer) registerRoutes() {
@@ -85,7 +87,7 @@ func (s *AdminServer) registerRoutes() {
 		_ = ctx
 		topics, err := s.broker.ListTopics()
 		if err != nil {
-			return nil, err
+			return nil, wrapBroker("list_topics_failed", err, "list topics")
 		}
 		out := &topicsOutput{}
 		out.Body.Topics = topics
@@ -93,7 +95,10 @@ func (s *AdminServer) registerRoutes() {
 	})
 	httpx.MustGet(server, "/metrics", func(ctx context.Context, _ *struct{}) (*metricsOutput, error) {
 		_ = ctx
-		topics, _ := s.broker.ListTopics()
+		topics, err := s.broker.ListTopics()
+		if err != nil {
+			return nil, oops.In("admin").Code("list_topics_failed").Wrapf(err, "build metrics")
+		}
 		out := &metricsOutput{}
 		out.Body.TopicCount = len(topics)
 		out.Body.Runtime = s.broker.RuntimeHealth().RuntimeMode
@@ -104,7 +109,10 @@ func (s *AdminServer) registerRoutes() {
 		return c.JSON(s.broker.RuntimeHealth())
 	})
 	s.app.Get("/metrics", func(c *fiber.Ctx) error {
-		topics, _ := s.broker.ListTopics()
+		topics, err := s.broker.ListTopics()
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
 		c.Set("Content-Type", "text/plain; version=0.0.4")
 		return c.SendString("ech0_topics_total " + itoa(len(topics)) + "\n")
 	})

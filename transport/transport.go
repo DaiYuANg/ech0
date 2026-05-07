@@ -1,9 +1,11 @@
+// Package transport implements frame encoding and IO.
 package transport
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
+
+	"github.com/samber/oops"
 )
 
 const HeaderLen = 7
@@ -40,13 +42,22 @@ type Frame struct {
 }
 
 func NewFrame(version uint8, command uint16, body []byte) (Frame, error) {
-	if uint64(len(body)) > uint64(^uint32(0)) {
-		return Frame{}, fmt.Errorf("frame body too large: %d", len(body))
+	bodyLen, err := frameBodyLen(body)
+	if err != nil {
+		return Frame{}, err
 	}
 	return Frame{
-		Header: NewFrameHeader(version, command, uint32(len(body))),
+		Header: NewFrameHeader(version, command, bodyLen),
 		Body:   append([]byte(nil), body...),
 	}, nil
+}
+
+func frameBodyLen(body []byte) (uint32, error) {
+	const maxUint32 = ^uint32(0)
+	if uint64(len(body)) > uint64(maxUint32) {
+		return 0, oops.In("transport").Code("frame_body_too_large").With("body_len", len(body)).New("frame body too large")
+	}
+	return uint32(len(body)), nil // #nosec G115 -- body length is checked against max uint32 before conversion.
 }
 
 func ReadFrame(r io.Reader) (Frame, error) {
@@ -56,16 +67,16 @@ func ReadFrame(r io.Reader) (Frame, error) {
 func ReadFrameWithLimit(r io.Reader, maxBodyBytes uint32) (Frame, error) {
 	var headerBytes [HeaderLen]byte
 	if _, err := io.ReadFull(r, headerBytes[:]); err != nil {
-		return Frame{}, err
+		return Frame{}, oops.In("transport").Code("frame_header_read_failed").Wrapf(err, "read frame header")
 	}
 	header := DecodeHeader(headerBytes)
 	if maxBodyBytes > 0 && header.BodyLen > maxBodyBytes {
-		return Frame{}, fmt.Errorf("frame body length %d exceeds limit %d", header.BodyLen, maxBodyBytes)
+		return Frame{}, oops.In("transport").Code("frame_body_too_large").With("body_len", header.BodyLen, "max_body_bytes", maxBodyBytes).New("frame body exceeds limit")
 	}
 	body := make([]byte, header.BodyLen)
 	if header.BodyLen > 0 {
 		if _, err := io.ReadFull(r, body); err != nil {
-			return Frame{}, err
+			return Frame{}, oops.In("transport").Code("frame_body_read_failed").Wrapf(err, "read frame body")
 		}
 	}
 	return Frame{Header: header, Body: body}, nil
@@ -74,11 +85,11 @@ func ReadFrameWithLimit(r io.Reader, maxBodyBytes uint32) (Frame, error) {
 func WriteFrame(w io.Writer, frame Frame) error {
 	header := frame.Header.Encode()
 	if _, err := w.Write(header[:]); err != nil {
-		return err
+		return oops.In("transport").Code("frame_header_write_failed").Wrapf(err, "write frame header")
 	}
 	if len(frame.Body) == 0 {
 		return nil
 	}
 	_, err := w.Write(frame.Body)
-	return err
+	return oops.In("transport").Code("frame_body_write_failed").Wrapf(err, "write frame body")
 }

@@ -1,13 +1,16 @@
+// Package direct contains point-to-point messaging runtime support.
 package direct
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
 	"strings"
 	"sync/atomic"
 
 	"github.com/DaiYuANg/ech0/queue"
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
+	"github.com/samber/oops"
 )
 
 const (
@@ -68,12 +71,12 @@ func New(log store.MessageLogStore, meta interface {
 	return &Runtime{queue: queue.New(log, meta), log: log, meta: meta}
 }
 
-func (r *Runtime) Send(sender string, recipient string, conversationID *string, payload []byte) (SendResult, error) {
+func (r *Runtime) Send(sender, recipient string, conversationID *string, payload []byte) (SendResult, error) {
 	if sender == "" || recipient == "" {
-		return SendResult{}, store.E(store.CodeInvalidArgument, "sender and recipient are required")
+		return SendResult{}, oops.In("direct").Code("invalid_message_target").Wrapf(store.E(store.CodeInvalidArgument, "sender and recipient are required"), "validate direct message")
 	}
 	if err := r.ensureInbox(recipient); err != nil {
-		return SendResult{}, err
+		return SendResult{}, oops.In("direct").Code("ensure_inbox_failed").With("recipient", recipient).Wrapf(err, "ensure inbox")
 	}
 	cid := defaultConversationID(sender, recipient)
 	if conversationID != nil && *conversationID != "" {
@@ -100,7 +103,7 @@ func (r *Runtime) Send(sender string, recipient string, conversationID *string, 
 		Payload:    message.Payload,
 	})
 	if err != nil {
-		return SendResult{}, err
+		return SendResult{}, oops.In("direct").Code("publish_direct_failed").With("recipient", recipient).Wrapf(err, "publish direct message")
 	}
 	return SendResult{
 		MessageID:      message.MessageID,
@@ -116,13 +119,13 @@ func (r *Runtime) FetchInbox(recipient string, maxRecords int) (FetchInboxResult
 		if store.ErrorCode(err) == store.CodeTopicNotFound {
 			return FetchInboxResult{Recipient: recipient, Records: nil, NextOffset: 0}, nil
 		}
-		return FetchInboxResult{}, err
+		return FetchInboxResult{}, oops.In("direct").Code("fetch_inbox_failed").With("recipient", recipient).Wrapf(err, "fetch inbox")
 	}
 	records := make([]InboxRecord, 0, len(poll.Records))
 	for _, record := range poll.Records {
 		decoded, err := decodeRecord(record)
 		if err != nil {
-			return FetchInboxResult{}, err
+			return FetchInboxResult{}, oops.In("direct").Code("decode_inbox_record_failed").With("recipient", recipient).Wrapf(err, "decode inbox record")
 		}
 		records = append(records, decoded)
 	}
@@ -135,7 +138,10 @@ func (r *Runtime) FetchInbox(recipient string, maxRecords int) (FetchInboxResult
 }
 
 func (r *Runtime) AckInbox(recipient string, nextOffset uint64) error {
-	return r.queue.Ack(consumerName(recipient), inboxTopic(recipient), 0, nextOffset)
+	return oops.In("direct").Code("ack_inbox_failed").With("recipient", recipient).Wrapf(
+		r.queue.Ack(consumerName(recipient), inboxTopic(recipient), 0, nextOffset),
+		"ack inbox",
+	)
 }
 
 func IsInternalTopicName(topic string) bool {
@@ -148,14 +154,14 @@ func (r *Runtime) ensureInbox(recipient string) error {
 	topicName := inboxTopic(recipient)
 	exists, err := r.log.TopicExists(topicName)
 	if err != nil {
-		return err
+		return oops.In("direct").Code("check_inbox_topic_failed").With("topic", topicName).Wrapf(err, "check inbox topic")
 	}
 	cfg := inboxTopicConfig(topicName)
 	if exists {
-		return r.meta.SaveTopicConfig(cfg)
+		return oops.In("direct").Code("save_inbox_topic_failed").With("topic", topicName).Wrapf(r.meta.SaveTopicConfig(cfg), "save inbox topic")
 	}
 	if err := r.queue.CreateTopic(cfg); err != nil && store.ErrorCode(err) != store.CodeTopicExists {
-		return err
+		return oops.In("direct").Code("create_inbox_topic_failed").With("topic", topicName).Wrapf(err, "create inbox topic")
 	}
 	return nil
 }
@@ -184,9 +190,10 @@ func shard(recipient string) uint8 {
 	return uint8(hash % InboxShardCount)
 }
 
-func defaultConversationID(a string, b string) string {
-	participants := []string{a, b}
-	sort.Strings(participants)
+func defaultConversationID(a, b string) string {
+	participants := collectionlist.NewList(a, b).
+		Sort(cmp.Compare[string]).
+		Values()
 	return participants[0] + ":" + participants[1]
 }
 
@@ -194,13 +201,13 @@ func nextMessageID() string {
 	return fmt.Sprintf("dm-%d-%d", store.NowMS(), directSequence.Add(1))
 }
 
-func header(key string, value string) store.RecordHeader {
+func header(key, value string) store.RecordHeader {
 	return store.RecordHeader{Key: key, Value: []byte(value)}
 }
 
 func decodeRecord(record store.Record) (InboxRecord, error) {
 	if (record.Attributes & directAttributeFlag) == 0 {
-		return InboxRecord{}, store.E(store.CodeCodec, "direct inbox record missing direct attribute")
+		return InboxRecord{}, oops.In("direct").Code("invalid_inbox_record").Wrapf(store.E(store.CodeCodec, "direct inbox record missing direct attribute"), "decode inbox record")
 	}
 	message := Message{
 		MessageID:      requiredHeader(record.Headers, headerMessageID),
@@ -211,7 +218,7 @@ func decodeRecord(record store.Record) (InboxRecord, error) {
 		Payload:        append([]byte(nil), record.Payload...),
 	}
 	if message.MessageID == "" || message.ConversationID == "" || message.Sender == "" || message.Recipient == "" {
-		return InboxRecord{}, store.E(store.CodeCodec, "direct inbox record missing required headers")
+		return InboxRecord{}, oops.In("direct").Code("invalid_inbox_record").Wrapf(store.E(store.CodeCodec, "direct inbox record missing required headers"), "decode inbox record")
 	}
 	return InboxRecord{Offset: record.Offset, Message: message}, nil
 }

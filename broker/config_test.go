@@ -1,3 +1,4 @@
+//nolint:testpackage // Same-package tests validate unexported config normalization.
 package broker
 
 import (

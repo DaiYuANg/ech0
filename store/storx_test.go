@@ -1,3 +1,4 @@
+//nolint:testpackage // Same-package tests use unexported store helpers.
 package store
 
 import (
@@ -5,6 +6,7 @@ import (
 	"testing"
 )
 
+//nolint:cyclop,gocyclo,gocognit,funlen // This persistence test keeps reopen assertions in one flow.
 func TestStorxStoresPersistLogAndMetadata(t *testing.T) {
 	root := t.TempDir()
 	logPath := filepath.Join(root, "segments", "log.bbolt")
@@ -20,11 +22,11 @@ func TestStorxStoresPersistLogAndMetadata(t *testing.T) {
 	}
 
 	topic := NewTopicConfig("orders")
-	if err := logStore.CreateTopic(topic); err != nil {
-		t.Fatal(err)
+	if createErr := logStore.CreateTopic(topic); createErr != nil {
+		t.Fatal(createErr)
 	}
-	if err := metaStore.SaveTopicConfig(topic); err != nil {
-		t.Fatal(err)
+	if saveTopicErr := metaStore.SaveTopicConfig(topic); saveTopicErr != nil {
+		t.Fatal(saveTopicErr)
 	}
 	record, err := logStore.Append(NewTopicPartition("orders", 0), []byte("m1"))
 	if err != nil {
@@ -33,26 +35,34 @@ func TestStorxStoresPersistLogAndMetadata(t *testing.T) {
 	if record.Offset != 0 {
 		t.Fatalf("unexpected offset: %d", record.Offset)
 	}
-	if err := metaStore.SaveConsumerOffset("c1", NewTopicPartition("orders", 0), 1); err != nil {
-		t.Fatal(err)
+	if saveOffsetErr := metaStore.SaveConsumerOffset("c1", NewTopicPartition("orders", 0), 1); saveOffsetErr != nil {
+		t.Fatal(saveOffsetErr)
 	}
-	if err := logStore.Close(); err != nil {
-		t.Fatal(err)
+	if closeLogErr := logStore.Close(); closeLogErr != nil {
+		t.Fatal(closeLogErr)
 	}
-	if err := metaStore.Close(); err != nil {
-		t.Fatal(err)
+	if closeMetaErr := metaStore.Close(); closeMetaErr != nil {
+		t.Fatal(closeMetaErr)
 	}
 
 	logStore, err = OpenStorxLogStore(logPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer logStore.Close()
+	defer func() {
+		if closeErr := logStore.Close(); closeErr != nil {
+			t.Logf("close log store: %v", closeErr)
+		}
+	}()
 	metaStore, err = OpenStorxMetadataStore(metaPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer metaStore.Close()
+	defer func() {
+		if closeErr := metaStore.Close(); closeErr != nil {
+			t.Logf("close metadata store: %v", closeErr)
+		}
+	}()
 
 	records, err := logStore.ReadFrom(NewTopicPartition("orders", 0), 0, 10)
 	if err != nil {

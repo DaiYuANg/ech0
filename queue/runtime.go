@@ -1,7 +1,9 @@
+// Package queue contains topic queue runtime operations.
 package queue
 
 import (
 	"github.com/DaiYuANg/ech0/store"
+	"github.com/samber/oops"
 )
 
 type Runtime struct {
@@ -21,9 +23,9 @@ func New(log store.MessageLogStore, meta interface {
 
 func (r *Runtime) CreateTopic(topic store.TopicConfig) error {
 	if err := r.log.CreateTopic(topic); err != nil {
-		return err
+		return oops.In("queue").Code("create_log_topic_failed").With("topic", topic.Name).Wrapf(err, "create log topic")
 	}
-	return r.meta.SaveTopicConfig(topic)
+	return oops.In("queue").Code("save_topic_config_failed").With("topic", topic.Name).Wrapf(r.meta.SaveTopicConfig(topic), "save topic config")
 }
 
 func (r *Runtime) Publish(topic string, partition uint32, payload []byte) (store.Record, error) {
@@ -31,31 +33,39 @@ func (r *Runtime) Publish(topic string, partition uint32, payload []byte) (store
 }
 
 func (r *Runtime) PublishRecord(topic string, partition uint32, record store.RecordAppend) (store.Record, error) {
-	return r.log.AppendRecord(store.NewTopicPartition(topic, partition), record)
+	out, err := r.log.AppendRecord(store.NewTopicPartition(topic, partition), record)
+	if err != nil {
+		return store.Record{}, oops.In("queue").Code("append_record_failed").With("topic", topic, "partition", partition).Wrapf(err, "append record")
+	}
+	return out, nil
 }
 
 func (r *Runtime) PublishBatchRecords(topic string, partition uint32, records []store.RecordAppend) ([]store.Record, error) {
-	return r.log.AppendRecordsBatch(store.NewTopicPartition(topic, partition), records)
+	out, err := r.log.AppendRecordsBatch(store.NewTopicPartition(topic, partition), records)
+	if err != nil {
+		return nil, oops.In("queue").Code("append_records_failed").With("topic", topic, "partition", partition).Wrapf(err, "append records")
+	}
+	return out, nil
 }
 
-func (r *Runtime) Fetch(consumer string, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
+func (r *Runtime) Fetch(consumer, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
 	tp := store.NewTopicPartition(topic, partition)
 	nextOffset := uint64(0)
 	if offset != nil {
 		nextOffset = *offset
 	} else if committed, err := r.meta.LoadConsumerOffset(consumer, tp); err != nil {
-		return store.PollResult{}, err
+		return store.PollResult{}, oops.In("queue").Code("load_consumer_offset_failed").With("consumer", consumer, "topic", topic, "partition", partition).Wrapf(err, "load consumer offset")
 	} else if committed != nil {
 		nextOffset = *committed
 	}
 
 	records, err := r.log.ReadFrom(tp, nextOffset, maxRecords)
 	if err != nil {
-		return store.PollResult{}, err
+		return store.PollResult{}, oops.In("queue").Code("read_records_failed").With("topic", topic, "partition", partition).Wrapf(err, "read records")
 	}
 	highWatermark, err := r.log.LastOffset(tp)
 	if err != nil {
-		return store.PollResult{}, err
+		return store.PollResult{}, oops.In("queue").Code("load_high_watermark_failed").With("topic", topic, "partition", partition).Wrapf(err, "load high watermark")
 	}
 	computedNext := nextOffset
 	if len(records) > 0 {
@@ -68,10 +78,17 @@ func (r *Runtime) Fetch(consumer string, topic string, partition uint32, offset 
 	}, nil
 }
 
-func (r *Runtime) Ack(consumer string, topic string, partition uint32, nextOffset uint64) error {
-	return r.meta.SaveConsumerOffset(consumer, store.NewTopicPartition(topic, partition), nextOffset)
+func (r *Runtime) Ack(consumer, topic string, partition uint32, nextOffset uint64) error {
+	return oops.In("queue").Code("save_consumer_offset_failed").With("consumer", consumer, "topic", topic, "partition", partition).Wrapf(
+		r.meta.SaveConsumerOffset(consumer, store.NewTopicPartition(topic, partition), nextOffset),
+		"save consumer offset",
+	)
 }
 
 func (r *Runtime) ListTopics() ([]store.TopicConfig, error) {
-	return r.meta.ListTopics()
+	topics, err := r.meta.ListTopics()
+	if err != nil {
+		return nil, oops.In("queue").Code("list_topics_failed").Wrapf(err, "list topics")
+	}
+	return topics, nil
 }

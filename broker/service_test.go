@@ -1,3 +1,4 @@
+//nolint:testpackage // Same-package tests exercise unexported broker internals.
 package broker
 
 import (
@@ -9,14 +10,15 @@ import (
 	"github.com/DaiYuANg/ech0/store"
 )
 
+//nolint:cyclop,gocyclo,gocognit // This test keeps the produce/fetch/commit flow linear.
 func TestBrokerProduceFetchCommit(t *testing.T) {
 	b, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := b.CreateTopic(ctx, store.NewTopicConfig("orders")); err != nil {
-		t.Fatal(err)
+	if _, createErr := b.CreateTopic(ctx, store.NewTopicConfig("orders")); createErr != nil {
+		t.Fatal(createErr)
 	}
 	produced, err := b.Publish(ctx, "orders", PublishPartitioning{Mode: PartitionExplicit, Partition: 0}, nil, false, []byte("m1"))
 	if err != nil {
@@ -32,8 +34,8 @@ func TestBrokerProduceFetchCommit(t *testing.T) {
 	if len(poll.Records) != 1 || string(poll.Records[0].Payload) != "m1" || poll.NextOffset != 1 {
 		t.Fatalf("unexpected poll result: %#v", poll)
 	}
-	if err := b.CommitOffset(ctx, "c1", "orders", 0, poll.NextOffset); err != nil {
-		t.Fatal(err)
+	if commitErr := b.CommitOffset(ctx, "c1", "orders", 0, poll.NextOffset); commitErr != nil {
+		t.Fatal(commitErr)
 	}
 	poll, err = b.Fetch("c1", "orders", 0, nil, 10)
 	if err != nil {
@@ -44,6 +46,7 @@ func TestBrokerProduceFetchCommit(t *testing.T) {
 	}
 }
 
+//nolint:cyclop,gocyclo // This test keeps the direct inbox flow linear.
 func TestBrokerDirectInbox(t *testing.T) {
 	b, err := New(DefaultConfig())
 	if err != nil {
@@ -64,8 +67,8 @@ func TestBrokerDirectInbox(t *testing.T) {
 	if len(inbox.Records) != 1 || string(inbox.Records[0].Message.Payload) != "hello" {
 		t.Fatalf("unexpected inbox result: %#v", inbox)
 	}
-	if err := b.AckDirect(ctx, "bob", inbox.NextOffset); err != nil {
-		t.Fatal(err)
+	if ackErr := b.AckDirect(ctx, "bob", inbox.NextOffset); ackErr != nil {
+		t.Fatal(ackErr)
 	}
 	inbox, err = b.FetchInbox("bob", 10)
 	if err != nil {
@@ -76,6 +79,7 @@ func TestBrokerDirectInbox(t *testing.T) {
 	}
 }
 
+//nolint:cyclop,gocyclo,gocognit // This test keeps retry behavior assertions in one flow.
 func TestBrokerNackAndProcessRetry(t *testing.T) {
 	b, err := New(DefaultConfig())
 	if err != nil {
@@ -84,11 +88,11 @@ func TestBrokerNackAndProcessRetry(t *testing.T) {
 	ctx := context.Background()
 	topic := store.NewTopicConfig("orders")
 	topic.RetryPolicy = store.TopicRetryPolicy{MaxAttempts: 3, BackoffInitialMS: 1, BackoffMaxMS: 1}
-	if _, err := b.CreateTopic(ctx, topic); err != nil {
-		t.Fatal(err)
+	if _, createErr := b.CreateTopic(ctx, topic); createErr != nil {
+		t.Fatal(createErr)
 	}
-	if _, err := b.Publish(ctx, "orders", PublishPartitioning{Mode: PartitionExplicit, Partition: 0}, nil, false, []byte("m1")); err != nil {
-		t.Fatal(err)
+	if _, publishErr := b.Publish(ctx, "orders", PublishPartitioning{Mode: PartitionExplicit, Partition: 0}, nil, false, []byte("m1")); publishErr != nil {
+		t.Fatal(publishErr)
 	}
 	lastErr := "db timeout"
 	retried, err := b.Nack(ctx, "c1", "orders", 0, 0, &lastErr)
@@ -115,6 +119,7 @@ func TestBrokerNackAndProcessRetry(t *testing.T) {
 	}
 }
 
+//nolint:cyclop,gocyclo // This test keeps DLQ behavior assertions in one flow.
 func TestBrokerRetryExhaustionMovesToDefaultDLQ(t *testing.T) {
 	b, err := New(DefaultConfig())
 	if err != nil {
@@ -123,15 +128,15 @@ func TestBrokerRetryExhaustionMovesToDefaultDLQ(t *testing.T) {
 	ctx := context.Background()
 	topic := store.NewTopicConfig("orders")
 	topic.RetryPolicy = store.TopicRetryPolicy{MaxAttempts: 1, BackoffInitialMS: 1, BackoffMaxMS: 1}
-	if _, err := b.CreateTopic(ctx, topic); err != nil {
-		t.Fatal(err)
+	if _, createErr := b.CreateTopic(ctx, topic); createErr != nil {
+		t.Fatal(createErr)
 	}
-	if _, err := b.Publish(ctx, "orders", PublishPartitioning{Mode: PartitionExplicit, Partition: 0}, nil, false, []byte("m1")); err != nil {
-		t.Fatal(err)
+	if _, publishErr := b.Publish(ctx, "orders", PublishPartitioning{Mode: PartitionExplicit, Partition: 0}, nil, false, []byte("m1")); publishErr != nil {
+		t.Fatal(publishErr)
 	}
 	lastErr := "failed"
-	if _, err := b.Nack(ctx, "c1", "orders", 0, 0, &lastErr); err != nil {
-		t.Fatal(err)
+	if _, nackErr := b.Nack(ctx, "c1", "orders", 0, 0, &lastErr); nackErr != nil {
+		t.Fatal(nackErr)
 	}
 	time.Sleep(2 * time.Millisecond)
 	processed, err := b.ProcessRetryBatch(ctx, "retry-worker", "orders", 0, 10)
@@ -150,14 +155,15 @@ func TestBrokerRetryExhaustionMovesToDefaultDLQ(t *testing.T) {
 	}
 }
 
+//nolint:cyclop,gocyclo,gocognit // This test keeps delayed delivery assertions in one flow.
 func TestBrokerScheduleDelayAndProcessDue(t *testing.T) {
 	b, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := b.CreateTopic(ctx, store.NewTopicConfig("orders")); err != nil {
-		t.Fatal(err)
+	if _, createErr := b.CreateTopic(ctx, store.NewTopicConfig("orders")); createErr != nil {
+		t.Fatal(createErr)
 	}
 	deliverAt := store.NowMS() + 1
 	scheduled, err := b.ScheduleDelay(ctx, "orders", 0, []byte("m1"), deliverAt)
@@ -207,23 +213,23 @@ func TestBrokerSingleNodeRaftProduceFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := b.Start(ctx); err != nil {
-		t.Fatal(err)
+	if startErr := b.Start(ctx); startErr != nil {
+		t.Fatal(startErr)
 	}
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		if err := b.Stop(stopCtx); err != nil {
-			t.Fatal(err)
+		if stopErr := b.Stop(stopCtx); stopErr != nil {
+			t.Fatal(stopErr)
 		}
 	}()
 	waitForLeader(t, b)
 
-	if _, err := b.CreateTopic(ctx, store.NewTopicConfig("orders")); err != nil {
-		t.Fatal(err)
+	if _, createErr := b.CreateTopic(ctx, store.NewTopicConfig("orders")); createErr != nil {
+		t.Fatal(createErr)
 	}
-	if _, err := b.Publish(ctx, "orders", PublishPartitioning{Mode: PartitionExplicit, Partition: 0}, nil, false, []byte("m1")); err != nil {
-		t.Fatal(err)
+	if _, publishErr := b.Publish(ctx, "orders", PublishPartitioning{Mode: PartitionExplicit, Partition: 0}, nil, false, []byte("m1")); publishErr != nil {
+		t.Fatal(publishErr)
 	}
 	poll, err := b.Fetch("c1", "orders", 0, nil, 10)
 	if err != nil {
@@ -236,11 +242,16 @@ func TestBrokerSingleNodeRaftProduceFetch(t *testing.T) {
 
 func freeTCPAddr(t *testing.T) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listenConfig := net.ListenConfig{}
+	listener, err := listenConfig.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Logf("close listener: %v", err)
+		}
+	}()
 	return listener.Addr().String()
 }
 

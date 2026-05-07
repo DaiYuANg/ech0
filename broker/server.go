@@ -1,3 +1,4 @@
+//nolint:revive // TCP server and protocol frame helpers are kept together around the wire boundary.
 package broker
 
 import (
@@ -34,9 +35,10 @@ func NewTCPServer(cfg Config, broker *Broker, logger *slog.Logger) *TCPServer {
 }
 
 func (s *TCPServer) Start(ctx context.Context) error {
-	listener, err := net.Listen("tcp", s.addr)
+	listenConfig := net.ListenConfig{}
+	listener, err := listenConfig.Listen(ctx, "tcp", s.addr)
 	if err != nil {
-		return err
+		return wrapBroker("tcp_listen_failed", err, "listen tcp broker")
 	}
 	s.listener = listener
 	if s.logger != nil {
@@ -48,8 +50,9 @@ func (s *TCPServer) Start(ctx context.Context) error {
 }
 
 func (s *TCPServer) Stop(ctx context.Context) error {
+	var closeErr error
 	if s.listener != nil {
-		_ = s.listener.Close()
+		closeErr = s.listener.Close()
 	}
 	done := make(chan struct{})
 	go func() {
@@ -58,9 +61,12 @@ func (s *TCPServer) Stop(ctx context.Context) error {
 	}()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return errors.Join(
+			wrapBroker("tcp_stop_context_done", ctx.Err(), "stop tcp server"),
+			wrapBroker("tcp_listener_close_failed", closeErr, "close tcp listener"),
+		)
 	case <-done:
-		return nil
+		return wrapBroker("tcp_listener_close_failed", closeErr, "close tcp listener")
 	}
 }
 
@@ -82,9 +88,14 @@ func (s *TCPServer) acceptLoop(ctx context.Context) {
 	}
 }
 
+//nolint:gocognit // Connection handling keeps read, dispatch, write, and close behavior in one loop.
 func (s *TCPServer) handleConn(ctx context.Context, conn net.Conn) {
 	defer s.wg.Done()
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil && s.logger != nil {
+			s.logger.Debug("close connection failed", "error", err)
+		}
+	}()
 	for {
 		frame, err := transport.ReadFrameWithLimit(conn, s.limits.MaxFrameBodyBytes)
 		if err != nil {
@@ -106,6 +117,7 @@ func (s *TCPServer) handleConn(ctx context.Context, conn net.Conn) {
 	}
 }
 
+//nolint:cyclop,gocyclo,gocognit,funlen // Protocol dispatch enumerates all supported wire commands explicitly.
 func (s *TCPServer) HandleFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	if frame.Header.Version != protocol.Version1 {
 		return errorFrame("unsupported_version", fmt.Sprintf("unsupported protocol version %d", frame.Header.Version)), nil
@@ -126,7 +138,7 @@ func (s *TCPServer) HandleFrame(ctx context.Context, frame transport.Frame) (tra
 		if err := decode(frame, &req); err != nil {
 			return errorFrame("invalid_request", err.Error()), nil
 		}
-		return okFrame(protocol.CmdPingResponse, protocol.PingResponse{Nonce: req.Nonce})
+		return okFrame(protocol.CmdPingResponse, protocol.PingResponse(req))
 	case protocol.CmdCreateTopicRequest:
 		var req protocol.CreateTopicRequest
 		if err := decode(frame, &req); err != nil {
@@ -144,7 +156,8 @@ func (s *TCPServer) HandleFrame(ctx context.Context, frame transport.Frame) (tra
 			return errorFromErr(err), nil
 		}
 		out := make([]protocol.TopicMetadata, 0, len(topics))
-		for _, topic := range topics {
+		for i := range topics {
+			topic := topics[i]
 			out = append(out, protocol.TopicMetadata{Topic: topic.Name, Partitions: topic.Partitions})
 		}
 		return okFrame(protocol.CmdListTopicsResponse, protocol.ListTopicsResponse{Topics: out})
@@ -439,20 +452,34 @@ func (s *TCPServer) HandleFrame(ctx context.Context, frame transport.Frame) (tra
 }
 
 func decode(frame transport.Frame, target any) error {
-	return json.Unmarshal(frame.Body, target)
+	return wrapBroker("frame_decode_failed", json.Unmarshal(frame.Body, target), "decode request frame")
 }
 
 func okFrame(command uint16, value any) (transport.Frame, error) {
 	body, err := protocol.EncodeJSON(value)
 	if err != nil {
-		return transport.Frame{}, err
+		return transport.Frame{}, wrapBroker("response_encode_failed", err, "encode response frame")
 	}
-	return transport.NewFrame(protocol.Version1, command, body)
+	frame, err := transport.NewFrame(protocol.Version1, command, body)
+	if err != nil {
+		return transport.Frame{}, wrapBroker("response_frame_create_failed", err, "create response frame")
+	}
+	return frame, nil
 }
 
-func errorFrame(code string, message string) transport.Frame {
-	body, _ := protocol.EncodeJSON(protocol.ErrorResponse{Code: code, Message: message})
-	frame, _ := transport.NewFrame(protocol.Version1, protocol.CmdErrorResponse, body)
+func errorFrame(code, message string) transport.Frame {
+	body, err := protocol.EncodeJSON(protocol.ErrorResponse{Code: code, Message: message})
+	if err != nil {
+		body = []byte(`{"code":"internal_error","message":"failed to encode error response"}`)
+	}
+	frame, err := transport.NewFrame(protocol.Version1, protocol.CmdErrorResponse, body)
+	if err != nil {
+		bodyLen := min(len(body), int(^uint32(0)))
+		return transport.Frame{
+			Header: transport.NewFrameHeader(protocol.Version1, protocol.CmdErrorResponse, uint32(bodyLen)), // #nosec G115 -- bodyLen is clamped to max uint32 before conversion.
+			Body:   body,
+		}
+	}
 	return frame
 }
 
@@ -503,17 +530,20 @@ func partitioningFromProtocol(mode protocol.ProducePartitioning, partition *uint
 		return PublishPartitioning{Mode: PartitionExplicit, Partition: *partition}
 	case protocol.ProducePartitioningKeyHash:
 		return PublishPartitioning{Mode: PartitionKeyHash}
+	case protocol.ProducePartitioningRoundRobin:
+		return PublishPartitioning{Mode: PartitionRoundRobin}
 	default:
 		return PublishPartitioning{Mode: PartitionRoundRobin}
 	}
 }
 
+//nolint:gocognit // Batch decoding validates mutually exclusive protocol shapes in one boundary helper.
 func batchRecordsFromProtocol(req protocol.ProduceBatchRequest) ([]store.RecordAppend, error) {
 	if len(req.Payloads) == 0 && len(req.Records) == 0 {
-		return nil, fmt.Errorf("produce_batch requires payloads or records")
+		return nil, errors.New("produce_batch requires payloads or records")
 	}
 	if len(req.Payloads) > 0 && len(req.Records) > 0 {
-		return nil, fmt.Errorf("produce_batch must provide only one of payloads or records")
+		return nil, errors.New("produce_batch must provide only one of payloads or records")
 	}
 	if len(req.Records) > 0 {
 		out := make([]store.RecordAppend, 0, len(req.Records))

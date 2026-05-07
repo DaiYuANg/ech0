@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -25,7 +26,7 @@ func RunWithConfig(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return app.RunContext(ctx)
+	return wrapBroker("app_run_failed", app.RunContext(ctx), "run broker app")
 }
 
 func NewApp(cfg Config) (*dix.App, error) {
@@ -48,15 +49,9 @@ func NewApp(cfg Config) (*dix.App, error) {
 			dix.ProviderErr5(func(cfg Config, logger *slog.Logger, bus eventx.BusRuntime, logStore *store.StorxLogStore, metaStore *store.StorxMetadataStore) (*Broker, error) {
 				return NewWithStores(cfg, logStore, metaStore, WithLogger(logger), WithEventBus(bus))
 			}),
-			dix.ProviderErr3(func(cfg Config, broker *Broker, logger *slog.Logger) (*ScheduledRuntime, error) {
-				return NewScheduledRuntime(cfg, broker, logger)
-			}),
-			dix.Provider3(func(cfg Config, broker *Broker, logger *slog.Logger) *TCPServer {
-				return NewTCPServer(cfg, broker, logger)
-			}),
-			dix.Provider3(func(cfg Config, broker *Broker, logger *slog.Logger) *AdminServer {
-				return NewAdminServer(cfg, broker, logger)
-			}),
+			dix.ProviderErr3(NewScheduledRuntime),
+			dix.Provider3(NewTCPServer),
+			dix.Provider3(NewAdminServer),
 		),
 		dix.Hooks(
 			dix.OnStart(func(ctx context.Context, broker *Broker) error {
@@ -96,8 +91,11 @@ func NewApp(cfg Config) (*dix.App, error) {
 	)
 	app := dix.New("ech0", dix.UseLogger(logger), dix.Modules(module))
 	if err := app.Validate(); err != nil {
-		_ = logx.Close(logger)
-		return nil, err
+		wrapped := wrapBroker("app_validation_failed", err, "validate broker app")
+		if closeErr := logx.Close(logger); closeErr != nil {
+			return nil, errors.Join(wrapped, wrapBroker("logger_close_failed", closeErr, "close logger after validation failure"))
+		}
+		return nil, wrapped
 	}
 	return app, nil
 }
@@ -114,9 +112,13 @@ func newLogger(cfg Config) (*slog.Logger, error) {
 	if cfg.Logging.EnableFile {
 		path := cfg.LogFilePath()
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return nil, err
+			return nil, wrapBroker("log_directory_create_failed", err, "create log directory")
 		}
 		opts = append(opts, logx.WithFile(path))
 	}
-	return logx.New(opts...)
+	logger, err := logx.New(opts...)
+	if err != nil {
+		return nil, wrapBroker("logger_create_failed", err, "create logger")
+	}
+	return logger, nil
 }

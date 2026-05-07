@@ -1,6 +1,11 @@
+//nolint:testpackage // Same-package tests inspect protocol command internals.
 package protocol
 
-import "testing"
+import (
+	"testing"
+
+	collectionset "github.com/arcgolabs/collectionx/set"
+)
 
 func TestHandshakeJSONRoundTrip(t *testing.T) {
 	req := HandshakeRequest{ClientID: "client-1"}
@@ -65,11 +70,11 @@ func TestCommandIDsAreUnique(t *testing.T) {
 		CmdFetchConsumerGroupBatchResponse,
 		CmdErrorResponse,
 	}
-	seen := map[uint16]struct{}{}
+	seen := collectionset.NewSet[uint16]()
 	for _, command := range commands {
-		if _, ok := seen[command]; ok {
+		if seen.Contains(command) {
 			t.Fatalf("duplicate command id %d", command)
 		}
-		seen[command] = struct{}{}
+		seen.Add(command)
 	}
 }
