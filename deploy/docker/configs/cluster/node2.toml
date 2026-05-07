@@ -9,6 +9,14 @@ max_batch_payload_bytes = 8388608
 max_fetch_records = 1000
 group_assignment_strategy = "round_robin"
 group_sticky_assignments = true
+retry_worker_enabled = true
+retry_worker_interval_secs = 5
+retry_worker_max_records = 256
+retry_worker_consumer_prefix = "__retry_worker"
+delay_scheduler_enabled = true
+delay_scheduler_interval_secs = 1
+delay_scheduler_max_records = 256
+delay_scheduler_consumer_prefix = "__delay_scheduler"
 
 [admin]
 enabled = true
@@ -16,7 +24,7 @@ bind_addr = "0.0.0.0:9091"
 
 [storage]
 segments_dir = "segments"
-metadata_path = "meta/metadata.redb"
+metadata_path = "meta/metadata.bbolt"
 retention_cleanup_enabled = true
 retention_cleanup_interval_secs = 30
 

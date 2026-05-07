@@ -1,51 +1,41 @@
 ARG BASE_IMAGE=debian
+ARG GO_VERSION=1.26
 
-FROM rust:1.90-bookworm AS builder-debian
+FROM golang:${GO_VERSION}-bookworm AS builder-debian
 
-WORKDIR /app
+WORKDIR /src
 
-COPY Cargo.toml Cargo.lock ./
-COPY broker-bin/Cargo.toml broker-bin/Cargo.toml
-COPY broker/Cargo.toml broker/Cargo.toml
-COPY direct/Cargo.toml direct/Cargo.toml
-COPY protocol/Cargo.toml protocol/Cargo.toml
-COPY queue/Cargo.toml queue/Cargo.toml
-COPY store/Cargo.toml store/Cargo.toml
-COPY transport/Cargo.toml transport/Cargo.toml
-COPY broker-bin broker-bin
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY ech0.go ./
 COPY broker broker
+COPY cmd cmd
 COPY direct direct
 COPY protocol protocol
 COPY queue queue
 COPY store store
 COPY transport transport
-COPY config config
 
-RUN cargo build --release -p broker-bin
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/broker ./cmd/ech0
 
-FROM rust:1.90-alpine AS builder-alpine
+FROM golang:${GO_VERSION}-alpine AS builder-alpine
 
-WORKDIR /app
+WORKDIR /src
 
-COPY Cargo.toml Cargo.lock ./
-COPY broker-bin/Cargo.toml broker-bin/Cargo.toml
-COPY broker/Cargo.toml broker/Cargo.toml
-COPY direct/Cargo.toml direct/Cargo.toml
-COPY protocol/Cargo.toml protocol/Cargo.toml
-COPY queue/Cargo.toml queue/Cargo.toml
-COPY store/Cargo.toml store/Cargo.toml
-COPY transport/Cargo.toml transport/Cargo.toml
-COPY broker-bin broker-bin
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY ech0.go ./
 COPY broker broker
+COPY cmd cmd
 COPY direct direct
 COPY protocol protocol
 COPY queue queue
 COPY store store
 COPY transport transport
-COPY config config
 
-RUN apk add --no-cache musl-dev \
-  && cargo build --release -p broker-bin
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/broker ./cmd/ech0
 
 FROM debian:bookworm-slim AS runtime-debian
 
@@ -55,7 +45,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=builder-debian /app/target/release/broker /usr/local/bin/broker
+COPY --from=builder-debian /out/broker /usr/local/bin/broker
 
 EXPOSE 9090 9091 3210
 
@@ -67,7 +57,7 @@ RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
-COPY --from=builder-alpine /app/target/release/broker /usr/local/bin/broker
+COPY --from=builder-alpine /out/broker /usr/local/bin/broker
 
 EXPOSE 9090 9091 3210
 

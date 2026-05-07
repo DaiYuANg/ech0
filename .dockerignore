@@ -3,6 +3,7 @@
 target
 data
 **/*.redb
+**/*.bbolt
 **/*.log
 .cursor
 .idea
