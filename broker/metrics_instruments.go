@@ -11,6 +11,7 @@ func (m *MetricsRuntime) initInstruments() {
 	m.initCoreCounters(obs)
 	m.initStorageCounters(obs)
 	m.initProduceCounters(obs)
+	m.initHotPathMetrics(obs)
 	m.initStreamGauges(obs)
 }
 
@@ -28,6 +29,12 @@ func (m *MetricsRuntime) initCoreCounters(obs observabilityx.Observability) {
 		"broker_command_errors_total",
 		observabilityx.WithDescription("Broker command errors by code"),
 		observabilityx.WithLabelKeys("code"),
+	))
+	m.commandDuration = obs.Histogram(observabilityx.NewHistogramSpec(
+		"broker_command_duration_seconds",
+		observabilityx.WithDescription("Broker command handler duration"),
+		observabilityx.WithUnit("s"),
+		observabilityx.WithLabelKeys("command_id", "status"),
 	))
 	m.rebalancesTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"broker_rebalances_total",
@@ -96,6 +103,110 @@ func (m *MetricsRuntime) initProduceCounters(obs observabilityx.Observability) {
 	))
 }
 
+func (m *MetricsRuntime) initHotPathMetrics(obs observabilityx.Observability) {
+	stageLabels := []string{"command", "stage", "status"}
+	m.raftStageDuration = obs.Histogram(observabilityx.NewHistogramSpec(
+		"broker_raft_stage_duration_seconds",
+		observabilityx.WithDescription("Raft proposal stage duration"),
+		observabilityx.WithUnit("s"),
+		observabilityx.WithLabelKeys(stageLabels...),
+	))
+	m.initRaftStoreHotPathMetrics(obs)
+	m.initFSMHotPathMetrics(obs, stageLabels)
+	m.initFetchHotPathMetrics(obs)
+	m.initStoreHotPathMetrics(obs)
+}
+
+func (m *MetricsRuntime) initRaftStoreHotPathMetrics(obs observabilityx.Observability) {
+	raftStoreLabels := []string{"operation", "stage", "status"}
+	m.raftStoreStageDuration = obs.Histogram(observabilityx.NewHistogramSpec(
+		"broker_raft_store_stage_duration_seconds",
+		observabilityx.WithDescription("Raft storage stage duration"),
+		observabilityx.WithUnit("s"),
+		observabilityx.WithLabelKeys(raftStoreLabels...),
+	))
+	m.raftStoreRequestsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"broker_raft_store_requests_total",
+		observabilityx.WithDescription("Raft storage requests"),
+		observabilityx.WithLabelKeys("operation", "status"),
+	))
+	m.raftStoreEntriesTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"broker_raft_store_entries_total",
+		observabilityx.WithDescription("Raft storage entries"),
+		observabilityx.WithLabelKeys("operation", "status"),
+	))
+	m.raftStoreBytesTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"broker_raft_store_bytes_total",
+		observabilityx.WithDescription("Raft storage bytes"),
+		observabilityx.WithLabelKeys("operation", "status"),
+	))
+}
+
+func (m *MetricsRuntime) initFSMHotPathMetrics(obs observabilityx.Observability, stageLabels []string) {
+	m.fsmStageDuration = obs.Histogram(observabilityx.NewHistogramSpec(
+		"broker_fsm_stage_duration_seconds",
+		observabilityx.WithDescription("Raft FSM stage duration"),
+		observabilityx.WithUnit("s"),
+		observabilityx.WithLabelKeys(stageLabels...),
+	))
+}
+
+func (m *MetricsRuntime) initFetchHotPathMetrics(obs observabilityx.Observability) {
+	fetchLabels := []string{"operation", "stage", "status"}
+	m.fetchStageDuration = obs.Histogram(observabilityx.NewHistogramSpec(
+		"broker_fetch_stage_duration_seconds",
+		observabilityx.WithDescription("Broker fetch stage duration"),
+		observabilityx.WithUnit("s"),
+		observabilityx.WithLabelKeys(fetchLabels...),
+	))
+	m.fetchRequestsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"broker_fetch_requests_total",
+		observabilityx.WithDescription("Broker fetch requests"),
+		observabilityx.WithLabelKeys("operation", "status"),
+	))
+	m.fetchRecordsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"broker_fetch_records_total",
+		observabilityx.WithDescription("Broker fetch records"),
+		observabilityx.WithLabelKeys("operation", "status"),
+	))
+}
+
+func (m *MetricsRuntime) initStoreHotPathMetrics(obs observabilityx.Observability) {
+	storeLabels := []string{"operation", "stage", "status"}
+	m.storeAppendStageDuration = obs.Histogram(observabilityx.NewHistogramSpec(
+		"store_append_stage_duration_seconds",
+		observabilityx.WithDescription("Message append stage duration"),
+		observabilityx.WithUnit("s"),
+		observabilityx.WithLabelKeys(storeLabels...),
+	))
+	m.storeAppendRequestsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"store_append_requests_total",
+		observabilityx.WithDescription("Message append requests"),
+		observabilityx.WithLabelKeys("operation", "status"),
+	))
+	m.storeAppendRecordsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"store_append_records_total",
+		observabilityx.WithDescription("Message append records"),
+		observabilityx.WithLabelKeys("operation", "status"),
+	))
+	m.storeReadStageDuration = obs.Histogram(observabilityx.NewHistogramSpec(
+		"store_read_stage_duration_seconds",
+		observabilityx.WithDescription("Message read stage duration"),
+		observabilityx.WithUnit("s"),
+		observabilityx.WithLabelKeys(storeLabels...),
+	))
+	m.storeReadRequestsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"store_read_requests_total",
+		observabilityx.WithDescription("Message read requests"),
+		observabilityx.WithLabelKeys("operation", "status"),
+	))
+	m.storeReadRecordsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"store_read_records_total",
+		observabilityx.WithDescription("Message read records"),
+		observabilityx.WithLabelKeys("operation", "status"),
+	))
+}
+
 func (m *MetricsRuntime) initStreamGauges(obs observabilityx.Observability) {
 	m.visibleTopicsCurrent = streamGauge(obs, "broker_visible_topics_current", "Current number of visible topics")
 	m.topicsWithBacklogCurrent = streamGauge(obs, "broker_topics_with_backlog_current", "Current number of visible topics with backlog")
@@ -126,6 +237,13 @@ func safeIntToUint64(value int) uint64 {
 		return 0
 	}
 	return uint64(value)
+}
+
+func safeIntToInt64(value int) int64 {
+	if value <= 0 {
+		return 0
+	}
+	return int64(value)
 }
 
 func highWatermarkBacklog(highWatermark *uint64) uint64 {

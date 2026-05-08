@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"time"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/storx/bboltx"
@@ -29,20 +30,22 @@ var (
 )
 
 type raftBoltStore struct {
-	db   *bboltx.DB
-	logs *bboltx.Bucket[uint64, []byte]
-	conf *bboltx.Bucket[[]byte, []byte]
+	db      *bboltx.DB
+	logs    *bboltx.Bucket[uint64, []byte]
+	conf    *bboltx.Bucket[[]byte, []byte]
+	metrics *MetricsRuntime
 }
 
-func openRaftBoltStore(ctx context.Context, path string) (*raftBoltStore, error) {
+func openRaftBoltStore(ctx context.Context, path string, metrics *MetricsRuntime) (*raftBoltStore, error) {
 	db, err := bboltx.Open(path, raftBoltFileMode, nil)
 	if err != nil {
 		return nil, wrapBroker("raft_bolt_store_open_failed", err, "open raft bolt store")
 	}
 	store := &raftBoltStore{
-		db:   db,
-		logs: bboltx.NewBucketWithDB[uint64, []byte](db, raftBoltLogsBucket, keycodec.Uint64BE(), storxcodec.Bytes()),
-		conf: bboltx.NewBucketWithDB[[]byte, []byte](db, raftBoltConfBucket, keycodec.Bytes(), storxcodec.Bytes()),
+		db:      db,
+		logs:    bboltx.NewBucketWithDB[uint64, []byte](db, raftBoltLogsBucket, keycodec.Uint64BE(), storxcodec.Bytes()),
+		conf:    bboltx.NewBucketWithDB[[]byte, []byte](db, raftBoltConfBucket, keycodec.Bytes(), storxcodec.Bytes()),
+		metrics: metrics,
 	}
 	if err := store.initialize(ctx); err != nil {
 		return nil, errors.Join(err, store.Close())
@@ -114,17 +117,32 @@ func (s *raftBoltStore) StoreLog(log *hashiraft.Log) error {
 }
 
 func (s *raftBoltStore) StoreLogs(logs []*hashiraft.Log) error {
+	totalStart := time.Now()
+	var resultErr error
+	var totalBytes int
+	defer func() {
+		s.recordStage("logs", "total", len(logs), totalBytes, totalStart, resultErr)
+	}()
+	encodeStart := time.Now()
 	entries := collectionlist.NewListWithCapacity[bboltx.Entry[uint64, []byte]](len(logs))
 	for _, log := range logs {
 		encoded, err := raftBoltEncodeMsgPack(log)
 		if err != nil {
-			return wrapBroker("raft_bolt_log_encode_failed", err, "encode raft log")
+			resultErr = wrapBroker("raft_bolt_log_encode_failed", err, "encode raft log")
+			s.recordStage("logs", "encode", entries.Len(), totalBytes, encodeStart, resultErr)
+			return resultErr
 		}
+		totalBytes += len(encoded)
 		entries.Add(bboltx.Entry[uint64, []byte]{Key: log.Index, Value: encoded})
 	}
+	s.recordStage("logs", "encode", len(logs), totalBytes, encodeStart, nil)
+	putStart := time.Now()
 	if err := s.logs.PutMany(context.Background(), entries.Values()...); err != nil {
-		return wrapBroker("raft_bolt_store_logs_failed", err, "store raft logs")
+		resultErr = wrapBroker("raft_bolt_store_logs_failed", err, "store raft logs")
+		s.recordStage("logs", "put_many", len(logs), totalBytes, putStart, resultErr)
+		return resultErr
 	}
+	s.recordStage("logs", "put_many", len(logs), totalBytes, putStart, nil)
 	return nil
 }
 
@@ -166,9 +184,15 @@ func raftBoltRangeKeys(tx bboltx.UpdateTx[uint64, []byte], minIndex, maxIndex ui
 }
 
 func (s *raftBoltStore) Set(key, value []byte) error {
+	start := time.Now()
 	if err := s.conf.Put(context.Background(), key, value); err != nil {
-		return wrapBroker("raft_bolt_set_failed", err, "set raft stable value")
+		wrapped := wrapBroker("raft_bolt_set_failed", err, "set raft stable value")
+		s.recordStage("stable", "put", 1, len(value), start, wrapped)
+		s.recordStage("stable", "total", 1, len(value), start, wrapped)
+		return wrapped
 	}
+	s.recordStage("stable", "put", 1, len(value), start, nil)
+	s.recordStage("stable", "total", 1, len(value), start, nil)
 	return nil
 }
 
@@ -224,4 +248,11 @@ func raftBoltUint64ToBytes(value uint64) []byte {
 	data := make([]byte, 8)
 	binary.BigEndian.PutUint64(data, value)
 	return data
+}
+
+func (s *raftBoltStore) recordStage(operation, stage string, entries, payloadBytes int, start time.Time, err error) {
+	if s == nil || s.metrics == nil {
+		return
+	}
+	s.metrics.RecordRaftStoreStage(context.Background(), operation, stage, entries, payloadBytes, time.Since(start), err)
 }

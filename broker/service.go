@@ -30,6 +30,9 @@ type Broker struct {
 
 	raftMu sync.RWMutex
 	raft   *raftNode
+
+	produceBatcher *raftProduceBatcher
+	commitBatcher  *raftCommitBatcher
 }
 
 type ProduceResult struct {
@@ -68,13 +71,15 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		return nil, err
 	}
 	b := &Broker{
-		cfg:        cfg,
-		log:        logStore,
-		meta:       metaStore,
-		router:     newPartitionRouter(),
-		events:     eventx.New(),
-		logger:     slog.Default(),
-		topicCache: topicCache,
+		cfg:            cfg,
+		log:            logStore,
+		meta:           metaStore,
+		router:         newPartitionRouter(),
+		events:         eventx.New(),
+		logger:         slog.Default(),
+		topicCache:     topicCache,
+		produceBatcher: newRaftProduceBatcher(),
+		commitBatcher:  newRaftCommitBatcher(),
 	}
 	b.queue = queue.New(logStore, metaStore)
 	b.direct = direct.New(logStore, metaStore)

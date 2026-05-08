@@ -137,3 +137,45 @@ func readSegmentRecord(rootDir, relativePath string, position int64, length int)
 	}
 	return record, nil
 }
+
+func readSegmentRecords(rootDir, relativePath string, pointers []segmentRecordPointer) ([]Record, error) {
+	root, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return nil, wrapExternal(err, "open segment root")
+	}
+	file, err := root.Open(relativePath)
+	if err != nil {
+		return nil, errors.Join(wrapExternal(err, "open segment file"), wrapExternal(root.Close(), "close segment root"))
+	}
+	records := make([]Record, 0, len(pointers))
+	for _, pointer := range pointers {
+		record, readErr := readSegmentPointer(file, pointer)
+		if readErr != nil {
+			return nil, errors.Join(readErr, wrapExternal(errors.Join(file.Close(), root.Close()), "close segment file"))
+		}
+		records = append(records, record)
+	}
+	closeErr := errors.Join(file.Close(), root.Close())
+	if closeErr != nil {
+		return nil, wrapExternal(closeErr, "close segment file")
+	}
+	return records, nil
+}
+
+func readSegmentPointer(file *os.File, pointer segmentRecordPointer) (Record, error) {
+	if pointer.Length < segmentFrameHeader {
+		return Record{}, E(CodeCodec, "segment frame length %d is too small", pointer.Length)
+	}
+	frame := make([]byte, pointer.Length)
+	if err := readSegmentFrameAt(file, frame, pointer.Position); err != nil {
+		return Record{}, err
+	}
+	record, err := decodeSegmentFrame(frame)
+	if err != nil {
+		return Record{}, err
+	}
+	if record.Offset != pointer.Offset {
+		return Record{}, E(CodeCodec, "segment record offset mismatch: index=%d record=%d", pointer.Offset, record.Offset)
+	}
+	return record, nil
+}

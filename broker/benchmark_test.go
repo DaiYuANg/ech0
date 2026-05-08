@@ -43,7 +43,7 @@ func BenchmarkBrokerPublishFetchCommitMemory1KB(b *testing.B) {
 		if _, err := br.Publish(ctx, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0}, nil, false, payload); err != nil {
 			b.Fatal(err)
 		}
-		poll, err := br.Fetch("consumer", "orders", 0, nil, 1)
+		poll, err := br.Fetch(ctx, "consumer", "orders", 0, nil, 1)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -140,7 +140,7 @@ func benchmarkRequestReplyRoundTrip(ctx context.Context, b *testing.B, br *broke
 		Partitioning: broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0},
 	})
 	mustBenchmarkNoError(b, err)
-	requests, err := br.FetchRequests("workers", "svc.echo", 0, nil, 1)
+	requests, err := br.FetchRequests(ctx, "workers", "svc.echo", 0, nil, 1)
 	mustBenchmarkNoError(b, err)
 	if len(requests.Requests) != 1 {
 		b.Fatalf("expected one request at iteration %d, got %d", iteration, len(requests.Requests))

@@ -19,6 +19,7 @@ type benchConfig struct {
 	activeConsumers uint32
 	duration        time.Duration
 	payloadBytes    int
+	batchSize       int
 	fetchBatch      int
 	pollIdle        time.Duration
 	samples         int
@@ -34,6 +35,7 @@ func parseFlags() benchConfig {
 	uint32Var(&cfg.consumers, "consumers", 4, "consumer goroutines, capped to partition count")
 	flag.DurationVar(&cfg.duration, "duration", 30*time.Second, "stress test duration")
 	flag.IntVar(&cfg.payloadBytes, "payload-bytes", 1024, "message payload size")
+	flag.IntVar(&cfg.batchSize, "batch-size", 1, "records per produce request")
 	flag.IntVar(&cfg.fetchBatch, "fetch-batch", 128, "max records per fetch")
 	flag.DurationVar(&cfg.pollIdle, "poll-idle", time.Millisecond, "sleep duration after an empty fetch")
 	flag.IntVar(&cfg.samples, "samples", 200000, "max latency samples kept in memory")
@@ -63,6 +65,9 @@ func validateBenchConfig(cfg benchConfig) error {
 	}
 	if cfg.payloadBytes <= 0 {
 		return errors.New("payload-bytes must be greater than zero")
+	}
+	if cfg.batchSize <= 0 {
+		return errors.New("batch-size must be greater than zero")
 	}
 	if cfg.fetchBatch <= 0 {
 		return errors.New("fetch-batch must be greater than zero")

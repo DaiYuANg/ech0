@@ -14,11 +14,36 @@ type produceBatchCommand struct {
 	Records      []store.RecordAppend
 }
 
+type produceBatchesCommand struct {
+	Requests []produceBatchCommand
+}
+
+type produceBatchItemResult struct {
+	Result ProduceBatchResult
+	Error  string
+}
+
+type produceBatchesResult struct {
+	Items []produceBatchItemResult
+}
+
 type commitOffsetCommand struct {
 	Consumer   string
 	Topic      string
 	Partition  uint32
 	NextOffset uint64
+}
+
+type commitOffsetsCommand struct {
+	Requests []commitOffsetCommand
+}
+
+type commitOffsetItemResult struct {
+	Error string
+}
+
+type commitOffsetsResult struct {
+	Items []commitOffsetItemResult
 }
 
 type directCommand struct {

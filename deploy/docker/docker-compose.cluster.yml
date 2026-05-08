@@ -12,6 +12,7 @@ services:
     restart: unless-stopped
     environment:
       ECH0_BROKER__DATA_DIR: /app/data
+      ECH0_RAFT__COMMIT_TIMEOUT_MS: ${ECH0_RAFT_COMMIT_TIMEOUT_MS:-50}
     volumes:
       - ./configs/cluster/node1.toml:/app/config/ech0.toml:ro
       - ${ECH0_CLUSTER_DATA_ROOT:-./data/cluster}/node1:/app/data
@@ -33,6 +34,7 @@ services:
     restart: unless-stopped
     environment:
       ECH0_BROKER__DATA_DIR: /app/data
+      ECH0_RAFT__COMMIT_TIMEOUT_MS: ${ECH0_RAFT_COMMIT_TIMEOUT_MS:-50}
     volumes:
       - ./configs/cluster/node2.toml:/app/config/ech0.toml:ro
       - ${ECH0_CLUSTER_DATA_ROOT:-./data/cluster}/node2:/app/data
@@ -54,6 +56,7 @@ services:
     restart: unless-stopped
     environment:
       ECH0_BROKER__DATA_DIR: /app/data
+      ECH0_RAFT__COMMIT_TIMEOUT_MS: ${ECH0_RAFT_COMMIT_TIMEOUT_MS:-50}
     volumes:
       - ./configs/cluster/node3.toml:/app/config/ech0.toml:ro
       - ${ECH0_CLUSTER_DATA_ROOT:-./data/cluster}/node3:/app/data

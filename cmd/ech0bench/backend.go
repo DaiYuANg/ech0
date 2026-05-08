@@ -10,9 +10,15 @@ import (
 type benchBroker interface {
 	CreateTopic(ctx context.Context, name string, partitions uint32) error
 	Publish(ctx context.Context, topic string, payload, key []byte) (benchMessage, error)
+	PublishBatch(ctx context.Context, topic string, partition uint32, records []benchPublishRecord) ([]benchMessage, error)
 	Fetch(ctx context.Context, consumer, topic string, partition uint32, maxRecords int) (benchFetchResult, error)
 	Commit(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64) error
 	Close(ctx context.Context) error
+}
+
+type benchPublishRecord struct {
+	Payload []byte
+	Key     []byte
 }
 
 type benchMessage struct {
@@ -42,6 +48,22 @@ func (b *embeddedBenchBroker) Publish(ctx context.Context, topic string, payload
 		return benchMessage{}, fmt.Errorf("embedded publish: %w", err)
 	}
 	return benchMessage{Payload: msg.Payload, NextOffset: msg.NextOffset}, nil
+}
+
+func (b *embeddedBenchBroker) PublishBatch(ctx context.Context, topic string, partition uint32, records []benchPublishRecord) ([]benchMessage, error) {
+	payloads := make([][]byte, 0, len(records))
+	for _, record := range records {
+		payloads = append(payloads, record.Payload)
+	}
+	messages, err := b.mq.PublishBatch(ctx, topic, payloads, ech0.Partition(partition))
+	if err != nil {
+		return nil, fmt.Errorf("embedded publish batch: %w", err)
+	}
+	out := make([]benchMessage, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, benchMessage{Payload: msg.Payload, NextOffset: msg.NextOffset})
+	}
+	return out, nil
 }
 
 func (b *embeddedBenchBroker) Fetch(ctx context.Context, consumer, topic string, partition uint32, maxRecords int) (benchFetchResult, error) {

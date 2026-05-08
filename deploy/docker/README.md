@@ -22,6 +22,12 @@ Use a separate cluster data root for clean benchmark or test runs:
 ECH0_CLUSTER_DATA_ROOT=./data/bench-cluster docker compose -f docker-compose.cluster.yml up -d --build
 ```
 
+Override the raft commit timeout for latency experiments:
+
+```sh
+ECH0_CLUSTER_DATA_ROOT=./data/bench-cluster ECH0_RAFT_COMMIT_TIMEOUT_MS=5 docker compose -f docker-compose.cluster.yml up -d --build
+```
+
 ## Release Image
 
 These examples use the published image instead of building locally:

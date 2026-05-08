@@ -68,8 +68,9 @@ func runWorkers(ctx context.Context, mq benchBroker, cfg benchConfig) benchRunRe
 
 	for id := range cfg.producers {
 		producerID := id
+		partition := producerID % cfg.partitions
 		workers.Go(func() {
-			runProducer(ctx, mq, cfg.topic, producerID, payload, counters, publishLatencies)
+			runProducer(ctx, mq, cfg, producerID, partition, payload, counters, publishLatencies)
 		})
 	}
 	activeConsumers := min(cfg.consumers, cfg.partitions)

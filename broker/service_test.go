@@ -68,7 +68,7 @@ func TestBrokerRequestReplyRoutesToOriginInstance(t *testing.T) {
 		t.Fatalf("expected reply inbox to be scoped to A1, got %q", pending.ReplyTo)
 	}
 
-	requests, err := b.FetchRequests("svc-workers", "svc.echo", 0, nil, 1)
+	requests, err := b.FetchRequests(ctx, "svc-workers", "svc.echo", 0, nil, 1)
 	requireNoError(t, err)
 	if len(requests.Requests) != 1 {
 		t.Fatalf("expected one request, got %#v", requests)
@@ -186,7 +186,7 @@ func publishOrder(ctx context.Context, t *testing.T, b *broker.Broker, payload [
 
 func fetchTopic(t *testing.T, b *broker.Broker, consumer, topic string, offset *uint64, maxRecords int) store.PollResult {
 	t.Helper()
-	poll, err := b.Fetch(consumer, topic, 0, offset, maxRecords)
+	poll, err := b.Fetch(context.Background(), consumer, topic, 0, offset, maxRecords)
 	requireNoError(t, err)
 	return poll
 }

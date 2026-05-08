@@ -20,6 +20,7 @@ type StorxLogOptions struct {
 	Compression SegmentCompression
 	Logger      *slog.Logger
 	Observers   []observer.Observer
+	Metrics     StoreMetrics
 }
 
 func (o StorxLogOptions) normalize() (StorxLogOptions, error) {

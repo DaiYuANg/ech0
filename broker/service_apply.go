@@ -7,6 +7,7 @@ import (
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/store"
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	collectionset "github.com/arcgolabs/collectionx/set"
 )
 
@@ -88,6 +89,53 @@ func (b *Broker) recordBatchProduce(ctx context.Context, req produceBatchCommand
 func (b *Broker) applyCommitOffset(ctx context.Context, req commitOffsetCommand) (struct{}, error) {
 	_ = ctx
 	return struct{}{}, wrapBroker("commit_offset_failed", b.queue.Ack(req.Consumer, req.Topic, req.Partition, req.NextOffset), "commit offset")
+}
+
+type commitOffsetApplyKey struct {
+	consumer  string
+	topic     string
+	partition uint32
+}
+
+func (b *Broker) applyCommitOffsets(ctx context.Context, req commitOffsetsCommand) (commitOffsetsResult, error) {
+	compacted := compactCommitOffsetCommands(req.Requests)
+	errorsByKey := collectionmapping.NewMap[commitOffsetApplyKey, string]()
+	compacted.Range(func(key commitOffsetApplyKey, command commitOffsetCommand) bool {
+		_, err := b.applyCommitOffset(ctx, command)
+		if err != nil {
+			errorsByKey.Set(key, err.Error())
+		}
+		return true
+	})
+
+	items := collectionlist.NewListWithCapacity[commitOffsetItemResult](len(req.Requests))
+	for _, command := range req.Requests {
+		items.Add(commitOffsetItemResult{Error: errorsByKey.GetOrDefault(commitOffsetKey(command), "")})
+	}
+	return commitOffsetsResult{Items: items.Values()}, nil
+}
+
+func compactCommitOffsetCommands(commands []commitOffsetCommand) *collectionmapping.Map[commitOffsetApplyKey, commitOffsetCommand] {
+	compacted := collectionmapping.NewMapWithCapacity[commitOffsetApplyKey, commitOffsetCommand](len(commands))
+	for _, command := range commands {
+		key := commitOffsetKey(command)
+		existing, ok := compacted.Get(key)
+		if !ok || command.NextOffset > existing.NextOffset {
+			compacted.Set(key, command)
+		}
+	}
+	return compacted
+}
+
+func commitOffsetKey(command commitOffsetCommand) commitOffsetApplyKey {
+	return commitOffsetApplyKey{consumer: command.Consumer, topic: command.Topic, partition: command.Partition}
+}
+
+func errorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (b *Broker) applyDirectSend(ctx context.Context, req directCommand) (direct.SendResult, error) {

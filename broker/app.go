@@ -46,6 +46,7 @@ func NewApp(cfg Config) (*dix.App, error) {
 				return store.OpenStorxLogStoreWithOptions(cfg.SegmentLogPath(), store.StorxLogOptions{
 					Logger:    logger,
 					Observers: []store.StorxObserver{newStorageMetricsObserver(metrics)},
+					Metrics:   metrics,
 				})
 			}),
 			dix.ProviderErr3(func(cfg Config, logger *slog.Logger, metrics *MetricsRuntime) (*store.StorxMetadataStore, error) {

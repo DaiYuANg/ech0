@@ -47,6 +47,8 @@ Raft stores its own logs and snapshots under the configured data directory. Brok
 
 `raft.bind_addr` is the local listen address and may use `0.0.0.0` in containers. The current node's matching entry in `raft.cluster` is used as the Raft advertised address, so cluster entries should use routable peer addresses such as Docker service names.
 
+`raft.commit_timeout_ms` controls HashiCorp Raft's commit flush interval. The default is `50`. Lower values can reduce low-throughput write latency but may reduce Raft's ability to batch append entries efficiently. In Docker examples it can be overridden with `ECH0_RAFT_COMMIT_TIMEOUT_MS`.
+
 When a node is not leader, mutating commands return a not-leader error. Scheduled jobs use a gocron distributed elector and only run on the current leader.
 
 ## Scheduled Jobs
@@ -77,6 +79,8 @@ Admin and OpenAPI use `arcgolabs/httpx` for the HTTP surface while the default s
 Metrics are exposed through the admin server and are wired through the broker metrics package. The project uses the arcgolabs observability stack where it fits the runtime surface.
 
 Current metric coverage includes broker/runtime counters, stream gauges, cleanup counters, produce counters, and storx storage operation metrics. Storage metrics are emitted from `storx/observer` and include operation count, error count, and duration labels for engine, target type, target, operation, and status.
+
+Hot-path performance metrics include broker command duration, raft proposal duration, raft store duration, FSM duration, fetch duration, store append duration, and store read duration. They are intended for short benchmark and load-test runs where stage-level labels are useful for locating bottlenecks.
 
 ## Docker
 

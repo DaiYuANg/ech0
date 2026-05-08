@@ -12,6 +12,7 @@ services:
     restart: unless-stopped
     environment:
       ECH0_BROKER__DATA_DIR: /app/data
+      ECH0_RAFT__COMMIT_TIMEOUT_MS: ${ECH0_RAFT_COMMIT_TIMEOUT_MS:-50}
     volumes:
       - ./configs/single/ech0.toml:/app/config/ech0.toml:ro
       - ./data/single:/app/data

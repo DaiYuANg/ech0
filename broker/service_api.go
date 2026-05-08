@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"time"
 
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/store"
@@ -22,6 +23,16 @@ func (b *Broker) Publish(ctx context.Context, topic string, partitioning Publish
 }
 
 func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning PublishPartitioning, record store.RecordAppend) (ProduceResult, error) {
+	if b.hasRaftNode() {
+		batch, err := b.PublishBatch(ctx, topic, partitioning, []store.RecordAppend{record})
+		if err != nil {
+			return ProduceResult{}, err
+		}
+		if len(batch.Records) == 0 {
+			return ProduceResult{}, brokerStoreError(store.CodeCodec, "raft produce batch returned no records")
+		}
+		return ProduceResult{Partition: batch.Partition, Record: batch.Records[0]}, nil
+	}
 	req := produceCommand{Topic: topic, Partitioning: partitioning, Record: cloneAppend(record)}
 	return proposeOrApply(ctx, b, raftCommandProduce, req, b.applyProduce)
 }
@@ -32,14 +43,24 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning Pu
 		copied.Add(cloneAppend(record))
 	}
 	req := produceBatchCommand{Topic: topic, Partitioning: partitioning, Records: copied.Values()}
+	if b.hasRaftNode() {
+		return b.proposeProduceBatchCoalesced(ctx, req)
+	}
 	return proposeOrApply(ctx, b, raftCommandProduceBatch, req, b.applyProduceBatch)
 }
 
-func (b *Broker) Fetch(consumer, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
+func (b *Broker) Fetch(ctx context.Context, consumer, topic string, partition uint32, offset *uint64, maxRecords int) (poll store.PollResult, err error) {
+	const operation = "fetch"
+	totalStart := time.Now()
+	defer func() {
+		b.recordFetchStage(ctx, operation, "total", len(poll.Records), totalStart, err)
+	}()
 	if maxRecords <= 0 || maxRecords > b.cfg.Broker.MaxFetchRecords {
 		maxRecords = b.cfg.Broker.MaxFetchRecords
 	}
-	poll, err := b.queue.Fetch(consumer, topic, partition, offset, maxRecords)
+	fetchStart := time.Now()
+	poll, err = b.queue.Fetch(consumer, topic, partition, offset, maxRecords)
+	b.recordFetchStage(ctx, operation, "queue_fetch", len(poll.Records), fetchStart, err)
 	if err != nil {
 		return store.PollResult{}, wrapBroker("queue_fetch_failed", err, "fetch records")
 	}
@@ -48,6 +69,9 @@ func (b *Broker) Fetch(consumer, topic string, partition uint32, offset *uint64,
 
 func (b *Broker) CommitOffset(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64) error {
 	req := commitOffsetCommand{Consumer: consumer, Topic: topic, Partition: partition, NextOffset: nextOffset}
+	if b.hasRaftNode() {
+		return b.proposeCommitOffsetCoalesced(ctx, req)
+	}
 	_, err := proposeOrApply(ctx, b, raftCommandCommitOffset, req, b.applyCommitOffset)
 	return err
 }
@@ -112,10 +136,10 @@ func (b *Broker) GetConsumerGroupAssignment(group string) (*store.ConsumerGroupA
 	return assignment, nil
 }
 
-func (b *Broker) FetchConsumerGroup(group, memberID string, generation uint64, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
+func (b *Broker) FetchConsumerGroup(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
 	_ = memberID
 	_ = generation
-	return b.Fetch(groupConsumer(group), topic, partition, offset, maxRecords)
+	return b.Fetch(ctx, groupConsumer(group), topic, partition, offset, maxRecords)
 }
 
 func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, nextOffset uint64) error {

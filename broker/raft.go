@@ -15,23 +15,6 @@ import (
 	hashiraft "github.com/hashicorp/raft"
 )
 
-const (
-	raftCommandCreateTopic    = "create_topic"
-	raftCommandProduce        = "produce"
-	raftCommandProduceBatch   = "produce_batch"
-	raftCommandCommitOffset   = "commit_offset"
-	raftCommandDirectSend     = "direct_send"
-	raftCommandDirectAck      = "direct_ack"
-	raftCommandJoinGroup      = "join_group"
-	raftCommandHeartbeatGroup = "heartbeat_group"
-	raftCommandRebalanceGroup = "rebalance_group"
-)
-
-type raftCommand struct {
-	Type    string         `json:"type"`
-	Payload jsonRawMessage `json:"payload"`
-}
-
 type raftNode struct {
 	cfg       Config
 	broker    *Broker
@@ -89,7 +72,7 @@ func openRaftResources(ctx context.Context, b *Broker) (*raftResources, error) {
 		return nil, wrapBroker("raft_transport_create_failed", err, "create raft transport")
 	}
 	resources := &raftResources{transport: transport}
-	if err := resources.openStores(ctx, raftDir); err != nil {
+	if err := resources.openStores(ctx, raftDir, b.metrics); err != nil {
 		return nil, err
 	}
 	return resources, nil
@@ -110,13 +93,13 @@ func raftAdvertiseAddress(cfg Config) (net.Addr, error) {
 	return advertise, nil
 }
 
-func (r *raftResources) openStores(ctx context.Context, raftDir string) error {
+func (r *raftResources) openStores(ctx context.Context, raftDir string, metrics *MetricsRuntime) error {
 	snapshots, err := hashiraft.NewFileSnapshotStore(filepath.Join(raftDir, "snapshots"), 2, io.Discard)
 	if err != nil {
 		return r.closeWith(wrapBroker("raft_snapshot_store_create_failed", err, "create raft snapshot store"))
 	}
 	r.snapshots = snapshots
-	bolt, err := openRaftBoltStore(ctx, filepath.Join(raftDir, "raft.db"))
+	bolt, err := openRaftBoltStore(ctx, filepath.Join(raftDir, "raft.db"), metrics)
 	if err != nil {
 		return r.closeWith(wrapBroker("raft_bolt_store_create_failed", err, "create raft bolt store"))
 	}
@@ -130,7 +113,7 @@ func raftRuntimeConfig(cfg Config) *hashiraft.Config {
 	conf.HeartbeatTimeout = durationFromMillis(cfg.Raft.HeartbeatIntervalMS)
 	conf.ElectionTimeout = durationFromMillis(cfg.Raft.ElectionTimeoutMaxMS)
 	conf.LeaderLeaseTimeout = conf.HeartbeatTimeout
-	conf.CommitTimeout = 50 * time.Millisecond
+	conf.CommitTimeout = durationFromMillis(cfg.Raft.CommitTimeoutMS)
 	return conf
 }
 
@@ -181,15 +164,39 @@ func (n *raftNode) Apply(ctx context.Context, commandType string, payload any) (
 	if err := n.validateApply(ctx); err != nil {
 		return nil, err
 	}
+	totalStart := time.Now()
+	var resultErr error
+	defer func() {
+		n.recordRaftStage(ctx, commandType, "total", totalStart, resultErr)
+	}()
+	encodeStart := time.Now()
 	encoded, err := encodeRaftCommand(commandType, payload)
+	n.recordRaftStage(ctx, commandType, "encode", encodeStart, err)
 	if err != nil {
+		resultErr = err
 		return nil, err
 	}
+	applyStart := time.Now()
 	future := n.raft.Apply(encoded, durationFromMillis(n.cfg.Raft.ApplyTimeoutMS))
 	if err := future.Error(); err != nil {
-		return nil, raftApplyError(err)
+		wrapped := raftApplyError(err)
+		n.recordRaftStage(ctx, commandType, "apply_wait", applyStart, wrapped)
+		resultErr = wrapped
+		return nil, wrapped
 	}
-	return raftApplyResponse(future.Response())
+	n.recordRaftStage(ctx, commandType, "apply_wait", applyStart, nil)
+	responseStart := time.Now()
+	value, responseErr := raftApplyResponse(future.Response())
+	n.recordRaftStage(ctx, commandType, "response", responseStart, responseErr)
+	resultErr = responseErr
+	return value, responseErr
+}
+
+func (n *raftNode) recordRaftStage(ctx context.Context, commandType, stage string, start time.Time, err error) {
+	if n == nil || n.broker == nil || n.broker.metrics == nil {
+		return
+	}
+	n.broker.metrics.RecordRaftStage(ctx, commandType, stage, time.Since(start), err)
 }
 
 func (n *raftNode) validateApply(ctx context.Context) error {

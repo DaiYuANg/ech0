@@ -58,6 +58,40 @@ func (b *tcpBenchBroker) Publish(ctx context.Context, topic string, payload, key
 	return benchMessage{Payload: payload, NextOffset: out.NextOffset}, nil
 }
 
+func (b *tcpBenchBroker) PublishBatch(ctx context.Context, topic string, partition uint32, records []benchPublishRecord) ([]benchMessage, error) {
+	protocolRecords := make([]protocol.ProduceBatchRecord, 0, len(records))
+	for _, record := range records {
+		protocolRecords = append(protocolRecords, protocol.ProduceBatchRecord{
+			Key:     record.Key,
+			Payload: record.Payload,
+		})
+	}
+	var out protocol.ProduceBatchResponse
+	err := b.roundTrip(
+		ctx,
+		protocol.CmdProduceBatchRequest,
+		protocol.CmdProduceBatchResponse,
+		protocol.ProduceBatchRequest{
+			Topic:        topic,
+			Partition:    &partition,
+			Partitioning: protocol.ProducePartitioningExplicit,
+			Records:      protocolRecords,
+		},
+		&out,
+	)
+	if err != nil {
+		return nil, err
+	}
+	messages := make([]benchMessage, 0, out.Appended)
+	for idx := range out.Appended {
+		messages = append(messages, benchMessage{
+			Payload:    records[idx].Payload,
+			NextOffset: out.BaseOffset + uint64(idx) + 1,
+		})
+	}
+	return messages, nil
+}
+
 func (b *tcpBenchBroker) Fetch(ctx context.Context, consumer, topic string, partition uint32, maxRecords int) (benchFetchResult, error) {
 	var out protocol.FetchResponse
 	err := b.roundTrip(

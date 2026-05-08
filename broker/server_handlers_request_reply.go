@@ -28,12 +28,12 @@ func (s *TCPServer) handleStartRequestFrame(ctx context.Context, frame transport
 	return okFrame(protocol.CmdStartRequestResponse, startRequestResponseFromBroker(pending))
 }
 
-func (s *TCPServer) handleFetchRequestsFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+func (s *TCPServer) handleFetchRequestsFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	var req protocol.FetchRequestsRequest
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	result, err := s.broker.FetchRequests(req.Consumer, req.Subject, req.Partition, req.Offset, req.MaxRecords)
+	result, err := s.broker.FetchRequests(ctx, req.Consumer, req.Subject, req.Partition, req.Offset, req.MaxRecords)
 	if err != nil {
 		return errorFromErr(err), nil
 	}

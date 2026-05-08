@@ -138,12 +138,12 @@ func (s *TCPServer) handleProduceBatchFrame(ctx context.Context, frame transport
 	})
 }
 
-func (s *TCPServer) handleFetchFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+func (s *TCPServer) handleFetchFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	var req protocol.FetchRequest
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	poll, err := s.broker.Fetch(req.Consumer, req.Topic, req.Partition, req.Offset, req.MaxRecords)
+	poll, err := s.broker.Fetch(ctx, req.Consumer, req.Topic, req.Partition, req.Offset, req.MaxRecords)
 	if err != nil {
 		return errorFromErr(err), nil
 	}
@@ -156,14 +156,14 @@ func (s *TCPServer) handleFetchFrame(_ context.Context, frame transport.Frame) (
 	})
 }
 
-func (s *TCPServer) handleFetchBatchFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+func (s *TCPServer) handleFetchBatchFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	var req protocol.FetchBatchRequest
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
 	items := collectionlist.NewListWithCapacity[protocol.FetchBatchItemResponse](len(req.Items))
 	for _, item := range req.Items {
-		poll, err := s.broker.Fetch(req.Consumer, item.Topic, item.Partition, item.Offset, item.MaxRecords)
+		poll, err := s.broker.Fetch(ctx, req.Consumer, item.Topic, item.Partition, item.Offset, item.MaxRecords)
 		if err != nil {
 			return errorFromErr(err), nil
 		}

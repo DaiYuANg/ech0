@@ -20,6 +20,9 @@ func (s *StorxLogStore) Restore(snapshot Snapshot) error {
 }
 
 func (s *StorxLogStore) clearLogStorage() error {
+	if err := s.closeSegmentWriters(); err != nil {
+		return err
+	}
 	if err := s.clearLogIndexes(); err != nil {
 		return err
 	}

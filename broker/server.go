@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"time"
 
 	"github.com/DaiYuANg/ech0/protocol"
 	"github.com/DaiYuANg/ech0/transport"
@@ -167,12 +168,21 @@ func (s *TCPServer) handleConnFrame(ctx context.Context, conn net.Conn) bool {
 		s.logReadFrameError(err)
 		return false
 	}
+	handleStart := time.Now()
 	response, err := s.HandleFrame(ctx, frame)
 	if err != nil {
 		response = errorFrame("internal_error", err.Error())
 	}
+	s.metrics.RecordCommandDuration(ctx, frame.Header.Command, time.Since(handleStart), commandStatus(response))
 	s.recordCommandError(ctx, response)
 	return s.writeResponseFrame(conn, response)
+}
+
+func commandStatus(response transport.Frame) string {
+	if response.Header.Status == transport.StatusError || response.Header.Command == protocol.CmdErrorResponse {
+		return "error"
+	}
+	return "ok"
 }
 
 func (s *TCPServer) logReadFrameError(err error) {

@@ -2,67 +2,82 @@ package store
 
 import (
 	"context"
+	"time"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/arcgolabs/storx/badgerx"
 )
 
-func (s *StorxLogStore) AppendRecordsBatch(topicPartition TopicPartition, records []RecordAppend) ([]Record, error) {
-	out := collectionlist.NewListWithCapacity[Record](len(records))
-	for _, record := range records {
-		appended, err := s.AppendRecord(topicPartition, record)
-		if err != nil {
-			return nil, err
-		}
-		out.Add(appended)
-	}
-	return out.Values(), nil
-}
-
-func (s *StorxLogStore) ReadFrom(topicPartition TopicPartition, offset uint64, maxRecords int) ([]Record, error) {
+func (s *StorxLogStore) ReadFrom(topicPartition TopicPartition, offset uint64, maxRecords int) (out []Record, err error) {
+	const operation = "read_from"
+	totalStart := time.Now()
+	defer func() {
+		s.recordReadStage(operation, "total", len(out), totalStart, err)
+	}()
 	if maxRecords <= 0 {
 		return nil, nil
 	}
-	if _, err := s.loadTopicForPartition(topicPartition); err != nil {
+	topicStart := time.Now()
+	_, err = s.loadTopicForPartition(topicPartition)
+	s.recordReadStage(operation, "load_topic", 0, topicStart, err)
+	if err != nil {
 		return nil, err
 	}
 	prefix, err := recordIndexPrefix(topicPartition)
 	if err != nil {
 		return nil, err
 	}
+	indexStart := time.Now()
 	entries, err := s.records.List(
 		context.Background(),
 		badgerx.WithPrefix[recordIndexKey](prefix),
 		badgerx.WithStart(recordKey(topicPartition, offset)),
 		badgerx.WithLimit[recordIndexKey](maxRecords),
 	)
+	s.recordReadStage(operation, "index_list", len(entries), indexStart, err)
 	if err != nil {
 		return nil, wrapExternal(err, "list segment record indexes")
 	}
-	return s.recordsFromPointers(entries)
+	readStart := time.Now()
+	out, err = s.recordsFromPointers(entries)
+	s.recordReadStage(operation, "read_segments", len(out), readStart, err)
+	return out, err
 }
 
-func (s *StorxLogStore) ReadPage(topicPartition TopicPartition, cursor string, maxRecords int) (RecordPage, error) {
+func (s *StorxLogStore) ReadPage(topicPartition TopicPartition, cursor string, maxRecords int) (out RecordPage, err error) {
+	const operation = "read_page"
+	totalStart := time.Now()
+	defer func() {
+		s.recordReadStage(operation, "total", len(out.Records), totalStart, err)
+	}()
 	if maxRecords <= 0 {
 		return RecordPage{}, nil
 	}
-	if _, err := s.loadTopicForPartition(topicPartition); err != nil {
+	topicStart := time.Now()
+	_, err = s.loadTopicForPartition(topicPartition)
+	s.recordReadStage(operation, "load_topic", 0, topicStart, err)
+	if err != nil {
 		return RecordPage{}, err
 	}
 	prefix, err := recordIndexPrefix(topicPartition)
 	if err != nil {
 		return RecordPage{}, err
 	}
+	pageStart := time.Now()
 	page, err := s.records.Page(
 		context.Background(),
 		cursor,
 		badgerx.WithPrefix[recordIndexKey](prefix),
 		badgerx.WithLimit[recordIndexKey](maxRecords),
 	)
+	s.recordReadStage(operation, "index_page", len(page.Entries), pageStart, err)
 	if err != nil {
 		return RecordPage{}, wrapExternal(err, "page segment record index")
 	}
+	readStart := time.Now()
 	records, err := s.recordsFromPointers(page.Entries)
+	s.recordReadStage(operation, "read_segments", len(records), readStart, err)
 	if err != nil {
 		return RecordPage{}, err
 	}
@@ -74,15 +89,45 @@ func (s *StorxLogStore) ReadPage(topicPartition TopicPartition, cursor string, m
 }
 
 func (s *StorxLogStore) recordsFromPointers(entries []badgerx.Entry[recordIndexKey, segmentRecordPointer]) ([]Record, error) {
-	out := collectionlist.NewListWithCapacity[Record](len(entries))
-	for _, entry := range entries {
-		record, err := s.readPointer(entry.Value)
-		if err != nil {
-			return nil, err
-		}
-		out.Add(cloneRecord(record))
+	pointers := make([]segmentRecordPointer, len(entries))
+	for index, entry := range entries {
+		pointers[index] = entry.Value
 	}
-	return out.Values(), nil
+	return s.readPointers(pointers)
+}
+
+func (s *StorxLogStore) readPointers(pointers []segmentRecordPointer) ([]Record, error) {
+	out := make([]Record, len(pointers))
+	groups := collectionmapping.NewMap[string, []int]()
+	for index, pointer := range pointers {
+		tp := NewTopicPartition(pointer.Topic, pointer.Partition)
+		relativePath := s.segmentRelativePath(tp, pointer.SegmentID)
+		groups.Set(relativePath, append(groups.GetOrDefault(relativePath, nil), index))
+	}
+	var resultErr error
+	groups.Range(func(relativePath string, indexes []int) bool {
+		records, err := readSegmentRecords(s.segmentsDir, relativePath, segmentPointersAt(pointers, indexes))
+		if err != nil {
+			resultErr = err
+			return false
+		}
+		for recordIndex, pointerIndex := range indexes {
+			out[pointerIndex] = cloneRecord(records[recordIndex])
+		}
+		return true
+	})
+	if resultErr != nil {
+		return nil, resultErr
+	}
+	return out, nil
+}
+
+func segmentPointersAt(pointers []segmentRecordPointer, indexes []int) []segmentRecordPointer {
+	out := collectionlist.NewListWithCapacity[segmentRecordPointer](len(indexes))
+	for _, index := range indexes {
+		out.Add(pointers[index])
+	}
+	return out.Values()
 }
 
 func (s *StorxLogStore) readPointer(pointer segmentRecordPointer) (Record, error) {

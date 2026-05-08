@@ -2,24 +2,43 @@ package broker
 
 import (
 	"context"
+	"time"
 
 	"github.com/DaiYuANg/ech0/store"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 )
 
-func (b *Broker) applyRaftCommand(data []byte) (any, error) {
+func (b *Broker) applyRaftCommand(data []byte) (value any, err error) {
+	ctx := context.Background()
+	commandType := "unknown"
+	totalStart := time.Now()
+	defer func() {
+		b.recordFSMStage(ctx, commandType, "total", totalStart, err)
+	}()
+
+	decodeStart := time.Now()
 	var cmd raftCommand
-	if err := unmarshalJSON(data, &cmd); err != nil {
-		return nil, wrapBroker("raft_command_decode_failed", err, "decode raft command")
+	decodeErr := unmarshalJSON(data, &cmd)
+	if decodeErr != nil {
+		err = wrapBroker("raft_command_decode_failed", decodeErr, "decode raft command")
+		b.recordFSMStage(ctx, commandType, "decode_envelope", decodeStart, err)
+		return nil, err
 	}
+	commandType = cmd.Type
+	b.recordFSMStage(ctx, commandType, "decode_envelope", decodeStart, nil)
 	handler, ok := b.raftCommandHandlers().Get(cmd.Type)
 	if !ok {
-		return nil, brokerStoreError(store.CodeCodec, "unknown raft command %s", cmd.Type)
+		err = brokerStoreError(store.CodeCodec, "unknown raft command %s", cmd.Type)
+		b.recordFSMStage(ctx, commandType, "dispatch", time.Now(), err)
+		return nil, err
 	}
-	return handler(context.Background(), cmd.Payload)
+	handlerStart := time.Now()
+	value, err = handler(ctx, b, cmd.Payload)
+	b.recordFSMStage(ctx, commandType, "handler", handlerStart, err)
+	return value, err
 }
 
-type raftCommandHandler func(context.Context, jsonRawMessage) (any, error)
+type raftCommandHandler func(context.Context, *Broker, jsonRawMessage) (any, error)
 
 func setRaftHandler[R any, T any](
 	handlers *collectionmapping.Map[string, raftCommandHandler],
@@ -27,8 +46,8 @@ func setRaftHandler[R any, T any](
 	apply func(context.Context, R) (T, error),
 	label string,
 ) {
-	handlers.Set(commandType, func(ctx context.Context, payload jsonRawMessage) (any, error) {
-		return decodeRaftCommand(ctx, payload, apply, label)
+	handlers.Set(commandType, func(ctx context.Context, broker *Broker, payload jsonRawMessage) (any, error) {
+		return decodeRaftCommand(ctx, broker, commandType, payload, apply, label)
 	})
 }
 
@@ -45,7 +64,9 @@ func (b *Broker) registerTopicRaftHandlers(handlers *collectionmapping.Map[strin
 	setRaftHandler(handlers, raftCommandCreateTopic, b.applyCreateTopic, "decode create topic command")
 	setRaftHandler(handlers, raftCommandProduce, b.applyProduce, "decode produce command")
 	setRaftHandler(handlers, raftCommandProduceBatch, b.applyProduceBatch, "decode produce batch command")
+	setRaftHandler(handlers, raftCommandProduceBatches, b.applyProduceBatches, "decode produce batches command")
 	setRaftHandler(handlers, raftCommandCommitOffset, b.applyCommitOffset, "decode commit offset command")
+	setRaftHandler(handlers, raftCommandCommitOffsets, b.applyCommitOffsets, "decode commit offsets command")
 }
 
 func (b *Broker) registerDirectRaftHandlers(handlers *collectionmapping.Map[string, raftCommandHandler]) {
@@ -66,12 +87,33 @@ func (b *Broker) registerRetryDelayRaftHandlers(handlers *collectionmapping.Map[
 	setRaftHandler(handlers, raftCommandProcessDelay, b.applyProcessDelayPartition, "decode process delay command")
 }
 
-func decodeRaftCommand[R any, T any](ctx context.Context, payload jsonRawMessage, apply func(context.Context, R) (T, error), label string) (any, error) {
+func decodeRaftCommand[R any, T any](
+	ctx context.Context,
+	broker *Broker,
+	commandType string,
+	payload jsonRawMessage,
+	apply func(context.Context, R) (T, error),
+	label string,
+) (any, error) {
+	decodeStart := time.Now()
 	var req R
 	if err := unmarshalJSON(payload, &req); err != nil {
-		return nil, wrapBroker("raft_payload_decode_failed", err, "%s", label)
+		wrapped := wrapBroker("raft_payload_decode_failed", err, "%s", label)
+		broker.recordFSMStage(ctx, commandType, "decode_payload", decodeStart, wrapped)
+		return nil, wrapped
 	}
-	return apply(ctx, req)
+	broker.recordFSMStage(ctx, commandType, "decode_payload", decodeStart, nil)
+	applyStart := time.Now()
+	value, err := apply(ctx, req)
+	broker.recordFSMStage(ctx, commandType, "apply", applyStart, err)
+	return value, err
+}
+
+func (b *Broker) recordFSMStage(ctx context.Context, commandType, stage string, start time.Time, err error) {
+	if b == nil || b.metrics == nil {
+		return
+	}
+	b.metrics.RecordFSMStage(ctx, commandType, stage, time.Since(start), err)
 }
 
 func proposeOrApply[T any, R any](ctx context.Context, b *Broker, commandType string, req R, apply func(context.Context, R) (T, error)) (T, error) {
@@ -86,6 +128,11 @@ func proposeOrApply[T any, R any](ctx context.Context, b *Broker, commandType st
 	if err != nil {
 		return zero, err
 	}
+	return raftValueAs[T](value)
+}
+
+func raftValueAs[T any](value any) (T, error) {
+	var zero T
 	typed, ok := value.(T)
 	if ok {
 		return typed, nil

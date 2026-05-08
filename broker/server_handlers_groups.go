@@ -124,12 +124,12 @@ func (s *TCPServer) handleGetConsumerGroupAssignmentFrame(_ context.Context, fra
 	})
 }
 
-func (s *TCPServer) handleFetchConsumerGroupFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+func (s *TCPServer) handleFetchConsumerGroupFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	var req protocol.FetchConsumerGroupRequest
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	poll, err := s.broker.FetchConsumerGroup(req.Group, req.MemberID, req.Generation, req.Topic, req.Partition, req.Offset, req.MaxRecords)
+	poll, err := s.broker.FetchConsumerGroup(ctx, req.Group, req.MemberID, req.Generation, req.Topic, req.Partition, req.Offset, req.MaxRecords)
 	if err != nil {
 		return errorFromErr(err), nil
 	}
@@ -157,12 +157,12 @@ func (s *TCPServer) handleCommitConsumerGroupOffsetFrame(ctx context.Context, fr
 	return okFrame(protocol.CmdCommitConsumerGroupOffsetResponse, protocol.CommitConsumerGroupOffsetResponse(req))
 }
 
-func (s *TCPServer) handleFetchConsumerGroupBatchFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+func (s *TCPServer) handleFetchConsumerGroupBatchFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	var req protocol.FetchConsumerGroupBatchRequest
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	items, err := s.fetchConsumerGroupBatchItems(req)
+	items, err := s.fetchConsumerGroupBatchItems(ctx, req)
 	if err != nil {
 		return errorFromErr(err), nil
 	}
@@ -175,11 +175,12 @@ func (s *TCPServer) handleFetchConsumerGroupBatchFrame(_ context.Context, frame 
 }
 
 func (s *TCPServer) fetchConsumerGroupBatchItems(
+	ctx context.Context,
 	req protocol.FetchConsumerGroupBatchRequest,
 ) ([]protocol.FetchConsumerGroupBatchItemResponse, error) {
 	items := collectionlist.NewListWithCapacity[protocol.FetchConsumerGroupBatchItemResponse](len(req.Items))
 	for _, item := range req.Items {
-		poll, err := s.broker.FetchConsumerGroup(req.Group, req.MemberID, req.Generation, item.Topic, item.Partition, item.Offset, item.MaxRecords)
+		poll, err := s.broker.FetchConsumerGroup(ctx, req.Group, req.MemberID, req.Generation, item.Topic, item.Partition, item.Offset, item.MaxRecords)
 		if err != nil {
 			return nil, err
 		}

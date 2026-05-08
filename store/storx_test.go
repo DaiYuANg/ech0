@@ -92,6 +92,44 @@ func TestStorxLogReadPageUsesCursor(t *testing.T) {
 	}
 }
 
+func TestStorxLogAppendRecordsBatchPersistsAcrossSegmentRoll(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "segments", "log.bbolt")
+	st := openLogStore(t, logPath)
+	topic := store.NewTopicConfig("orders")
+	topic.SegmentMaxBytes = 1
+	requireNoError(t, st.CreateTopic(topic))
+	tp := store.NewTopicPartition("orders", 0)
+
+	appended, err := st.AppendRecordsBatch(tp, []store.RecordAppend{
+		{Payload: []byte("m1")},
+		{Payload: []byte("m2")},
+		{Payload: []byte("m3")},
+	})
+	requireNoError(t, err)
+	for index, record := range appended {
+		if record.Offset != uint64(index) {
+			t.Fatalf("unexpected appended offset at %d: %d", index, record.Offset)
+		}
+	}
+	requireNoError(t, st.Close())
+
+	st = openLogStore(t, logPath)
+	defer closeLogStore(t, st)
+	records, err := st.ReadFrom(tp, 0, 10)
+	requireNoError(t, err)
+	if len(records) != 3 ||
+		string(records[0].Payload) != "m1" ||
+		string(records[1].Payload) != "m2" ||
+		string(records[2].Payload) != "m3" {
+		t.Fatalf("unexpected records after batch append: %#v", records)
+	}
+	lastOffset, err := st.LastOffset(tp)
+	requireNoError(t, err)
+	if lastOffset == nil || *lastOffset != 2 {
+		t.Fatalf("unexpected last offset after batch append: %#v", lastOffset)
+	}
+}
+
 func TestStorxMetadataGroupMembersUseSecondaryIndexAfterReopen(t *testing.T) {
 	metaPath := filepath.Join(t.TempDir(), "meta", "metadata.bbolt")
 	metaStore := openMetadataStore(t, metaPath)

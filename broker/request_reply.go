@@ -75,8 +75,8 @@ func (b *Broker) AwaitReply(ctx context.Context, pending PendingRequest) (ReplyM
 	}
 }
 
-func (b *Broker) FetchRequests(consumer, subject string, partition uint32, offset *uint64, maxRecords int) (RequestPollResult, error) {
-	poll, err := b.Fetch(consumer, subject, partition, offset, maxRecords)
+func (b *Broker) FetchRequests(ctx context.Context, consumer, subject string, partition uint32, offset *uint64, maxRecords int) (RequestPollResult, error) {
+	poll, err := b.Fetch(ctx, consumer, subject, partition, offset, maxRecords)
 	if err != nil {
 		return RequestPollResult{}, err
 	}

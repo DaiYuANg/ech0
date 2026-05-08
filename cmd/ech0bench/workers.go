@@ -19,17 +19,22 @@ type benchCounters struct {
 func runProducer(
 	ctx context.Context,
 	mq benchBroker,
-	topic string,
+	cfg benchConfig,
 	producerID uint32,
+	partition uint32,
 	payload []byte,
 	counters *benchCounters,
 	latencies *latencyRecorder,
 ) {
+	if cfg.batchSize > 1 {
+		runBatchProducer(ctx, mq, cfg, producerID, partition, payload, counters, latencies)
+		return
+	}
 	sequence := uint64(0)
 	for ctx.Err() == nil {
 		key := []byte(strconv.FormatUint(uint64(producerID), 10) + "/" + strconv.FormatUint(sequence, 10))
 		start := time.Now()
-		msg, err := mq.Publish(ctx, topic, payload, key)
+		msg, err := mq.Publish(ctx, cfg.topic, payload, key)
 		elapsed := time.Since(start)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -43,6 +48,39 @@ func runProducer(
 		counters.produced.Add(1)
 		counters.producedBytes.Add(uint64(len(msg.Payload)))
 		sequence++
+	}
+}
+
+func runBatchProducer(
+	ctx context.Context,
+	mq benchBroker,
+	cfg benchConfig,
+	producerID uint32,
+	partition uint32,
+	payload []byte,
+	counters *benchCounters,
+	latencies *latencyRecorder,
+) {
+	sequence := uint64(0)
+	for ctx.Err() == nil {
+		records := benchmarkBatchRecords(producerID, sequence, payload, cfg.batchSize)
+		start := time.Now()
+		messages, err := mq.PublishBatch(ctx, cfg.topic, partition, records)
+		elapsed := time.Since(start)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			latencies.record(elapsed)
+			counters.publishErrors.Add(1)
+			continue
+		}
+		latencies.record(elapsed)
+		counters.produced.Add(uint64(len(messages)))
+		for _, msg := range messages {
+			counters.producedBytes.Add(uint64(len(msg.Payload)))
+		}
+		sequence += uint64(len(records))
 	}
 }
 
@@ -113,4 +151,14 @@ func benchmarkPayload(size int) []byte {
 		payload[i] = byte('a' + i%26)
 	}
 	return payload
+}
+
+func benchmarkBatchRecords(producerID uint32, baseSequence uint64, payload []byte, batchSize int) []benchPublishRecord {
+	records := make([]benchPublishRecord, 0, batchSize)
+	for idx := range batchSize {
+		sequence := baseSequence + uint64(idx)
+		key := []byte(strconv.FormatUint(uint64(producerID), 10) + "/" + strconv.FormatUint(sequence, 10))
+		records = append(records, benchPublishRecord{Payload: payload, Key: key})
+	}
+	return records
 }

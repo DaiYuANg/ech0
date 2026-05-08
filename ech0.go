@@ -145,15 +145,47 @@ func (b *Broker) Publish(ctx context.Context, topic string, payload []byte, opts
 	return messageFromRecord(topic, result.Partition, result.Record), nil
 }
 
+func (b *Broker) PublishBatch(ctx context.Context, topic string, payloads [][]byte, opts ...PublishOption) ([]Message, error) {
+	publishOpts := publishOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&publishOpts)
+		}
+	}
+	partitioning := internalbroker.PublishPartitioning{Mode: internalbroker.PartitionRoundRobin}
+	if publishOpts.partition != nil {
+		partitioning = internalbroker.PublishPartitioning{Mode: internalbroker.PartitionExplicit, Partition: *publishOpts.partition}
+	} else if len(publishOpts.key) > 0 {
+		partitioning = internalbroker.PublishPartitioning{Mode: internalbroker.PartitionKeyHash}
+	}
+	records := make([]store.RecordAppend, 0, len(payloads))
+	for _, payload := range payloads {
+		record := store.NewRecordAppend(payload)
+		record.Key = append([]byte(nil), publishOpts.key...)
+		if publishOpts.tombstone {
+			record.Attributes |= store.RecordAttributeTombstone
+		}
+		records = append(records, record)
+	}
+	result, err := b.broker.PublishBatch(ctx, topic, partitioning, records)
+	if err != nil {
+		return nil, oops.In("embedded").Code("publish_batch_failed").With("topic", topic).Wrapf(err, "publish message batch")
+	}
+	messages := make([]Message, 0, len(result.Records))
+	for _, record := range result.Records {
+		messages = append(messages, messageFromRecord(topic, result.Partition, record))
+	}
+	return messages, nil
+}
+
 func (b *Broker) Fetch(ctx context.Context, consumer, topic string, opts ...FetchOption) (FetchResult, error) {
-	_ = ctx
 	fetchOpts := fetchOptions{maxRecords: 100}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&fetchOpts)
 		}
 	}
-	poll, err := b.broker.Fetch(consumer, topic, fetchOpts.partition, fetchOpts.offset, fetchOpts.maxRecords)
+	poll, err := b.broker.Fetch(ctx, consumer, topic, fetchOpts.partition, fetchOpts.offset, fetchOpts.maxRecords)
 	if err != nil {
 		return FetchResult{}, oops.In("embedded").Code("fetch_failed").With("consumer", consumer, "topic", topic).Wrapf(err, "fetch messages")
 	}
