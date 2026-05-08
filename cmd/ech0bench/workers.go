@@ -5,8 +5,6 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
-
-	ech0 "github.com/DaiYuANg/ech0"
 )
 
 type benchCounters struct {
@@ -20,7 +18,7 @@ type benchCounters struct {
 
 func runProducer(
 	ctx context.Context,
-	mq *ech0.Broker,
+	mq benchBroker,
 	topic string,
 	producerID uint32,
 	payload []byte,
@@ -31,12 +29,17 @@ func runProducer(
 	for ctx.Err() == nil {
 		key := []byte(strconv.FormatUint(uint64(producerID), 10) + "/" + strconv.FormatUint(sequence, 10))
 		start := time.Now()
-		msg, err := mq.Publish(ctx, topic, payload, ech0.Key(key))
-		latencies.record(time.Since(start))
+		msg, err := mq.Publish(ctx, topic, payload, key)
+		elapsed := time.Since(start)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			latencies.record(elapsed)
 			counters.publishErrors.Add(1)
 			continue
 		}
+		latencies.record(elapsed)
 		counters.produced.Add(1)
 		counters.producedBytes.Add(uint64(len(msg.Payload)))
 		sequence++
@@ -45,7 +48,7 @@ func runProducer(
 
 func runConsumer(
 	ctx context.Context,
-	mq *ech0.Broker,
+	mq benchBroker,
 	cfg benchConfig,
 	partition uint32,
 	counters *benchCounters,
@@ -54,12 +57,17 @@ func runConsumer(
 	consumer := "ech0bench-" + strconv.FormatUint(uint64(partition), 10)
 	for ctx.Err() == nil {
 		start := time.Now()
-		batch, err := mq.Fetch(ctx, consumer, cfg.topic, ech0.FetchPartition(partition), ech0.FetchLimit(cfg.fetchBatch))
-		latencies.record(time.Since(start))
+		batch, err := mq.Fetch(ctx, consumer, cfg.topic, partition, cfg.fetchBatch)
+		elapsed := time.Since(start)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			latencies.record(elapsed)
 			counters.consumeErrors.Add(1)
 			continue
 		}
+		latencies.record(elapsed)
 		if len(batch.Messages) == 0 {
 			sleepIdle(ctx, cfg.pollIdle)
 			continue
@@ -70,15 +78,17 @@ func runConsumer(
 
 func commitBatch(
 	ctx context.Context,
-	mq *ech0.Broker,
+	mq benchBroker,
 	cfg benchConfig,
 	consumer string,
 	partition uint32,
-	batch ech0.FetchResult,
+	batch benchFetchResult,
 	counters *benchCounters,
 ) {
-	last := batch.Messages[len(batch.Messages)-1]
-	if err := mq.Commit(ctx, consumer, cfg.topic, partition, last.NextOffset); err != nil {
+	if err := mq.Commit(ctx, consumer, cfg.topic, partition, batch.NextOffset); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		counters.consumeErrors.Add(1)
 		return
 	}

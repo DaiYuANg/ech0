@@ -1,10 +1,12 @@
 package store_test
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
 	"github.com/DaiYuANg/ech0/store"
+	storxobserver "github.com/arcgolabs/storx/observer"
 )
 
 func TestStorxStoresPersistLogAndMetadata(t *testing.T) {
@@ -65,6 +67,66 @@ func requirePersistedTopic(t *testing.T, metaStore *store.StorxMetadataStore) {
 	requireNoError(t, err)
 	if len(topics) != 1 || topics[0].Name != "orders" {
 		t.Fatalf("unexpected topics after reopen: %#v", topics)
+	}
+}
+
+func TestStorxLogReadPageUsesCursor(t *testing.T) {
+	st := openLogStore(t, filepath.Join(t.TempDir(), "segments", "log.bbolt"))
+	defer closeLogStore(t, st)
+	topic := store.NewTopicConfig("orders")
+	requireNoError(t, st.CreateTopic(topic))
+	for _, payload := range []string{"m1", "m2", "m3"} {
+		_, err := st.Append(store.NewTopicPartition("orders", 0), []byte(payload))
+		requireNoError(t, err)
+	}
+
+	first, err := st.ReadPage(store.NewTopicPartition("orders", 0), "", 2)
+	requireNoError(t, err)
+	if !first.HasMore || first.NextCursor == "" || len(first.Records) != 2 {
+		t.Fatalf("unexpected first page: %#v", first)
+	}
+	second, err := st.ReadPage(store.NewTopicPartition("orders", 0), first.NextCursor, 2)
+	requireNoError(t, err)
+	if second.HasMore || len(second.Records) != 1 || string(second.Records[0].Payload) != "m3" {
+		t.Fatalf("unexpected second page: %#v", second)
+	}
+}
+
+func TestStorxMetadataGroupMembersUseSecondaryIndexAfterReopen(t *testing.T) {
+	metaPath := filepath.Join(t.TempDir(), "meta", "metadata.bbolt")
+	metaStore := openMetadataStore(t, metaPath)
+	requireNoError(t, metaStore.SaveGroupMember(store.ConsumerGroupMember{Group: "workers", MemberID: "worker-2", Topics: []string{"orders"}}))
+	requireNoError(t, metaStore.SaveGroupMember(store.ConsumerGroupMember{Group: "workers", MemberID: "worker-1", Topics: []string{"orders"}}))
+	requireNoError(t, metaStore.SaveGroupMember(store.ConsumerGroupMember{Group: "other", MemberID: "other-1", Topics: []string{"orders"}}))
+	requireNoError(t, metaStore.Close())
+
+	metaStore = openMetadataStore(t, metaPath)
+	defer closeMetadataStore(t, metaStore)
+	members, err := metaStore.ListGroupMembers("workers")
+	requireNoError(t, err)
+	if len(members) != 2 || members[0].MemberID != "worker-1" || members[1].MemberID != "worker-2" {
+		t.Fatalf("unexpected indexed group members: %#v", members)
+	}
+}
+
+func TestStorxObserverReceivesStorageEvents(t *testing.T) {
+	events := 0
+	obs := storxobserver.ObserverFunc(func(_ context.Context, event storxobserver.Event) {
+		if event.Engine == "badger" && event.TargetType == "namespace" {
+			events++
+		}
+	})
+	st, err := store.OpenStorxLogStoreWithOptions(
+		filepath.Join(t.TempDir(), "segments", "log.bbolt"),
+		store.StorxLogOptions{Observers: []store.StorxObserver{obs}},
+	)
+	requireNoError(t, err)
+	defer closeLogStore(t, st)
+	requireNoError(t, st.CreateTopic(store.NewTopicConfig("orders")))
+	_, err = st.Append(store.NewTopicPartition("orders", 0), []byte("m1"))
+	requireNoError(t, err)
+	if events == 0 {
+		t.Fatal("expected storx observer to receive events")
 	}
 }
 

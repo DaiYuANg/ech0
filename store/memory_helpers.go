@@ -1,6 +1,10 @@
 package store
 
-import "fmt"
+import (
+	"fmt"
+
+	collectionlist "github.com/arcgolabs/collectionx/list"
+)
 
 func offsetKey(consumer string, tp TopicPartition) string {
 	return fmt.Sprintf("%s\x00%s\x00%d", consumer, tp.Topic, tp.Partition)
@@ -64,11 +68,11 @@ func cloneHeaders(headers []RecordHeader) []RecordHeader {
 	if len(headers) == 0 {
 		return nil
 	}
-	out := make([]RecordHeader, len(headers))
-	for i, header := range headers {
-		out[i] = RecordHeader{Key: header.Key, Value: cloneBytes(header.Value)}
+	out := collectionlist.NewListWithCapacity[RecordHeader](len(headers))
+	for _, header := range headers {
+		out.Add(RecordHeader{Key: header.Key, Value: cloneBytes(header.Value)})
 	}
-	return out
+	return out.Values()
 }
 
 func cloneBytes(in []byte) []byte {

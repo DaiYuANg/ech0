@@ -39,7 +39,7 @@ builds:
       - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
 
 upx:
-  - enabled: '{{ eq (envOrDefault "ENABLE_UPX" "true") "true" }}'
+  - enabled: true
     ids:
       - ech0-linux
     goos:

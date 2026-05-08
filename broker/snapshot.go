@@ -22,7 +22,7 @@ func (b *Broker) snapshot() (store.Snapshot, error) {
 	if err != nil {
 		return store.Snapshot{}, oops.In("broker").Code("log_snapshot_failed").Wrapf(err, "snapshot log store")
 	}
-	if len(metaSnapshot.Topics) == 0 {
+	if metaSnapshot.Topics.IsEmpty() {
 		metaSnapshot.Topics = logSnapshot.Topics
 	}
 	metaSnapshot.Records = logSnapshot.Records

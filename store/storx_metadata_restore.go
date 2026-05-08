@@ -1,6 +1,11 @@
 package store
 
-import "context"
+import (
+	"context"
+
+	collectionlist "github.com/arcgolabs/collectionx/list"
+	"github.com/arcgolabs/storx/bboltx"
+)
 
 func (s *StorxMetadataStore) Restore(snapshot Snapshot) error {
 	if err := s.clearMetadataBuckets(); err != nil {
@@ -25,7 +30,7 @@ func (s *StorxMetadataStore) clearMetadataBuckets() error {
 	for _, bucket := range []interface{ Clear(context.Context) error }{
 		bucketClearer[string, TopicConfig]{s.topics},
 		bucketClearer[string, uint64]{s.offsets},
-		bucketClearer[string, ConsumerGroupMember]{s.members},
+		bucketClearer[string, ConsumerGroupMember]{s.members.Repository().Bucket()},
 		bucketClearer[string, ConsumerGroupAssignment]{s.assignments},
 		bucketClearer[string, BrokerState]{s.brokerState},
 	} {
@@ -33,46 +38,55 @@ func (s *StorxMetadataStore) clearMetadataBuckets() error {
 			return wrapExternal(err, "clear metadata bucket")
 		}
 	}
-	return nil
-}
-
-func (s *StorxMetadataStore) restoreMetadataTopics(topics []TopicConfig) error {
-	for i := range topics {
-		if err := s.SaveTopicConfig(topics[i]); err != nil {
-			return err
-		}
+	if err := s.members.RebuildIndexes(context.Background()); err != nil {
+		return wrapExternal(err, "clear group member indexes")
 	}
 	return nil
 }
 
-func (s *StorxMetadataStore) restoreMetadataOffsets(snapshot Snapshot) error {
-	var putErr error
-	snapshot.Offsets.Range(func(key string, offset uint64) bool {
-		if err := s.offsets.Put(context.Background(), key, offset); err != nil {
-			putErr = wrapExternal(err, "restore consumer offset")
+func (s *StorxMetadataStore) restoreMetadataTopics(topics collectionlist.List[TopicConfig]) error {
+	var resultErr error
+	topics.Range(func(_ int, topic TopicConfig) bool {
+		if err := s.SaveTopicConfig(topic); err != nil {
+			resultErr = err
 			return false
 		}
 		return true
 	})
-	return putErr
+	return resultErr
 }
 
-func (s *StorxMetadataStore) restoreMetadataMembers(members []ConsumerGroupMember) error {
-	for _, member := range members {
+func (s *StorxMetadataStore) restoreMetadataOffsets(snapshot Snapshot) error {
+	entries := collectionlist.NewListWithCapacity[bboltx.Entry[string, uint64]](snapshot.Offsets.Len())
+	snapshot.Offsets.Range(func(key string, offset uint64) bool {
+		entries.Add(bboltx.Entry[string, uint64]{Key: key, Value: offset})
+		return true
+	})
+	return wrapExternal(s.offsets.PutMany(context.Background(), entries.Values()...), "restore consumer offsets")
+}
+
+func (s *StorxMetadataStore) restoreMetadataMembers(members collectionlist.List[ConsumerGroupMember]) error {
+	var resultErr error
+	members.Range(func(_ int, member ConsumerGroupMember) bool {
 		if err := s.SaveGroupMember(member); err != nil {
-			return err
+			resultErr = err
+			return false
 		}
-	}
-	return nil
+		return true
+	})
+	return resultErr
 }
 
-func (s *StorxMetadataStore) restoreMetadataAssignments(assignments []ConsumerGroupAssignment) error {
-	for _, assignment := range assignments {
+func (s *StorxMetadataStore) restoreMetadataAssignments(assignments collectionlist.List[ConsumerGroupAssignment]) error {
+	var resultErr error
+	assignments.Range(func(_ int, assignment ConsumerGroupAssignment) bool {
 		if err := s.SaveGroupAssignment(assignment); err != nil {
-			return err
+			resultErr = err
+			return false
 		}
-	}
-	return nil
+		return true
+	})
+	return resultErr
 }
 
 func (s *StorxMetadataStore) restoreMetadataBrokerState(state *BrokerState) error {

@@ -23,7 +23,7 @@ type benchmarkDataDirectory struct {
 type benchRunner struct {
 	cfg     benchConfig
 	dataDir benchmarkDataDirectory
-	mq      *ech0.Broker
+	mq      benchBroker
 }
 
 func newBenchmarkApp(rootCtx context.Context, cfg benchConfig) (*dix.App, error) {
@@ -47,7 +47,7 @@ func newBenchmarkApp(rootCtx context.Context, cfg benchConfig) (*dix.App, error)
 				dataDir.Cleanup()
 				return nil
 			}),
-			dix.OnStop(func(ctx context.Context, mq *ech0.Broker) error {
+			dix.OnStop(func(ctx context.Context, mq benchBroker) error {
 				return mq.Close(ctx)
 			}),
 			dix.OnStop(func(_ context.Context, logger *slog.Logger) error {
@@ -80,6 +80,9 @@ func newBenchmarkLogger() (*slog.Logger, error) {
 }
 
 func newBenchmarkDataDirectory(cfg benchConfig) (benchmarkDataDirectory, error) {
+	if cfg.brokerAddr != "" && cfg.dataDir == "" {
+		return benchmarkDataDirectory{}, nil
+	}
 	path, cleanup, err := benchmarkDataDir(cfg.dataDir)
 	if err != nil {
 		return benchmarkDataDirectory{}, err
@@ -93,7 +96,10 @@ func (d benchmarkDataDirectory) Cleanup() {
 	}
 }
 
-func newBenchmarkBroker(root benchRootContext, cfg benchConfig, dataDir benchmarkDataDirectory) (*ech0.Broker, error) {
+func newBenchmarkBroker(root benchRootContext, cfg benchConfig, dataDir benchmarkDataDirectory) (benchBroker, error) {
+	if cfg.brokerAddr != "" {
+		return newTCPBenchBroker(cfg), nil
+	}
 	mq, err := ech0.Open(root.Context, ech0.Options{
 		DataDir:        dataDir.path,
 		MaxFetch:       cfg.fetchBatch,
@@ -102,15 +108,15 @@ func newBenchmarkBroker(root benchRootContext, cfg benchConfig, dataDir benchmar
 	if err != nil {
 		return nil, fmt.Errorf("open embedded broker: %w", err)
 	}
-	return mq, nil
+	return &embeddedBenchBroker{mq: mq}, nil
 }
 
-func newBenchRunner(cfg benchConfig, dataDir benchmarkDataDirectory, mq *ech0.Broker) *benchRunner {
+func newBenchRunner(cfg benchConfig, dataDir benchmarkDataDirectory, mq benchBroker) *benchRunner {
 	return &benchRunner{cfg: cfg, dataDir: dataDir, mq: mq}
 }
 
 func (r *benchRunner) Run(ctx context.Context) error {
-	if err := r.mq.CreateTopic(ctx, r.cfg.topic, ech0.Partitions(r.cfg.partitions)); err != nil {
+	if err := r.mq.CreateTopic(ctx, r.cfg.topic, r.cfg.partitions); err != nil {
 		return fmt.Errorf("create topic: %w", err)
 	}
 

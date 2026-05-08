@@ -10,6 +10,10 @@ type MessageLogStore interface {
 	LastOffset(topicPartition TopicPartition) (*uint64, error)
 }
 
+type MessageLogPager interface {
+	ReadPage(topicPartition TopicPartition, cursor string, maxRecords int) (RecordPage, error)
+}
+
 type RetentionCleaner interface {
 	EnforceRetention(nowMS uint64) (RetentionCleanupResult, error)
 }

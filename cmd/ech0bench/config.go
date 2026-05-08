@@ -11,6 +11,7 @@ import (
 
 type benchConfig struct {
 	dataDir         string
+	brokerAddr      string
 	topic           string
 	partitions      uint32
 	producers       uint32
@@ -26,6 +27,7 @@ type benchConfig struct {
 func parseFlags() benchConfig {
 	cfg := benchConfig{}
 	flag.StringVar(&cfg.dataDir, "data-dir", "", "data directory; defaults to a temporary directory")
+	flag.StringVar(&cfg.brokerAddr, "broker-addr", "", "tcp broker address; when set, ech0bench targets a running broker instead of opening embedded mode")
 	flag.StringVar(&cfg.topic, "topic", "ech0-bench", "benchmark topic name")
 	uint32Var(&cfg.partitions, "partitions", 4, "topic partition count")
 	uint32Var(&cfg.producers, "producers", 4, "producer goroutines")
@@ -37,6 +39,13 @@ func parseFlags() benchConfig {
 	flag.IntVar(&cfg.samples, "samples", 200000, "max latency samples kept in memory")
 	flag.Parse()
 	return cfg
+}
+
+func (cfg benchConfig) mode() string {
+	if cfg.brokerAddr != "" {
+		return "tcp"
+	}
+	return "embedded"
 }
 
 func validateBenchConfig(cfg benchConfig) error {

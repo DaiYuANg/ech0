@@ -5,6 +5,7 @@ import (
 
 	"github.com/DaiYuANg/ech0/protocol"
 	"github.com/DaiYuANg/ech0/transport"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 )
 
 func (s *TCPServer) handleSendDirectFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
@@ -176,13 +177,13 @@ func (s *TCPServer) handleFetchConsumerGroupBatchFrame(_ context.Context, frame 
 func (s *TCPServer) fetchConsumerGroupBatchItems(
 	req protocol.FetchConsumerGroupBatchRequest,
 ) ([]protocol.FetchConsumerGroupBatchItemResponse, error) {
-	items := make([]protocol.FetchConsumerGroupBatchItemResponse, 0, len(req.Items))
+	items := collectionlist.NewListWithCapacity[protocol.FetchConsumerGroupBatchItemResponse](len(req.Items))
 	for _, item := range req.Items {
 		poll, err := s.broker.FetchConsumerGroup(req.Group, req.MemberID, req.Generation, item.Topic, item.Partition, item.Offset, item.MaxRecords)
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, protocol.FetchConsumerGroupBatchItemResponse{
+		items.Add(protocol.FetchConsumerGroupBatchItemResponse{
 			Topic:         item.Topic,
 			Partition:     item.Partition,
 			Records:       fetchRecordsFromStore(poll.Records),
@@ -190,5 +191,5 @@ func (s *TCPServer) fetchConsumerGroupBatchItems(
 			HighWatermark: poll.HighWatermark,
 		})
 	}
-	return items, nil
+	return items.Values(), nil
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/dix"
 	"github.com/arcgolabs/eventx"
 	"github.com/arcgolabs/logx"
@@ -41,11 +42,17 @@ func NewApp(cfg Config) (*dix.App, error) {
 			dix.Value(logger),
 			dix.Provider0(func() eventx.BusRuntime { return eventx.New() }),
 			dix.Provider2(NewMetricsRuntime),
-			dix.ProviderErr1(func(cfg Config) (*store.StorxLogStore, error) {
-				return store.OpenStorxLogStore(cfg.SegmentLogPath())
+			dix.ProviderErr3(func(cfg Config, logger *slog.Logger, metrics *MetricsRuntime) (*store.StorxLogStore, error) {
+				return store.OpenStorxLogStoreWithOptions(cfg.SegmentLogPath(), store.StorxLogOptions{
+					Logger:    logger,
+					Observers: []store.StorxObserver{newStorageMetricsObserver(metrics)},
+				})
 			}),
-			dix.ProviderErr1(func(cfg Config) (*store.StorxMetadataStore, error) {
-				return store.OpenStorxMetadataStore(cfg.MetadataPath())
+			dix.ProviderErr3(func(cfg Config, logger *slog.Logger, metrics *MetricsRuntime) (*store.StorxMetadataStore, error) {
+				return store.OpenStorxMetadataStoreWithOptions(cfg.MetadataPath(), store.StorxMetadataOptions{
+					Logger:    logger,
+					Observers: []store.StorxObserver{newStorageMetricsObserver(metrics)},
+				})
 			}),
 			dix.ProviderErr6(func(cfg Config, logger *slog.Logger, bus eventx.BusRuntime, metrics *MetricsRuntime, logStore *store.StorxLogStore, metaStore *store.StorxMetadataStore) (*Broker, error) {
 				return NewWithStores(cfg, logStore, metaStore, WithLogger(logger), WithEventBus(bus), WithMetrics(metrics))
@@ -102,22 +109,22 @@ func NewApp(cfg Config) (*dix.App, error) {
 }
 
 func newLogger(cfg Config) (*slog.Logger, error) {
-	opts := []logx.Option{
+	opts := collectionlist.NewList(
 		logx.WithConsole(cfg.Logging.EnableStdout),
 		logx.WithLevelString(cfg.Logging.Level),
 		logx.WithCaller(true),
-	}
+	)
 	if !cfg.Logging.ANSI {
-		opts = append(opts, logx.WithNoColor())
+		opts.Add(logx.WithNoColor())
 	}
 	if cfg.Logging.EnableFile {
 		path := cfg.LogFilePath()
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			return nil, wrapBroker("log_directory_create_failed", err, "create log directory")
 		}
-		opts = append(opts, logx.WithFile(path))
+		opts.Add(logx.WithFile(path))
 	}
-	logger, err := logx.New(opts...)
+	logger, err := logx.New(opts.Values()...)
 	if err != nil {
 		return nil, wrapBroker("logger_create_failed", err, "create logger")
 	}

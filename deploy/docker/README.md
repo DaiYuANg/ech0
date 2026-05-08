@@ -1,6 +1,6 @@
 # Docker Deploy Examples
 
-Copy the example environment file when you want to customize image names, base image, UPX, or host ports:
+Copy the example environment file when you want to customize image names, base image, or host ports:
 
 ```sh
 cd deploy/docker
@@ -9,17 +9,17 @@ cp .env.example .env
 
 ## Local Build
 
-These examples build from the repository Dockerfile. UPX is enabled by default in the builder stage and the runtime image only receives the compressed `ech0` binary.
+These examples build from the repository Dockerfile. UPX is enabled in the builder stage and the runtime image only receives the compressed `ech0` binary.
 
 ```sh
 docker compose -f docker-compose.single.yml up --build
 docker compose -f docker-compose.cluster.yml up --build
 ```
 
-Disable Dockerfile UPX compression when you need an uncompressed binary for debugging:
+Use a separate cluster data root for clean benchmark or test runs:
 
 ```sh
-ECH0_ENABLE_UPX=false docker compose -f docker-compose.single.yml up --build
+ECH0_CLUSTER_DATA_ROOT=./data/bench-cluster docker compose -f docker-compose.cluster.yml up -d --build
 ```
 
 ## Release Image

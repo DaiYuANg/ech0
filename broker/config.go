@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/configx"
 	"github.com/spf13/pflag"
 )
@@ -107,7 +108,7 @@ func LoadConfigFromFlagSet(flags *pflag.FlagSet, paths ...string) (Config, error
 }
 
 func loadConfig(paths []string, flags *pflag.FlagSet) (Config, error) {
-	files := make([]string, 0, len(paths))
+	files := collectionlist.NewListWithCapacity[string](len(paths))
 	for _, path := range paths {
 		if path == "" {
 			continue
@@ -118,11 +119,11 @@ func loadConfig(paths []string, flags *pflag.FlagSet) (Config, error) {
 			}
 			return Config{}, wrapBroker("config_stat_failed", err, "stat config file %s", path)
 		}
-		files = append(files, path)
+		files.Add(path)
 	}
 	cfg, err := configx.LoadTErr[Config](
 		configx.WithTypedDefaults(DefaultConfig()),
-		configx.WithFiles(files...),
+		configx.WithFiles(files.Values()...),
 		configx.WithEnvPrefix("ECH0"),
 		configx.WithEnvSeparator("__"),
 		configx.WithFlagSet(flags),

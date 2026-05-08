@@ -6,7 +6,6 @@ services:
       dockerfile: Dockerfile
       args:
         BASE_IMAGE: ${ECH0_BASE_IMAGE:-debian}
-        ENABLE_UPX: ${ECH0_ENABLE_UPX:-true}
     container_name: ech0-single
     working_dir: /app
     command: ["--config", "/app/config/ech0.toml"]

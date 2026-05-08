@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/storx/badgerx"
 )
+
+const segmentIndexValueLogGCDiscardRatio = 0.5
 
 func (s *StorxLogStore) EnforceRetention(nowMS uint64) (RetentionCleanupResult, error) {
 	s.mu.Lock()
@@ -24,6 +27,9 @@ func (s *StorxLogStore) EnforceRetention(nowMS uint64) (RetentionCleanupResult, 
 			result.RemovedRecords += removed
 		}
 	}
+	if result.RemovedRecords > 0 {
+		return result, s.runSegmentIndexValueLogGC()
+	}
 	return result, nil
 }
 
@@ -31,11 +37,22 @@ func (s *StorxLogStore) Compact(nowMS uint64, sealedSegmentBatch int) (Compactio
 	_ = sealedSegmentBatch
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	result := CompactionCleanupResult{}
 	topics, err := s.listLogTopics()
 	if err != nil {
-		return result, err
+		return CompactionCleanupResult{}, err
 	}
+	result, err := s.compactTopics(topics, nowMS)
+	if err != nil {
+		return CompactionCleanupResult{}, err
+	}
+	if result.RemovedRecords > 0 {
+		return result, s.runSegmentIndexValueLogGC()
+	}
+	return result, nil
+}
+
+func (s *StorxLogStore) compactTopics(topics []TopicConfig, nowMS uint64) (CompactionCleanupResult, error) {
+	result := CompactionCleanupResult{}
 	for i := range topics {
 		topic := topics[i]
 		for partition := range topic.Partitions {
@@ -50,6 +67,13 @@ func (s *StorxLogStore) Compact(nowMS uint64, sealedSegmentBatch int) (Compactio
 		}
 	}
 	return result, nil
+}
+
+func (s *StorxLogStore) runSegmentIndexValueLogGC() error {
+	if s == nil || s.index == nil {
+		return nil
+	}
+	return wrapExternal(s.index.RunValueLogGC(context.Background(), segmentIndexValueLogGCDiscardRatio), "run segment index value log gc")
 }
 
 func (s *StorxLogStore) enforcePartitionRetention(topic TopicConfig, tp TopicPartition, nowMS uint64) (int, error) {
@@ -81,17 +105,21 @@ func (s *StorxLogStore) listLogTopics() ([]TopicConfig, error) {
 	if err != nil {
 		return nil, wrapExternal(err, "walk log topics")
 	}
-	topics := make([]TopicConfig, 0, len(entries))
+	topics := collectionlist.NewListWithCapacity[TopicConfig](len(entries))
 	for _, entry := range entries {
-		topics = append(topics, cloneTopic(entry.Value))
+		topics.Add(cloneTopic(entry.Value))
 	}
-	return topics, nil
+	return topics.Values(), nil
 }
 
-func (s *StorxLogStore) partitionRecordEntries(tp TopicPartition) ([]badgerx.Entry[string, segmentRecordPointer], []Record, error) {
+func (s *StorxLogStore) partitionRecordEntries(tp TopicPartition) ([]badgerx.Entry[recordIndexKey, segmentRecordPointer], []Record, error) {
+	prefix, err := recordIndexPrefix(tp)
+	if err != nil {
+		return nil, nil, err
+	}
 	entries, err := s.records.List(
 		context.Background(),
-		badgerx.WithPrefix[string]([]byte(recordPrefix(tp))),
+		badgerx.WithPrefix[recordIndexKey](prefix),
 	)
 	if err != nil {
 		return nil, nil, wrapExternal(err, "list partition log records")
@@ -103,16 +131,16 @@ func (s *StorxLogStore) partitionRecordEntries(tp TopicPartition) ([]badgerx.Ent
 	return entries, records, nil
 }
 
-func (s *StorxLogStore) deleteRecordEntries(entries []badgerx.Entry[string, segmentRecordPointer], remove interface{ Contains(uint64) bool }) (int, error) {
-	deleted := 0
+func (s *StorxLogStore) deleteRecordEntries(entries []badgerx.Entry[recordIndexKey, segmentRecordPointer], remove interface{ Contains(uint64) bool }) (int, error) {
+	keys := collectionlist.NewList[recordIndexKey]()
 	for _, entry := range entries {
 		if !remove.Contains(entry.Value.Offset) {
 			continue
 		}
-		if err := s.records.Delete(context.Background(), entry.Key); err != nil {
-			return deleted, wrapExternal(err, "delete compacted log index")
-		}
-		deleted++
+		keys.Add(entry.Key)
 	}
-	return deleted, nil
+	if err := s.records.DeleteMany(context.Background(), keys.Values()...); err != nil {
+		return 0, wrapExternal(err, "delete compacted log indexes")
+	}
+	return keys.Len(), nil
 }

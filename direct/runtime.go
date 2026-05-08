@@ -121,17 +121,17 @@ func (r *Runtime) FetchInbox(recipient string, maxRecords int) (FetchInboxResult
 		}
 		return FetchInboxResult{}, oops.In("direct").Code("fetch_inbox_failed").With("recipient", recipient).Wrapf(err, "fetch inbox")
 	}
-	records := make([]InboxRecord, 0, len(poll.Records))
+	records := collectionlist.NewListWithCapacity[InboxRecord](len(poll.Records))
 	for _, record := range poll.Records {
 		decoded, err := decodeRecord(record)
 		if err != nil {
 			return FetchInboxResult{}, oops.In("direct").Code("decode_inbox_record_failed").With("recipient", recipient).Wrapf(err, "decode inbox record")
 		}
-		records = append(records, decoded)
+		records.Add(decoded)
 	}
 	return FetchInboxResult{
 		Recipient:     recipient,
-		Records:       records,
+		Records:       records.Values(),
 		NextOffset:    poll.NextOffset,
 		HighWatermark: poll.HighWatermark,
 	}, nil

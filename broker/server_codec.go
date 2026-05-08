@@ -9,6 +9,7 @@ import (
 	"github.com/DaiYuANg/ech0/protocol"
 	"github.com/DaiYuANg/ech0/store"
 	"github.com/DaiYuANg/ech0/transport"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/mapper"
 )
 
@@ -145,11 +146,11 @@ func batchRecordsFromProtocol(req protocol.ProduceBatchRequest) ([]store.RecordA
 }
 
 func batchRecordItemsFromProtocol(records []protocol.ProduceBatchRecord) []store.RecordAppend {
-	out := make([]store.RecordAppend, 0, len(records))
+	out := collectionlist.NewListWithCapacity[store.RecordAppend](len(records))
 	for _, record := range records {
-		out = append(out, recordItemFromProtocol(record))
+		out.Add(recordItemFromProtocol(record))
 	}
-	return out
+	return out.Values()
 }
 
 func recordItemFromProtocol(record protocol.ProduceBatchRecord) store.RecordAppend {
@@ -163,11 +164,11 @@ func recordItemFromProtocol(record protocol.ProduceBatchRecord) store.RecordAppe
 }
 
 func batchPayloadsFromProtocol(payloads [][]byte) []store.RecordAppend {
-	out := make([]store.RecordAppend, 0, len(payloads))
+	out := collectionlist.NewListWithCapacity[store.RecordAppend](len(payloads))
 	for _, payload := range payloads {
-		out = append(out, store.NewRecordAppend(payload))
+		out.Add(store.NewRecordAppend(payload))
 	}
-	return out
+	return out.Values()
 }
 
 func leaseFromStore(member store.ConsumerGroupMember) (protocol.ConsumerGroupMemberLease, error) {
@@ -199,9 +200,9 @@ func optionalAssignmentToProtocol(assignment *store.ConsumerGroupAssignment) (pr
 }
 
 func directMessagesToProtocol(records []direct.InboxRecord) []protocol.DirectMessageRecord {
-	out := make([]protocol.DirectMessageRecord, 0, len(records))
+	out := collectionlist.NewListWithCapacity[protocol.DirectMessageRecord](len(records))
 	for _, record := range records {
-		out = append(out, protocol.DirectMessageRecord{
+		out.Add(protocol.DirectMessageRecord{
 			Offset:         record.Offset,
 			MessageID:      record.Message.MessageID,
 			ConversationID: record.Message.ConversationID,
@@ -211,5 +212,5 @@ func directMessagesToProtocol(records []direct.InboxRecord) []protocol.DirectMes
 			Payload:        record.Message.Payload,
 		})
 	}
-	return out
+	return out.Values()
 }

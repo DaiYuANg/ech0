@@ -3,6 +3,8 @@
 target
 dist
 data
+**/data
+deploy/docker/data
 **/*.redb
 **/*.bbolt
 **/*.log

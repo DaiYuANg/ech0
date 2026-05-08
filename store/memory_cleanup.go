@@ -1,6 +1,9 @@
 package store
 
-import collectionset "github.com/arcgolabs/collectionx/set"
+import (
+	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionset "github.com/arcgolabs/collectionx/set"
+)
 
 func (s *MemoryStore) EnforceRetention(nowMS uint64) (RetentionCleanupResult, error) {
 	s.mu.Lock()
@@ -49,14 +52,14 @@ func (s *MemoryStore) Compact(nowMS uint64, sealedSegmentBatch int) (CompactionC
 }
 
 func filterRemovedRecords(records []Record, remove *collectionset.Set[uint64]) ([]Record, int) {
-	kept := make([]Record, 0, len(records))
+	kept := collectionlist.NewListWithCapacity[Record](len(records))
 	removed := 0
 	for _, record := range records {
 		if remove.Contains(record.Offset) {
 			removed++
 			continue
 		}
-		kept = append(kept, cloneRecord(record))
+		kept.Add(cloneRecord(record))
 	}
-	return kept, removed
+	return kept.Values(), removed
 }

@@ -1,8 +1,10 @@
 package store
 
 import (
+	"strconv"
 	"sync"
 
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	collectionset "github.com/arcgolabs/collectionx/set"
 )
@@ -105,15 +107,15 @@ func (s *MemoryStore) AppendRecord(topicPartition TopicPartition, appendRecord R
 }
 
 func (s *MemoryStore) AppendRecordsBatch(topicPartition TopicPartition, records []RecordAppend) ([]Record, error) {
-	out := make([]Record, 0, len(records))
+	out := collectionlist.NewListWithCapacity[Record](len(records))
 	for _, record := range records {
 		appended, err := s.AppendRecord(topicPartition, record)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, appended)
+		out.Add(appended)
 	}
-	return out, nil
+	return out.Values(), nil
 }
 
 func (s *MemoryStore) ReadFrom(topicPartition TopicPartition, offset uint64, maxRecords int) ([]Record, error) {
@@ -130,17 +132,62 @@ func (s *MemoryStore) ReadFrom(topicPartition TopicPartition, offset uint64, max
 		return nil, E(CodePartitionNotFound, "partition %s/%d not found", topicPartition.Topic, topicPartition.Partition)
 	}
 	records := sortedRecords(s.records.GetOrDefault(topicPartition, nil))
-	out := make([]Record, 0, min(maxRecords, len(records)))
+	out := collectionlist.NewListWithCapacity[Record](min(maxRecords, len(records)))
 	for _, record := range records {
 		if record.Offset < offset {
 			continue
 		}
-		out = append(out, cloneRecord(record))
-		if len(out) >= maxRecords {
+		out.Add(cloneRecord(record))
+		if out.Len() >= maxRecords {
 			break
 		}
 	}
-	return out, nil
+	return out.Values(), nil
+}
+
+func (s *MemoryStore) ReadPage(topicPartition TopicPartition, cursor string, maxRecords int) (RecordPage, error) {
+	offset, err := parseMemoryRecordPageCursor(cursor)
+	if err != nil {
+		return RecordPage{}, err
+	}
+	records, err := s.ReadFrom(topicPartition, offset, maxRecords)
+	if err != nil {
+		return RecordPage{}, err
+	}
+	page := RecordPage{Records: records}
+	hasMore, nextCursor, err := s.memoryRecordPageNext(topicPartition, records, maxRecords)
+	if err != nil {
+		return RecordPage{}, err
+	}
+	page.HasMore = hasMore
+	page.NextCursor = nextCursor
+	return page, nil
+}
+
+func parseMemoryRecordPageCursor(cursor string) (uint64, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	offset, err := strconv.ParseUint(cursor, 10, 64)
+	if err != nil {
+		return 0, E(CodeInvalidArgument, "invalid record page cursor")
+	}
+	return offset, nil
+}
+
+func (s *MemoryStore) memoryRecordPageNext(topicPartition TopicPartition, records []Record, maxRecords int) (bool, string, error) {
+	if len(records) != maxRecords || maxRecords <= 0 {
+		return false, "", nil
+	}
+	next := records[len(records)-1].Offset + 1
+	highWatermark, err := s.LastOffset(topicPartition)
+	if err != nil {
+		return false, "", err
+	}
+	if highWatermark == nil || next > *highWatermark {
+		return false, "", nil
+	}
+	return true, strconv.FormatUint(next, 10), nil
 }
 
 func (s *MemoryStore) LastOffset(topicPartition TopicPartition) (*uint64, error) {
@@ -220,10 +267,10 @@ func (s *MemoryStore) ListTopics() ([]TopicConfig, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	topics := s.topics.Values()
-	out := make([]TopicConfig, 0, len(topics))
+	out := collectionlist.NewListWithCapacity[TopicConfig](len(topics))
 	for i := range topics {
 		topic := topics[i]
-		out = append(out, cloneTopic(topic))
+		out.Add(cloneTopic(topic))
 	}
-	return out, nil
+	return out.Values(), nil
 }

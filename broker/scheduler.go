@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/go-co-op/gocron/v2"
 )
 
@@ -74,32 +75,32 @@ func registerScheduledJobs(scheduler gocron.Scheduler, cfg Config, broker *Broke
 }
 
 func scheduledJobRegistrations(cfg Config) []scheduledJobRegistration {
-	return []scheduledJobRegistration{
-		{
+	return collectionlist.NewList(
+		scheduledJobRegistration{
 			enabled:  cfg.Broker.DelaySchedulerEnabled,
 			code:     "delay_job_create_failed",
 			message:  "create delay scheduler job",
 			register: registerDelayJob,
 		},
-		{
+		scheduledJobRegistration{
 			enabled:  cfg.Broker.RetryWorkerEnabled,
 			code:     "retry_job_create_failed",
 			message:  "create retry worker job",
 			register: registerRetryJob,
 		},
-		{
+		scheduledJobRegistration{
 			enabled:  cfg.Storage.RetentionCleanupEnabled,
 			code:     "retention_cleanup_job_create_failed",
 			message:  "create retention cleanup job",
 			register: registerRetentionCleanupJob,
 		},
-		{
+		scheduledJobRegistration{
 			enabled:  cfg.Storage.CompactionCleanupEnabled,
 			code:     "compaction_cleanup_job_create_failed",
 			message:  "create compaction cleanup job",
 			register: registerCompactionCleanupJob,
 		},
-	}
+	).Values()
 }
 
 func registerDelayJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {

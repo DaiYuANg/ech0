@@ -1,12 +1,8 @@
 package broker
 
 import (
-	"bytes"
 	"cmp"
-	"encoding/hex"
-	"encoding/json"
 	"strconv"
-	"strings"
 
 	"github.com/DaiYuANg/ech0/store"
 	collectionlist "github.com/arcgolabs/collectionx/list"
@@ -30,36 +26,6 @@ func (b *Broker) TopicSummaries() ([]TopicSummary, error) {
 	}).Values(), nil
 }
 
-func (b *Broker) TopicMessagesSnapshot(topic string, partition uint32, offset uint64, limit int) (TopicMessagesPageSummary, error) {
-	if limit <= 0 || limit > b.cfg.Broker.MaxFetchRecords {
-		limit = b.cfg.Broker.MaxFetchRecords
-	}
-	tp := store.NewTopicPartition(topic, partition)
-	records, err := b.log.ReadFrom(tp, offset, limit)
-	if err != nil {
-		return TopicMessagesPageSummary{}, wrapBrokerStore(err, "read topic messages")
-	}
-	highWatermark, err := topicPartitionHighWatermark(b.log, tp)
-	if err != nil {
-		return TopicMessagesPageSummary{}, err
-	}
-	items := collectionlist.NewList[TopicMessageSummary]()
-	nextOffset := offset
-	for _, record := range records {
-		items.Add(topicMessageSummary(record))
-		nextOffset = record.Offset + 1
-	}
-	return TopicMessagesPageSummary{
-		Topic:         topic,
-		Partition:     partition,
-		Offset:        offset,
-		Limit:         limit,
-		NextOffset:    nextOffset,
-		HighWatermark: highWatermark,
-		Records:       items.Values(),
-	}, nil
-}
-
 func (b *Broker) GroupMembersSnapshot(group string) ([]GroupMemberSummary, error) {
 	members, err := b.meta.ListGroupMembers(group)
 	if err != nil {
@@ -70,7 +36,7 @@ func (b *Broker) GroupMembersSnapshot(group string) ([]GroupMemberSummary, error
 		out.Add(GroupMemberSummary{
 			Group:            member.Group,
 			MemberID:         member.MemberID,
-			Topics:           append([]string(nil), member.Topics...),
+			Topics:           collectionlist.NewList(member.Topics...).Values(),
 			SessionTimeoutMS: member.SessionTimeoutMS,
 			JoinedAtMS:       member.JoinedAtMS,
 			LastHeartbeatMS:  member.LastHeartbeatMS,
@@ -241,38 +207,6 @@ func groupAssignmentSummary(assignment store.ConsumerGroupAssignment) GroupAssig
 		}).Values(),
 		UpdatedAtMS: assignment.UpdatedAtMS,
 	}
-}
-
-func topicMessageSummary(record store.Record) TopicMessageSummary {
-	preview := record.Payload
-	if len(preview) > 96 {
-		preview = preview[:96]
-	}
-	utf8Preview := strings.TrimSpace(string(bytes.ToValidUTF8(preview, []byte("."))))
-	jsonPreview := compactJSONPreview(preview)
-	return TopicMessageSummary{
-		Offset:             record.Offset,
-		TimestampMS:        record.TimestampMS,
-		PayloadSize:        len(record.Payload),
-		PayloadUTF8Preview: utf8Preview,
-		PayloadHexPreview:  hex.EncodeToString(preview),
-		PayloadJSONPreview: jsonPreview,
-	}
-}
-
-func compactJSONPreview(payload []byte) *string {
-	if !json.Valid(payload) {
-		return nil
-	}
-	var compacted bytes.Buffer
-	if err := json.Compact(&compacted, payload); err != nil {
-		return nil
-	}
-	value := compacted.String()
-	if len(value) > 160 {
-		value = value[:160]
-	}
-	return &value
 }
 
 func displayUint64Ptr(value *uint64) string {

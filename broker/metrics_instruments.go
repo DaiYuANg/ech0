@@ -65,6 +65,22 @@ func (m *MetricsRuntime) initStorageCounters(obs observabilityx.Observability) {
 		"broker_compaction_removed_records_total",
 		observabilityx.WithDescription("Records removed by compaction cleanup"),
 	))
+	m.storageOperationsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"storage_operations_total",
+		observabilityx.WithDescription("Completed storx storage operations"),
+		observabilityx.WithLabelKeys("engine", "target_type", "target", "operation", "status"),
+	))
+	m.storageOperationErrorsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"storage_operation_errors_total",
+		observabilityx.WithDescription("Failed storx storage operations"),
+		observabilityx.WithLabelKeys("engine", "target_type", "target", "operation"),
+	))
+	m.storageOperationDuration = obs.Histogram(observabilityx.NewHistogramSpec(
+		"storage_operation_duration_seconds",
+		observabilityx.WithDescription("Storx storage operation duration"),
+		observabilityx.WithUnit("s"),
+		observabilityx.WithLabelKeys("engine", "target_type", "target", "operation", "status"),
+	))
 }
 
 func (m *MetricsRuntime) initProduceCounters(obs observabilityx.Observability) {

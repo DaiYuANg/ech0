@@ -27,7 +27,7 @@ func Open(ctx context.Context, opts Options) (*Broker, error) {
 	if err != nil {
 		return nil, oops.In("embedded").Code("open_log_store_failed").Wrapf(err, "open log store")
 	}
-	metaStore, err := store.OpenStorxMetadataStore(cfg.MetadataPath())
+	metaStore, err := store.OpenStorxMetadataStoreWithOptionsContext(ctx, cfg.MetadataPath(), store.StorxMetadataOptions{})
 	if err != nil {
 		return nil, errors.Join(
 			oops.In("embedded").Code("open_metadata_store_failed").Wrapf(err, "open metadata store"),

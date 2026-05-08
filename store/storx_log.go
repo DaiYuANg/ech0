@@ -26,8 +26,8 @@ type StorxLogStore struct {
 	compression segmentFrameCompression
 	index       *badgerx.DB
 	topics      *badgerx.Namespace[string, TopicConfig]
-	records     *badgerx.Namespace[string, segmentRecordPointer]
-	nextOffsets *badgerx.Namespace[string, uint64]
+	records     *badgerx.Namespace[recordIndexKey, segmentRecordPointer]
+	nextOffsets *badgerx.Namespace[partitionIndexKey, uint64]
 }
 
 type segmentRecordPointer struct {
@@ -62,19 +62,19 @@ func OpenStorxLogStoreWithOptions(path string, options StorxLogOptions) (*StorxL
 	if mkdirErr := os.MkdirAll(segmentsDir, 0o750); mkdirErr != nil {
 		return nil, errors.Join(wrapExternal(mkdirErr, "create segment log directory"), compression.close())
 	}
-	index, err := openSegmentIndex(filepath.Join(rootDir, "index.badger"))
+	index, err := openSegmentIndex(filepath.Join(rootDir, "index.badger"), options)
 	if err != nil {
 		return nil, errors.Join(err, compression.close())
 	}
-	keyCodec := keycodec.String()
+	stringKeyCodec := keycodec.String()
 	return &StorxLogStore{
 		rootDir:     rootDir,
 		segmentsDir: segmentsDir,
 		compression: compression,
 		index:       index,
-		topics:      badgerx.NewNamespaceWithDB(index, indexLogTopics, keyCodec, codec.JSON[TopicConfig]()),
-		records:     badgerx.NewNamespaceWithDB(index, indexLogRecords, keyCodec, codec.JSON[segmentRecordPointer]()),
-		nextOffsets: badgerx.NewNamespaceWithDB(index, indexLogOffsets, keyCodec, codec.JSON[uint64]()),
+		topics:      badgerx.NewNamespaceWithDB(index, indexLogTopics, stringKeyCodec, codec.JSON[TopicConfig]()),
+		records:     badgerx.NewNamespaceWithDB(index, indexLogRecords, recordIndexKeyCodec(), codec.JSON[segmentRecordPointer]()),
+		nextOffsets: badgerx.NewNamespaceWithDB(index, indexLogOffsets, partitionIndexKeyCodec(), codec.JSON[uint64]()),
 	}, nil
 }
 
@@ -92,12 +92,16 @@ func normalizeSegmentRoot(path string) (string, error) {
 	return root, nil
 }
 
-func openSegmentIndex(path string) (*badgerx.DB, error) {
+func openSegmentIndex(path string, storeOptions StorxLogOptions) (*badgerx.DB, error) {
 	if err := os.MkdirAll(path, 0o750); err != nil {
 		return nil, wrapExternal(err, "create segment index directory")
 	}
 	options := badger.DefaultOptions(path).WithLogger(nil)
-	index, err := badgerx.Open(options)
+	index, err := badgerx.Open(
+		options,
+		badgerx.WithDBLogger(storeOptions.Logger),
+		badgerx.WithDBObservers(storeOptions.Observers...),
+	)
 	if err != nil {
 		return nil, wrapExternal(err, "open segment index")
 	}

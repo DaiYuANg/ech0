@@ -10,6 +10,7 @@ import (
 
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/cenkalti/backoff/v5"
 )
 
@@ -116,15 +117,15 @@ func (b *Broker) reply(ctx context.Context, req RequestMessage, responderID stri
 }
 
 func requestMessagesFromRecords(subject string, records []store.Record) ([]RequestMessage, error) {
-	requests := make([]RequestMessage, 0, len(records))
+	requests := collectionlist.NewListWithCapacity[RequestMessage](len(records))
 	for _, record := range records {
 		request, err := requestFromRecord(subject, record)
 		if err != nil {
 			return nil, err
 		}
-		requests = append(requests, request)
+		requests.Add(request)
 	}
-	return requests, nil
+	return requests.Values(), nil
 }
 
 func (b *Broker) fetchReplyOnce(ctx context.Context, pending PendingRequest) (ReplyMessage, bool, error) {

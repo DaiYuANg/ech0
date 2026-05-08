@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	hashiraft "github.com/hashicorp/raft"
-	raftboltdb "github.com/hashicorp/raft-boltdb"
 )
 
 const (
@@ -36,21 +37,20 @@ type raftNode struct {
 	broker    *Broker
 	raft      *hashiraft.Raft
 	transport *hashiraft.NetworkTransport
-	store     *raftboltdb.BoltStore
+	store     *raftBoltStore
 }
 
 type raftResources struct {
 	transport *hashiraft.NetworkTransport
 	snapshots hashiraft.SnapshotStore
-	store     *raftboltdb.BoltStore
+	store     *raftBoltStore
 }
 
 func startRaft(ctx context.Context, b *Broker) (*raftNode, error) {
-	_ = ctx
 	if err := validateRaftStores(b); err != nil {
 		return nil, err
 	}
-	resources, err := openRaftResources(b)
+	resources, err := openRaftResources(ctx, b)
 	if err != nil {
 		return nil, err
 	}
@@ -75,29 +75,48 @@ func validateRaftStores(b *Broker) error {
 	return nil
 }
 
-func openRaftResources(b *Broker) (*raftResources, error) {
+func openRaftResources(ctx context.Context, b *Broker) (*raftResources, error) {
 	raftDir := b.cfg.RaftDir()
 	if err := os.MkdirAll(raftDir, 0o750); err != nil {
 		return nil, wrapBroker("raft_directory_create_failed", err, "create raft directory")
 	}
-	transport, err := hashiraft.NewTCPTransport(b.cfg.Raft.BindAddr, nil, 3, 10*time.Second, io.Discard)
+	advertise, err := raftAdvertiseAddress(b.cfg)
+	if err != nil {
+		return nil, err
+	}
+	transport, err := hashiraft.NewTCPTransport(b.cfg.Raft.BindAddr, advertise, 3, 10*time.Second, io.Discard)
 	if err != nil {
 		return nil, wrapBroker("raft_transport_create_failed", err, "create raft transport")
 	}
 	resources := &raftResources{transport: transport}
-	if err := resources.openStores(raftDir); err != nil {
+	if err := resources.openStores(ctx, raftDir); err != nil {
 		return nil, err
 	}
 	return resources, nil
 }
 
-func (r *raftResources) openStores(raftDir string) error {
+func raftAdvertiseAddress(cfg Config) (net.Addr, error) {
+	addr := cfg.Raft.BindAddr
+	for _, peer := range cfg.Raft.Cluster {
+		if peer.NodeID == cfg.Broker.NodeID && peer.Addr != "" {
+			addr = peer.Addr
+			break
+		}
+	}
+	advertise, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return nil, wrapBroker("raft_advertise_resolve_failed", err, "resolve raft advertise address %s", addr)
+	}
+	return advertise, nil
+}
+
+func (r *raftResources) openStores(ctx context.Context, raftDir string) error {
 	snapshots, err := hashiraft.NewFileSnapshotStore(filepath.Join(raftDir, "snapshots"), 2, io.Discard)
 	if err != nil {
 		return r.closeWith(wrapBroker("raft_snapshot_store_create_failed", err, "create raft snapshot store"))
 	}
 	r.snapshots = snapshots
-	bolt, err := raftboltdb.NewBoltStore(filepath.Join(raftDir, "raft.db"))
+	bolt, err := openRaftBoltStore(ctx, filepath.Join(raftDir, "raft.db"))
 	if err != nil {
 		return r.closeWith(wrapBroker("raft_bolt_store_create_failed", err, "create raft bolt store"))
 	}
@@ -130,14 +149,14 @@ func bootstrapRaftIfNeeded(conf *hashiraft.Config, resources *raftResources, pee
 }
 
 func raftConfiguration(peers []RaftPeerConfig) hashiraft.Configuration {
-	configuration := hashiraft.Configuration{Servers: make([]hashiraft.Server, 0, len(peers))}
+	servers := collectionlist.NewListWithCapacity[hashiraft.Server](len(peers))
 	for _, peer := range peers {
-		configuration.Servers = append(configuration.Servers, hashiraft.Server{
+		servers.Add(hashiraft.Server{
 			ID:      hashiraft.ServerID(strconv.FormatUint(peer.NodeID, 10)),
 			Address: hashiraft.ServerAddress(peer.Addr),
 		})
 	}
-	return configuration
+	return hashiraft.Configuration{Servers: servers.Values()}
 }
 
 func (r *raftResources) closeWith(err error) error {

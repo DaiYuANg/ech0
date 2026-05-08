@@ -7,6 +7,7 @@ import (
 	"github.com/DaiYuANg/ech0/protocol"
 	"github.com/DaiYuANg/ech0/store"
 	"github.com/DaiYuANg/ech0/transport"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 )
 
 type frameHandler func(*TCPServer, context.Context, transport.Frame) (transport.Frame, error)
@@ -78,12 +79,12 @@ func (s *TCPServer) handleListTopicsFrame(_ context.Context, _ transport.Frame) 
 	if err != nil {
 		return errorFromErr(err), nil
 	}
-	out := make([]protocol.TopicMetadata, 0, len(topics))
+	out := collectionlist.NewListWithCapacity[protocol.TopicMetadata](len(topics))
 	for i := range topics {
 		topic := topics[i]
-		out = append(out, protocol.TopicMetadata{Topic: topic.Name, Partitions: topic.Partitions})
+		out.Add(protocol.TopicMetadata{Topic: topic.Name, Partitions: topic.Partitions})
 	}
-	return okFrame(protocol.CmdListTopicsResponse, protocol.ListTopicsResponse{Topics: out})
+	return okFrame(protocol.CmdListTopicsResponse, protocol.ListTopicsResponse{Topics: out.Values()})
 }
 
 func (s *TCPServer) handleProduceFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
@@ -160,13 +161,13 @@ func (s *TCPServer) handleFetchBatchFrame(_ context.Context, frame transport.Fra
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	items := make([]protocol.FetchBatchItemResponse, 0, len(req.Items))
+	items := collectionlist.NewListWithCapacity[protocol.FetchBatchItemResponse](len(req.Items))
 	for _, item := range req.Items {
 		poll, err := s.broker.Fetch(req.Consumer, item.Topic, item.Partition, item.Offset, item.MaxRecords)
 		if err != nil {
 			return errorFromErr(err), nil
 		}
-		items = append(items, protocol.FetchBatchItemResponse{
+		items.Add(protocol.FetchBatchItemResponse{
 			Topic:         item.Topic,
 			Partition:     item.Partition,
 			Records:       fetchRecordsFromStore(poll.Records),
@@ -174,7 +175,7 @@ func (s *TCPServer) handleFetchBatchFrame(_ context.Context, frame transport.Fra
 			HighWatermark: poll.HighWatermark,
 		})
 	}
-	return okFrame(protocol.CmdFetchBatchResponse, protocol.FetchBatchResponse{Items: items})
+	return okFrame(protocol.CmdFetchBatchResponse, protocol.FetchBatchResponse{Items: items.Values()})
 }
 
 func (s *TCPServer) handleCommitOffsetFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {

@@ -36,7 +36,10 @@ type TopicMessagesPageSummary struct {
 	Partition     uint32                `json:"partition"`
 	Offset        uint64                `json:"offset"`
 	Limit         int                   `json:"limit"`
+	Cursor        string                `json:"cursor,omitempty"`
 	NextOffset    uint64                `json:"next_offset"`
+	NextCursor    string                `json:"next_cursor,omitempty"`
+	HasMore       bool                  `json:"has_more"`
 	HighWatermark *uint64               `json:"high_watermark,omitempty"`
 	Records       []TopicMessageSummary `json:"records"`
 }

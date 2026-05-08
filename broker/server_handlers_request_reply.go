@@ -9,6 +9,7 @@ import (
 	"github.com/DaiYuANg/ech0/protocol"
 	"github.com/DaiYuANg/ech0/store"
 	"github.com/DaiYuANg/ech0/transport"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 )
 
 func (s *TCPServer) handleStartRequestFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
@@ -109,10 +110,10 @@ func fetchRequestsResponseFromBroker(result RequestPollResult) protocol.FetchReq
 }
 
 func requestRecordsFromBroker(requests []RequestMessage) []protocol.RequestRecord {
-	out := make([]protocol.RequestRecord, 0, len(requests))
+	out := collectionlist.NewListWithCapacity[protocol.RequestRecord](len(requests))
 	for i := range requests {
 		req := requests[i]
-		out = append(out, protocol.RequestRecord{
+		out.Add(protocol.RequestRecord{
 			Offset:        req.Record.Offset,
 			TimestampMS:   req.Record.TimestampMS,
 			Subject:       req.Subject,
@@ -124,7 +125,7 @@ func requestRecordsFromBroker(requests []RequestMessage) []protocol.RequestRecor
 			Payload:       append([]byte(nil), req.Payload...),
 		})
 	}
-	return out
+	return out.Values()
 }
 
 func requestMessageFromReplyRequest(req protocol.ReplyRequest) RequestMessage {

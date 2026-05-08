@@ -3,54 +3,30 @@ package store
 import (
 	"cmp"
 	"context"
-	"os"
-	"path/filepath"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/arcgolabs/storx/bboltx"
-	"github.com/arcgolabs/storx/codec"
-	"github.com/arcgolabs/storx/keycodec"
 )
 
 const (
-	bucketTopics      = "topics"
-	bucketOffsets     = "offsets"
-	bucketMembers     = "group_members"
-	bucketAssignments = "group_assignments"
-	bucketBrokerState = "broker_state"
-	brokerStateKey    = "current"
+	bucketTopics       = "topics"
+	bucketOffsets      = "offsets"
+	bucketMembers      = "group_members"
+	bucketMembersGroup = "group_members_by_group"
+	bucketAssignments  = "group_assignments"
+	bucketBrokerState  = "broker_state"
+	brokerStateKey     = "current"
 )
 
 type StorxMetadataStore struct {
-	db          *bboltx.DB
-	topics      *bboltx.Bucket[string, TopicConfig]
-	offsets     *bboltx.Bucket[string, uint64]
-	members     *bboltx.Bucket[string, ConsumerGroupMember]
-	assignments *bboltx.Bucket[string, ConsumerGroupAssignment]
-	brokerState *bboltx.Bucket[string, BrokerState]
-}
-
-func OpenStorxMetadataStore(path string) (*StorxMetadataStore, error) {
-	if path == "" {
-		return nil, E(CodeInvalidArgument, "metadata path is required")
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return nil, wrapExternal(err, "create metadata directory")
-	}
-	db, err := bboltx.Open(path, 0o600, nil)
-	if err != nil {
-		return nil, wrapExternal(err, "open metadata store")
-	}
-	keyCodec := keycodec.String()
-	return &StorxMetadataStore{
-		db:          db,
-		topics:      bboltx.NewBucketWithDB(db, bucketTopics, keyCodec, codec.JSON[TopicConfig]()),
-		offsets:     bboltx.NewBucketWithDB(db, bucketOffsets, keyCodec, codec.JSON[uint64]()),
-		members:     bboltx.NewBucketWithDB(db, bucketMembers, keyCodec, codec.JSON[ConsumerGroupMember]()),
-		assignments: bboltx.NewBucketWithDB(db, bucketAssignments, keyCodec, codec.JSON[ConsumerGroupAssignment]()),
-		brokerState: bboltx.NewBucketWithDB(db, bucketBrokerState, keyCodec, codec.JSON[BrokerState]()),
-	}, nil
+	db             *bboltx.DB
+	topics         *bboltx.Bucket[string, TopicConfig]
+	offsets        *bboltx.Bucket[string, uint64]
+	members        *bboltx.ModelStore[string, ConsumerGroupMember]
+	membersByGroup *bboltx.SecondaryIndexMany[string, ConsumerGroupMember, string]
+	assignments    *bboltx.Bucket[string, ConsumerGroupAssignment]
+	brokerState    *bboltx.Bucket[string, BrokerState]
 }
 
 func (s *StorxMetadataStore) Close() error {
@@ -82,12 +58,12 @@ func (s *StorxMetadataStore) LoadTopicConfig(topic string) (*TopicConfig, error)
 }
 
 func (s *StorxMetadataStore) ListTopics() ([]TopicConfig, error) {
-	out := make([]TopicConfig, 0)
+	out := collectionlist.NewList[TopicConfig]()
 	err := s.topics.Walk(context.Background(), func(entry bboltx.Entry[string, TopicConfig]) error {
-		out = append(out, cloneTopic(entry.Value))
+		out.Add(cloneTopic(entry.Value))
 		return nil
 	})
-	return collectionlist.NewList(out...).
+	return out.
 		Sort(func(left, right TopicConfig) int {
 			return cmp.Compare(left.Name, right.Name)
 		}).
@@ -118,7 +94,8 @@ func (s *StorxMetadataStore) SaveGroupMember(member ConsumerGroupMember) error {
 		return E(CodeInvalidArgument, "group and member_id are required")
 	}
 	member.Topics = sortedStrings(member.Topics)
-	return wrapExternal(s.members.Put(context.Background(), groupMemberKey(member.Group, member.MemberID), member), "save group member")
+	_, _, err := s.members.Upsert(context.Background(), member)
+	return wrapExternal(err, "save group member")
 }
 
 func (s *StorxMetadataStore) LoadGroupMember(group, memberID string) (*ConsumerGroupMember, error) {
@@ -135,20 +112,19 @@ func (s *StorxMetadataStore) LoadGroupMember(group, memberID string) (*ConsumerG
 }
 
 func (s *StorxMetadataStore) ListGroupMembers(group string) ([]ConsumerGroupMember, error) {
-	out := make([]ConsumerGroupMember, 0)
-	err := s.members.Walk(context.Background(), func(entry bboltx.Entry[string, ConsumerGroupMember]) error {
-		if entry.Value.Group == group {
-			member := entry.Value
-			member.Topics = sortedStrings(member.Topics)
-			out = append(out, member)
-		}
-		return nil
+	members, err := s.membersByGroup.Query(s.members, group).ValueList(context.Background())
+	if err != nil {
+		return nil, wrapExternal(err, "list group members")
+	}
+	out := collectionlist.MapList(members, func(_ int, member ConsumerGroupMember) ConsumerGroupMember {
+		member.Topics = sortedStrings(member.Topics)
+		return member
 	})
-	return collectionlist.NewList(out...).
+	return out.
 		Sort(func(left, right ConsumerGroupMember) int {
 			return cmp.Compare(left.MemberID, right.MemberID)
 		}).
-		Values(), err
+		Values(), nil
 }
 
 func (s *StorxMetadataStore) DeleteGroupMember(group, memberID string) error {
@@ -176,7 +152,7 @@ func (s *StorxMetadataStore) SaveGroupAssignment(assignment ConsumerGroupAssignm
 	if assignment.Group == "" {
 		return E(CodeInvalidArgument, "group is required")
 	}
-	assignment.Assignments = append([]GroupPartitionAssignment(nil), assignment.Assignments...)
+	assignment.Assignments = cloneGroupPartitionAssignments(assignment.Assignments)
 	return wrapExternal(s.assignments.Put(context.Background(), assignment.Group, assignment), "save group assignment")
 }
 
@@ -189,19 +165,19 @@ func (s *StorxMetadataStore) LoadGroupAssignment(group string) (*ConsumerGroupAs
 		var absent *ConsumerGroupAssignment
 		return absent, nil
 	}
-	assignment.Assignments = append([]GroupPartitionAssignment(nil), assignment.Assignments...)
+	assignment.Assignments = cloneGroupPartitionAssignments(assignment.Assignments)
 	return &assignment, nil
 }
 
 func (s *StorxMetadataStore) ListGroupAssignments() ([]ConsumerGroupAssignment, error) {
-	out := make([]ConsumerGroupAssignment, 0)
+	out := collectionlist.NewList[ConsumerGroupAssignment]()
 	err := s.assignments.Walk(context.Background(), func(entry bboltx.Entry[string, ConsumerGroupAssignment]) error {
 		assignment := entry.Value
-		assignment.Assignments = append([]GroupPartitionAssignment(nil), assignment.Assignments...)
-		out = append(out, assignment)
+		assignment.Assignments = cloneGroupPartitionAssignments(assignment.Assignments)
+		out.Add(assignment)
 		return nil
 	})
-	return collectionlist.NewList(out...).
+	return out.
 		Sort(func(left, right ConsumerGroupAssignment) int {
 			return cmp.Compare(left.Group, right.Group)
 		}).
@@ -250,23 +226,23 @@ func (s *StorxMetadataStore) Snapshot() (Snapshot, error) {
 		return Snapshot{}, wrapExternal(err, "walk consumer offsets")
 	}
 	return Snapshot{
-		Topics:      topics,
+		Topics:      *collectionlist.NewListWithCapacity[TopicConfig](len(topics), topics...),
 		Offsets:     *offsets,
-		Members:     members,
-		Assignments: assignments,
+		Members:     *collectionlist.NewListWithCapacity[ConsumerGroupMember](len(members), members...),
+		Assignments: *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](len(assignments), assignments...),
 		BrokerState: state,
 	}, nil
 }
 
 func (s *StorxMetadataStore) listAllMembers() ([]ConsumerGroupMember, error) {
-	out := make([]ConsumerGroupMember, 0)
+	out := collectionlist.NewList[ConsumerGroupMember]()
 	err := s.members.Walk(context.Background(), func(entry bboltx.Entry[string, ConsumerGroupMember]) error {
 		member := entry.Value
 		member.Topics = sortedStrings(member.Topics)
-		out = append(out, member)
+		out.Add(member)
 		return nil
 	})
-	return collectionlist.NewList(out...).
+	return out.
 		Sort(func(left, right ConsumerGroupMember) int {
 			if left.Group == right.Group {
 				return cmp.Compare(left.MemberID, right.MemberID)
@@ -281,17 +257,12 @@ type bucketClearer[K any, V any] struct {
 }
 
 func (c bucketClearer[K, V]) Clear(ctx context.Context) error {
-	keys := collectionlist.NewList[K]()
-	if err := c.bucket.Walk(ctx, func(entry bboltx.Entry[K, V]) error {
-		keys.Add(entry.Key)
-		return nil
-	}); err != nil {
-		return wrapExternal(err, "walk bucket keys")
+	keys, err := c.bucket.Keys(ctx)
+	if err != nil {
+		return wrapExternal(err, "list bucket keys")
 	}
-	for _, key := range keys.Values() {
-		if err := c.bucket.Delete(ctx, key); err != nil {
-			return wrapExternal(err, "delete bucket key")
-		}
+	if err := c.bucket.DeleteMany(ctx, keys...); err != nil {
+		return wrapExternal(err, "delete bucket keys")
 	}
 	return nil
 }

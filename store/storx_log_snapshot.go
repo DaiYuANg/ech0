@@ -24,19 +24,19 @@ func (s *StorxLogStore) Snapshot() (Snapshot, error) {
 	return Snapshot{Topics: topics, Records: *records, LogOffsets: *nextOffsets}, nil
 }
 
-func (s *StorxLogStore) snapshotTopics() ([]TopicConfig, error) {
+func (s *StorxLogStore) snapshotTopics() (collectionlist.List[TopicConfig], error) {
 	entries, err := scanBadgerNamespace(context.Background(), s.topics)
 	if err != nil {
-		return nil, wrapExternal(err, "walk log topics")
+		return collectionlist.List[TopicConfig]{}, wrapExternal(err, "walk log topics")
 	}
-	topics := make([]TopicConfig, 0, len(entries))
+	topics := collectionlist.NewListWithCapacity[TopicConfig](len(entries))
 	for _, entry := range entries {
-		topics = append(topics, cloneTopic(entry.Value))
+		topics.Add(cloneTopic(entry.Value))
 	}
-	return collectionlist.NewList(topics...).
+	return *topics.
 		Sort(func(left, right TopicConfig) int {
 			return cmp.Compare(left.Name, right.Name)
-		}).Values(), nil
+		}), nil
 }
 
 func (s *StorxLogStore) snapshotLogOffsets() (*collectionmapping.Map[string, uint64], error) {
@@ -46,7 +46,7 @@ func (s *StorxLogStore) snapshotLogOffsets() (*collectionmapping.Map[string, uin
 	}
 	nextOffsets := collectionmapping.NewMap[string, uint64]()
 	for _, entry := range entries {
-		tp, err := parseNextOffsetKey(entry.Key)
+		tp, err := entry.Key.topicPartition()
 		if err != nil {
 			return nil, err
 		}
@@ -62,7 +62,7 @@ func (s *StorxLogStore) snapshotRecords() (*collectionmapping.Map[string, []Reco
 	}
 	records := collectionmapping.NewMap[string, []Record]()
 	for _, entry := range entries {
-		tp, err := parseRecordKey(entry.Key)
+		tp, err := entry.Key.topicPartition()
 		if err != nil {
 			return nil, err
 		}

@@ -125,7 +125,7 @@ func groupMemberFromCommand(req joinGroupCommand) store.ConsumerGroupMember {
 	return store.ConsumerGroupMember{
 		Group:            req.Group,
 		MemberID:         req.MemberID,
-		Topics:           append([]string(nil), req.Topics...),
+		Topics:           collectionlist.NewList(req.Topics...).Values(),
 		SessionTimeoutMS: sessionTimeout,
 		JoinedAtMS:       now,
 		LastHeartbeatMS:  now,
@@ -184,17 +184,17 @@ func (b *Broker) groupPartitions(members []store.ConsumerGroupMember) ([]store.T
 	if err != nil {
 		return nil, wrapBrokerStore(err, "list topics for group partitions")
 	}
-	out := make([]store.TopicPartition, 0)
+	out := collectionlist.NewList[store.TopicPartition]()
 	for i := range topics {
 		topic := topics[i]
 		if !wanted.Contains(topic.Name) {
 			continue
 		}
 		for partition := range topic.Partitions {
-			out = append(out, store.NewTopicPartition(topic.Name, partition))
+			out.Add(store.NewTopicPartition(topic.Name, partition))
 		}
 	}
-	return collectionlist.NewList(out...).
+	return out.
 		Sort(func(left, right store.TopicPartition) int {
 			if left.Topic == right.Topic {
 				return cmp.Compare(left.Partition, right.Partition)

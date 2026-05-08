@@ -30,6 +30,9 @@ type MetricsRuntime struct {
 	compactionRemovedRecordsTotal observabilityx.Counter
 	produceRequestsTotal          observabilityx.Counter
 	producedRecordsTotal          observabilityx.Counter
+	storageOperationsTotal        observabilityx.Counter
+	storageOperationErrorsTotal   observabilityx.Counter
+	storageOperationDuration      observabilityx.Histogram
 
 	visibleTopicsCurrent                observabilityx.Gauge
 	topicsWithBacklogCurrent            observabilityx.Gauge
@@ -61,6 +64,8 @@ type MetricsRuntime struct {
 	roundRobinRecords        atomic.Uint64
 	keyHashRequests          atomic.Uint64
 	keyHashRecords           atomic.Uint64
+	storageOperations        atomic.Uint64
+	storageOperationErrors   atomic.Uint64
 
 	visibleTopics                atomic.Uint64
 	topicsWithBacklog            atomic.Uint64
@@ -95,6 +100,8 @@ type MetricsSnapshot struct {
 	RoundRobinProducedRecordsTotal      uint64 `json:"round_robin_produced_records_total"`
 	KeyHashProduceRequestsTotal         uint64 `json:"key_hash_produce_requests_total"`
 	KeyHashProducedRecordsTotal         uint64 `json:"key_hash_produced_records_total"`
+	StorageOperationsTotal              uint64 `json:"storage_operations_total"`
+	StorageOperationErrorsTotal         uint64 `json:"storage_operation_errors_total"`
 	VisibleTopicsCurrent                uint64 `json:"visible_topics_current"`
 	TopicsWithBacklogCurrent            uint64 `json:"topics_with_backlog_current"`
 	TotalTopicBacklogRecordsCurrent     uint64 `json:"total_topic_backlog_records_current"`
@@ -168,6 +175,8 @@ func (m *MetricsRuntime) Snapshot() MetricsSnapshot {
 		RoundRobinProducedRecordsTotal:      m.roundRobinRecords.Load(),
 		KeyHashProduceRequestsTotal:         m.keyHashRequests.Load(),
 		KeyHashProducedRecordsTotal:         m.keyHashRecords.Load(),
+		StorageOperationsTotal:              m.storageOperations.Load(),
+		StorageOperationErrorsTotal:         m.storageOperationErrors.Load(),
 		VisibleTopicsCurrent:                m.visibleTopics.Load(),
 		TopicsWithBacklogCurrent:            m.topicsWithBacklog.Load(),
 		TotalTopicBacklogRecordsCurrent:     m.totalTopicBacklogRecords.Load(),

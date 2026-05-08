@@ -3,11 +3,9 @@ ARG GO_VERSION=1.26
 
 FROM golang:${GO_VERSION}-alpine AS builder
 
-ARG ENABLE_UPX=true
-
 WORKDIR /src
 
-RUN if [ "${ENABLE_UPX}" = "true" ]; then apk add --no-cache upx; fi
+RUN apk add --no-cache upx
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -15,7 +13,7 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ech0 ./cmd/ech0 \
-  && if [ "${ENABLE_UPX}" = "true" ]; then upx --best --lzma /out/ech0; fi
+  && upx --best --lzma /out/ech0
 
 FROM debian:bookworm-slim AS runtime-debian
 

@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	ech0 "github.com/DaiYuANg/ech0"
 	"github.com/arcgolabs/dix"
 )
 
@@ -59,7 +58,7 @@ type benchRunResult struct {
 	elapsed         time.Duration
 }
 
-func runWorkers(ctx context.Context, mq *ech0.Broker, cfg benchConfig) benchRunResult {
+func runWorkers(ctx context.Context, mq benchBroker, cfg benchConfig) benchRunResult {
 	counters := &benchCounters{}
 	publishLatencies := newLatencyRecorder(cfg.samples)
 	fetchLatencies := newLatencyRecorder(cfg.samples)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 )
 
 func (b *Broker) CreateTopic(ctx context.Context, topic store.TopicConfig) (store.TopicConfig, error) {
@@ -26,11 +27,11 @@ func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning P
 }
 
 func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning PublishPartitioning, records []store.RecordAppend) (ProduceBatchResult, error) {
-	copied := make([]store.RecordAppend, 0, len(records))
+	copied := collectionlist.NewListWithCapacity[store.RecordAppend](len(records))
 	for _, record := range records {
-		copied = append(copied, cloneAppend(record))
+		copied.Add(cloneAppend(record))
 	}
-	req := produceBatchCommand{Topic: topic, Partitioning: partitioning, Records: copied}
+	req := produceBatchCommand{Topic: topic, Partitioning: partitioning, Records: copied.Values()}
 	return proposeOrApply(ctx, b, raftCommandProduceBatch, req, b.applyProduceBatch)
 }
 
@@ -56,14 +57,14 @@ func (b *Broker) ListTopics() ([]store.TopicConfig, error) {
 	if err != nil {
 		return nil, wrapBroker("list_topics_failed", err, "list topics")
 	}
-	out := make([]store.TopicConfig, 0, len(topics))
+	out := collectionlist.NewListWithCapacity[store.TopicConfig](len(topics))
 	for i := range topics {
 		topic := topics[i]
 		if !isInternalTopicName(topic.Name) {
-			out = append(out, topic)
+			out.Add(topic)
 		}
 	}
-	return out, nil
+	return out.Values(), nil
 }
 
 func (b *Broker) SendDirect(ctx context.Context, sender, recipient string, conversationID *string, payload []byte) (direct.SendResult, error) {
@@ -89,7 +90,7 @@ func (b *Broker) AckDirect(ctx context.Context, recipient string, nextOffset uin
 }
 
 func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, topics []string, sessionTimeoutMS uint64) (store.ConsumerGroupMember, error) {
-	req := joinGroupCommand{Group: group, MemberID: memberID, Topics: append([]string(nil), topics...), SessionTimeoutMS: sessionTimeoutMS}
+	req := joinGroupCommand{Group: group, MemberID: memberID, Topics: collectionlist.NewList(topics...).Values(), SessionTimeoutMS: sessionTimeoutMS}
 	return proposeOrApply(ctx, b, raftCommandJoinGroup, req, b.applyJoinGroup)
 }
 

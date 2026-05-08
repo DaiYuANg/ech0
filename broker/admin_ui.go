@@ -57,14 +57,18 @@ func (s *AdminServer) uiTopicMessages(c *fiber.Ctx) error {
 	partition := parseUint32Query(c, "partition")
 	offset := parseUint64Query(c, "offset")
 	limit := c.QueryInt("limit", 50)
+	cursor := c.Query("cursor")
 	page, err := s.broker.TopicMessagesSnapshot(topic, partition, offset, limit)
+	if cursor != "" || offset == 0 {
+		page, err = s.broker.TopicMessagesCursorSnapshot(topic, partition, cursor, limit)
+	}
 	view := topicMessagesView{
 		Page:       page,
 		PrevOffset: previousOffset(offset, limit),
 	}
 	if err != nil {
 		view.Error = err.Error()
-		view.Page = TopicMessagesPageSummary{Topic: topic, Partition: partition, Offset: offset, Limit: limit, NextOffset: offset}
+		view.Page = TopicMessagesPageSummary{Topic: topic, Partition: partition, Offset: offset, Limit: limit, Cursor: cursor, NextOffset: offset}
 	}
 	return adminRender(c, "admin_templates/topic_messages", view)
 }

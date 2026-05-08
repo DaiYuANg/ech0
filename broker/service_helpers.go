@@ -5,6 +5,7 @@ import (
 
 	"github.com/DaiYuANg/ech0/protocol"
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/eventx"
 )
 
@@ -63,18 +64,19 @@ func cloneAppend(record store.RecordAppend) store.RecordAppend {
 		out.TimestampMS = &v
 	}
 	if len(record.Headers) > 0 {
-		out.Headers = make([]store.RecordHeader, len(record.Headers))
-		for i, header := range record.Headers {
-			out.Headers[i] = store.RecordHeader{Key: header.Key, Value: append([]byte(nil), header.Value...)}
+		headers := collectionlist.NewListWithCapacity[store.RecordHeader](len(record.Headers))
+		for _, header := range record.Headers {
+			headers.Add(store.RecordHeader{Key: header.Key, Value: append([]byte(nil), header.Value...)})
 		}
+		out.Headers = headers.Values()
 	}
 	return out
 }
 
 func fetchRecordsFromStore(records []store.Record) []protocol.FetchRecord {
-	out := make([]protocol.FetchRecord, 0, len(records))
+	out := collectionlist.NewListWithCapacity[protocol.FetchRecord](len(records))
 	for _, record := range records {
-		out = append(out, protocol.FetchRecord{
+		out.Add(protocol.FetchRecord{
 			Offset:      record.Offset,
 			TimestampMS: record.TimestampMS,
 			Key:         append([]byte(nil), record.Key...),
@@ -83,7 +85,7 @@ func fetchRecordsFromStore(records []store.Record) []protocol.FetchRecord {
 			Payload:     append([]byte(nil), record.Payload...),
 		})
 	}
-	return out
+	return out.Values()
 }
 
 func (b *Broker) publishEvent(ctx context.Context, event eventx.Event) {

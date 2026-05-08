@@ -6,6 +6,7 @@ import (
 
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionset "github.com/arcgolabs/collectionx/set"
 )
 
@@ -223,11 +224,11 @@ func cloneRecordHeaders(headers []store.RecordHeader) []store.RecordHeader {
 	if len(headers) == 0 {
 		return nil
 	}
-	out := make([]store.RecordHeader, 0, len(headers))
+	out := collectionlist.NewListWithCapacity[store.RecordHeader](len(headers))
 	for _, header := range headers {
-		out = append(out, store.RecordHeader{Key: header.Key, Value: append([]byte(nil), header.Value...)})
+		out.Add(store.RecordHeader{Key: header.Key, Value: append([]byte(nil), header.Value...)})
 	}
-	return out
+	return out.Values()
 }
 
 func stringValue(value *string, fallback string) string {

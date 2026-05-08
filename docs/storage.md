@@ -53,6 +53,24 @@ New writes use zstd compression by default and reads continue to accept legacy u
 
 It also implements `store.Snapshotter`, so Raft snapshots can persist and restore metadata.
 
+## Storx Usage
+
+The storage layer standardizes bbolt and Badger access through `arcgolabs/storx` subpackages:
+
+- `bboltx.DB` and typed `bboltx.Bucket` are used for broker metadata and Raft log/stable storage.
+- `badgerx.DB` and typed `badgerx.Namespace` are used for message indexes.
+- `keycodec.String`, `keycodec.Bytes`, and `keycodec.Uint64BE` provide ordered, typed keys.
+- `keycodec.Composite` stores typed topic/partition/offset index keys without hand-built Badger key strings.
+- `codec.JSON` stores metadata and segment pointers; `codec.Bytes` stores Raft raw values.
+- `SetMany`, `PutMany`, and `DeleteMany` are used for snapshot restore and index cleanup paths.
+- `View`/`Update` transaction helpers are used where an operation must stay inside one storage transaction.
+- `Page` is used by the Admin UI message browser for cursor pagination over the Badger record index.
+- `observer` is wired into the binary runtime so completed storx operations feed broker storage metrics.
+- `bboltx.ModelStore` plus a non-unique secondary index stores consumer-group members by group for indexed admin and rebalance queries.
+- `RunValueLogGC` runs after retention or compaction removes Badger index entries.
+
+Potential next steps are using `Iter` for long-running maintenance scans and evaluating additional ModelStore indexes only for admin-query metadata, not for the append/read message hot path.
+
 ## Snapshot and Restore
 
 Both metadata and log stores implement snapshot/restore contracts:

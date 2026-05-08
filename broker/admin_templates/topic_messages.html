@@ -23,9 +23,18 @@
     <div class="my-4 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
       <span>partition {{.Page.Partition}}</span>
       <span>offset {{.Page.Offset}}</span>
+      {{if .Page.Cursor}}<span>cursor page</span>{{end}}
       <span>high watermark {{fmtOffset .Page.HighWatermark}}</span>
       <a class="font-medium text-emerald-700 hover:text-emerald-800" href="/ui/topics/{{.Page.Topic}}/messages?partition={{.Page.Partition}}&offset={{.PrevOffset}}&limit={{.Page.Limit}}">prev</a>
-      <a class="font-medium text-emerald-700 hover:text-emerald-800" href="/ui/topics/{{.Page.Topic}}/messages?partition={{.Page.Partition}}&offset={{.Page.NextOffset}}&limit={{.Page.Limit}}">next</a>
+      {{if .Page.HasMore}}
+        {{if .Page.NextCursor}}
+          <a class="font-medium text-emerald-700 hover:text-emerald-800" href="/ui/topics/{{.Page.Topic}}/messages?partition={{.Page.Partition}}&cursor={{.Page.NextCursor}}&limit={{.Page.Limit}}">next</a>
+        {{else}}
+          <a class="font-medium text-emerald-700 hover:text-emerald-800" href="/ui/topics/{{.Page.Topic}}/messages?partition={{.Page.Partition}}&offset={{.Page.NextOffset}}&limit={{.Page.Limit}}">next</a>
+        {{end}}
+      {{else}}
+        <span class="text-zinc-400">next</span>
+      {{end}}
     </div>
     {{if .Error}}<p class="mb-3 text-sm font-semibold text-amber-700">{{.Error}}</p>{{end}}
     <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">

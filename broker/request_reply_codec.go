@@ -3,6 +3,7 @@ package broker
 import (
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 )
 
 type requestReplyEnvelope struct {
@@ -96,11 +97,11 @@ func decodeRequestReplyEnvelope(payload []byte, wantType string) (requestReplyEn
 }
 
 func cloneHeaders(headers []store.RecordHeader) []store.RecordHeader {
-	out := make([]store.RecordHeader, 0, len(headers))
+	out := collectionlist.NewListWithCapacity[store.RecordHeader](len(headers))
 	for _, header := range headers {
-		out = append(out, store.RecordHeader{Key: header.Key, Value: append([]byte(nil), header.Value...)})
+		out.Add(store.RecordHeader{Key: header.Key, Value: append([]byte(nil), header.Value...)})
 	}
-	return out
+	return out.Values()
 }
 
 func cloneDirectMessage(message direct.Message) direct.Message {

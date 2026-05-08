@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/storx/badgerx"
 )
 
@@ -10,17 +11,17 @@ func scanBadgerNamespace[K any, V any](
 	ctx context.Context,
 	namespace *badgerx.Namespace[K, V],
 ) ([]badgerx.Entry[K, V], error) {
-	entries := make([]badgerx.Entry[K, V], 0)
+	entries := collectionlist.NewList[badgerx.Entry[K, V]]()
 	err := namespace.View(ctx, func(tx badgerx.ViewTx[K, V]) error {
 		return tx.Scan(func(key K, value V) error {
-			entries = append(entries, badgerx.Entry[K, V]{
+			entries.Add(badgerx.Entry[K, V]{
 				Key:   key,
 				Value: value,
 			})
 			return nil
 		})
 	})
-	return entries, wrapExternal(err, "scan badger namespace")
+	return entries.Values(), wrapExternal(err, "scan badger namespace")
 }
 
 func scanBadgerNamespaceKeys[K any, V any](
@@ -31,9 +32,9 @@ func scanBadgerNamespaceKeys[K any, V any](
 	if err != nil {
 		return nil, err
 	}
-	keys := make([]K, 0, len(entries))
+	keys := collectionlist.NewListWithCapacity[K](len(entries))
 	for _, entry := range entries {
-		keys = append(keys, entry.Key)
+		keys.Add(entry.Key)
 	}
-	return keys, nil
+	return keys.Values(), nil
 }

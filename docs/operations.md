@@ -45,6 +45,8 @@ Raft mode coordinates mutating broker commands through HashiCorp Raft:
 
 Raft stores its own logs and snapshots under the configured data directory. Broker metadata and message log stores must implement `store.Snapshotter`; startup validates this requirement.
 
+`raft.bind_addr` is the local listen address and may use `0.0.0.0` in containers. The current node's matching entry in `raft.cluster` is used as the Raft advertised address, so cluster entries should use routable peer addresses such as Docker service names.
+
 When a node is not leader, mutating commands return a not-leader error. Scheduled jobs use a gocron distributed elector and only run on the current leader.
 
 ## Scheduled Jobs
@@ -74,7 +76,7 @@ Admin and OpenAPI use `arcgolabs/httpx` for the HTTP surface while the default s
 
 Metrics are exposed through the admin server and are wired through the broker metrics package. The project uses the arcgolabs observability stack where it fits the runtime surface.
 
-Current metric coverage includes broker/runtime counters and gauges used by the admin API and `/metrics`.
+Current metric coverage includes broker/runtime counters, stream gauges, cleanup counters, produce counters, and storx storage operation metrics. Storage metrics are emitted from `storx/observer` and include operation count, error count, and duration labels for engine, target type, target, operation, and status.
 
 ## Docker
 
@@ -85,7 +87,7 @@ Docker examples live in `deploy/docker`:
 - `docker-compose.single.release.yml` uses the release image.
 - `docker-compose.cluster.release.yml` uses the release image.
 
-The release Dockerfile is multi-stage. It can install UPX in the build stage, compress the binary, and copy only the compressed executable into the runtime stage. Set `ENABLE_UPX=false` when a less compressed debug image is preferred.
+The release Dockerfile is multi-stage. It installs UPX in the build stage, compresses the binary, and copies only the compressed executable into the runtime stage.
 
 ## Release Packaging
 
@@ -98,6 +100,8 @@ GoReleaser drives release artifacts:
 
 Packaging assets live under `packaging/`.
 
+Full local release verification expects `upx` and Docker to be available. Without Docker, `goreleaser release --snapshot --clean --skip=docker` verifies archives and Linux packages.
+
 ## Operational Boundaries
 
 The binary owns operational concerns:
@@ -109,4 +113,3 @@ The binary owns operational concerns:
 - Release packaging and container defaults.
 
 The root `ech0` library should not expose these concerns unless they become essential for embedded broker users.
-

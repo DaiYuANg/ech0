@@ -7,7 +7,7 @@ require (
 	github.com/arcgolabs/collectionx/mapping v0.7.0
 	github.com/arcgolabs/collectionx/set v0.7.0
 	github.com/arcgolabs/configx v0.3.2
-	github.com/arcgolabs/dix v0.7.2
+	github.com/arcgolabs/dix v0.8.0
 	github.com/arcgolabs/eventx v0.1.2
 	github.com/arcgolabs/httpx v0.1.4
 	github.com/arcgolabs/httpx/adapter/fiber v0.1.4
@@ -18,6 +18,7 @@ require (
 	github.com/arcgolabs/storx/bboltx v0.5.0
 	github.com/arcgolabs/storx/codec v0.1.0
 	github.com/arcgolabs/storx/keycodec v0.2.0
+	github.com/arcgolabs/storx/observer v0.1.0
 	github.com/bytedance/sonic v1.15.0
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/cespare/xxhash/v2 v2.3.0
@@ -27,8 +28,8 @@ require (
 	github.com/goccy/go-json v0.10.6
 	github.com/gofiber/fiber/v2 v2.52.13
 	github.com/gofiber/template/html/v2 v2.1.3
+	github.com/hashicorp/go-msgpack v0.5.5
 	github.com/hashicorp/raft v1.7.3
-	github.com/hashicorp/raft-boltdb v0.0.0-20251103221153-05f9dd7a5148
 	github.com/klauspost/compress v1.18.5
 	github.com/prometheus/client_golang v1.23.2
 	github.com/samber/oops v1.21.0
@@ -40,15 +41,14 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.2.1 // indirect
+	github.com/arcgolabs/collectionx/graph v0.7.0 // indirect
 	github.com/arcgolabs/httpx/adapter/echo v0.1.4 // indirect
 	github.com/arcgolabs/httpx/adapter/gin v0.1.4 // indirect
 	github.com/arcgolabs/httpx/adapter/std v0.1.4 // indirect
 	github.com/arcgolabs/pkg/option v0.0.3 // indirect
 	github.com/arcgolabs/storx v0.2.0 // indirect
-	github.com/arcgolabs/storx/observer v0.1.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
@@ -72,7 +72,6 @@ require (
 	github.com/hashicorp/go-hclog v1.6.2 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
 	github.com/hashicorp/go-metrics v0.5.4 // indirect
-	github.com/hashicorp/go-msgpack v0.5.5 // indirect
 	github.com/hashicorp/go-msgpack/v2 v2.1.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect

@@ -166,11 +166,15 @@ func (s *StorxLogStore) segmentIDForAppend(
 }
 
 func (s *StorxLogStore) lastRecordPointer(topicPartition TopicPartition) (segmentRecordPointer, bool, error) {
+	prefix, err := recordIndexPrefix(topicPartition)
+	if err != nil {
+		return segmentRecordPointer{}, false, err
+	}
 	entries, err := s.records.List(
 		context.Background(),
-		badgerx.WithPrefix[string]([]byte(recordPrefix(topicPartition))),
-		badgerx.WithReverse[string](true),
-		badgerx.WithLimit[string](1),
+		badgerx.WithPrefix[recordIndexKey](prefix),
+		badgerx.WithReverse[recordIndexKey](true),
+		badgerx.WithLimit[recordIndexKey](1),
 	)
 	if err != nil {
 		return segmentRecordPointer{}, false, wrapExternal(err, "load last segment record index")

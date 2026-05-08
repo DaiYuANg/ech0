@@ -106,6 +106,12 @@ type PollResult struct {
 	HighWatermark *uint64
 }
 
+type RecordPage struct {
+	Records    []Record
+	NextCursor string
+	HasMore    bool
+}
+
 type ConsumerGroupMember struct {
 	Group            string   `json:"group"`
 	MemberID         string   `json:"member_id"`
