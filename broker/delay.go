@@ -12,7 +12,7 @@ import (
 
 func (b *Broker) ScheduleDelay(ctx context.Context, topic string, partition uint32, payload []byte, deliverAtMS uint64) (DelayScheduleResult, error) {
 	req := scheduleDelayCommand{Topic: topic, Partition: partition, Payload: append([]byte(nil), payload...), DeliverAtMS: deliverAtMS}
-	return proposeOrApply(ctx, b, raftCommandScheduleDelay, req, b.applyScheduleDelay)
+	return routePartitionCommand(ctx, b, exactPartitionCommandTarget(delayTopicName(topic), partition), raftCommandScheduleDelay, req, b.applyScheduleDelay)
 }
 
 func (b *Broker) ProcessDueDelayedOnce(ctx context.Context, consumerPrefix string, maxRecordsPerPartition int) (int, error) {
@@ -99,7 +99,7 @@ func (b *Broker) processDelayPartition(
 		MaxRecords:         maxRecords,
 		NowMS:              nowMS,
 	}
-	return proposeOrApply(ctx, b, raftCommandProcessDelay, req, b.applyProcessDelayPartition)
+	return routePartitionCommand(ctx, b, exactPartitionCommandTarget(topic.Name, partition), raftCommandProcessDelay, req, b.applyProcessDelayPartition)
 }
 
 func (b *Broker) applyScheduleDelay(ctx context.Context, req scheduleDelayCommand) (DelayScheduleResult, error) {

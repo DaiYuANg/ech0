@@ -10,7 +10,7 @@ import (
 )
 
 func (b *Broker) CreateTopic(ctx context.Context, topic store.TopicConfig) (store.TopicConfig, error) {
-	return proposeOrApply(ctx, b, raftCommandCreateTopic, topic, b.applyCreateTopic)
+	return routeMetadataCommand(ctx, b, raftCommandCreateTopic, topic, b.applyCreateTopic)
 }
 
 func (b *Broker) Publish(ctx context.Context, topic string, partitioning PublishPartitioning, key []byte, tombstone bool, payload []byte) (ProduceResult, error) {
@@ -23,7 +23,7 @@ func (b *Broker) Publish(ctx context.Context, topic string, partitioning Publish
 }
 
 func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning PublishPartitioning, record store.RecordAppend) (ProduceResult, error) {
-	if b.hasRaftNode() {
+	if b.usesClusterCommandRouter() {
 		batch, err := b.PublishBatch(ctx, topic, partitioning, []store.RecordAppend{record})
 		if err != nil {
 			return ProduceResult{}, err
@@ -34,7 +34,7 @@ func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning P
 		return ProduceResult{Partition: batch.Partition, Record: batch.Records[0]}, nil
 	}
 	req := produceCommand{Topic: topic, Partitioning: partitioning, Record: cloneAppend(record)}
-	return proposeOrApply(ctx, b, raftCommandProduce, req, b.applyProduce)
+	return routePartitionCommand(ctx, b, topicCommandTarget(topic), raftCommandProduce, req, b.applyProduce)
 }
 
 func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning PublishPartitioning, records []store.RecordAppend) (ProduceBatchResult, error) {
@@ -43,10 +43,10 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning Pu
 		copied.Add(cloneAppend(record))
 	}
 	req := produceBatchCommand{Topic: topic, Partitioning: partitioning, Records: copied.Values()}
-	if b.hasRaftNode() {
+	if b.usesClusterCommandRouter() {
 		return b.proposeProduceBatchCoalesced(ctx, req)
 	}
-	return proposeOrApply(ctx, b, raftCommandProduceBatch, req, b.applyProduceBatch)
+	return routePartitionCommand(ctx, b, topicCommandTarget(topic), raftCommandProduceBatch, req, b.applyProduceBatch)
 }
 
 func (b *Broker) Fetch(ctx context.Context, consumer, topic string, partition uint32, offset *uint64, maxRecords int) (poll store.PollResult, err error) {
@@ -69,10 +69,10 @@ func (b *Broker) Fetch(ctx context.Context, consumer, topic string, partition ui
 
 func (b *Broker) CommitOffset(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64) error {
 	req := commitOffsetCommand{Consumer: consumer, Topic: topic, Partition: partition, NextOffset: nextOffset}
-	if b.hasRaftNode() {
+	if b.usesClusterCommandRouter() {
 		return b.proposeCommitOffsetCoalesced(ctx, req)
 	}
-	_, err := proposeOrApply(ctx, b, raftCommandCommitOffset, req, b.applyCommitOffset)
+	_, err := routePartitionCommand(ctx, b, exactPartitionCommandTarget(topic, partition), raftCommandCommitOffset, req, b.applyCommitOffset)
 	return err
 }
 
@@ -93,7 +93,7 @@ func (b *Broker) ListTopics() ([]store.TopicConfig, error) {
 
 func (b *Broker) SendDirect(ctx context.Context, sender, recipient string, conversationID *string, payload []byte) (direct.SendResult, error) {
 	req := directCommand{Sender: sender, Recipient: recipient, ConversationID: conversationID, Payload: append([]byte(nil), payload...)}
-	return proposeOrApply(ctx, b, raftCommandDirectSend, req, b.applyDirectSend)
+	return routePartitionCommand(ctx, b, topicCommandTarget(direct.InternalInboxTopicPrefix), raftCommandDirectSend, req, b.applyDirectSend)
 }
 
 func (b *Broker) FetchInbox(recipient string, maxRecords int) (direct.FetchInboxResult, error) {
@@ -109,23 +109,23 @@ func (b *Broker) FetchInbox(recipient string, maxRecords int) (direct.FetchInbox
 
 func (b *Broker) AckDirect(ctx context.Context, recipient string, nextOffset uint64) error {
 	req := ackDirectCommand{Recipient: recipient, NextOffset: nextOffset}
-	_, err := proposeOrApply(ctx, b, raftCommandDirectAck, req, b.applyDirectAck)
+	_, err := routePartitionCommand(ctx, b, topicCommandTarget(direct.InternalInboxTopicPrefix), raftCommandDirectAck, req, b.applyDirectAck)
 	return err
 }
 
 func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, topics []string, sessionTimeoutMS uint64) (store.ConsumerGroupMember, error) {
 	req := joinGroupCommand{Group: group, MemberID: memberID, Topics: collectionlist.NewList(topics...).Values(), SessionTimeoutMS: sessionTimeoutMS}
-	return proposeOrApply(ctx, b, raftCommandJoinGroup, req, b.applyJoinGroup)
+	return routeMetadataCommand(ctx, b, raftCommandJoinGroup, req, b.applyJoinGroup)
 }
 
 func (b *Broker) HeartbeatConsumerGroup(ctx context.Context, group, memberID string, sessionTimeoutMS *uint64) (store.ConsumerGroupMember, error) {
 	req := heartbeatGroupCommand{Group: group, MemberID: memberID, SessionTimeoutMS: sessionTimeoutMS}
-	return proposeOrApply(ctx, b, raftCommandHeartbeatGroup, req, b.applyHeartbeatGroup)
+	return routeMetadataCommand(ctx, b, raftCommandHeartbeatGroup, req, b.applyHeartbeatGroup)
 }
 
 func (b *Broker) RebalanceConsumerGroup(ctx context.Context, group string) (store.ConsumerGroupAssignment, error) {
 	req := rebalanceGroupCommand{Group: group}
-	return proposeOrApply(ctx, b, raftCommandRebalanceGroup, req, b.applyRebalanceGroup)
+	return routeMetadataCommand(ctx, b, raftCommandRebalanceGroup, req, b.applyRebalanceGroup)
 }
 
 func (b *Broker) GetConsumerGroupAssignment(group string) (*store.ConsumerGroupAssignment, error) {

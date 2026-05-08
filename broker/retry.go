@@ -10,12 +10,12 @@ import (
 
 func (b *Broker) Nack(ctx context.Context, consumer, topic string, partition uint32, offset uint64, lastError *string) (RetryResult, error) {
 	req := nackCommand{Consumer: consumer, Topic: topic, Partition: partition, Offset: offset, LastError: lastError}
-	return proposeOrApply(ctx, b, raftCommandNack, req, b.applyNack)
+	return routePartitionCommand(ctx, b, exactPartitionCommandTarget(topic, partition), raftCommandNack, req, b.applyNack)
 }
 
 func (b *Broker) ProcessRetryBatch(ctx context.Context, consumer, sourceTopic string, partition uint32, maxRecords int) (ProcessRetryResult, error) {
 	req := processRetryCommand{Consumer: consumer, SourceTopic: sourceTopic, Partition: partition, MaxRecords: maxRecords, NowMS: store.NowMS()}
-	return proposeOrApply(ctx, b, raftCommandProcessRetry, req, b.applyProcessRetryBatch)
+	return routePartitionCommand(ctx, b, exactPartitionCommandTarget(retryTopicName(sourceTopic), partition), raftCommandProcessRetry, req, b.applyProcessRetryBatch)
 }
 
 func (b *Broker) ProcessRetryTopicsOnce(ctx context.Context, consumerPrefix string, maxRecordsPerPartition int) (int, error) {

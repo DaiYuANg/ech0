@@ -145,11 +145,7 @@ func deliverProduceBatchResults(works []*produceBatchWork, result produceBatches
 }
 
 func (b *Broker) applyCoalescedRaftCommand(ctx context.Context, commandType string, payload any) (any, error) {
-	node := b.currentRaftNode()
-	if node == nil {
-		return nil, brokerStoreError(store.CodeUnavailable, "raft runtime is not started")
-	}
-	return node.Apply(ctx, commandType, payload)
+	return b.routeCoalescedPartitionCommand(ctx, commandType, payload)
 }
 
 func (b *Broker) currentRaftNode() *raftNode {
@@ -160,10 +156,6 @@ func (b *Broker) currentRaftNode() *raftNode {
 	node := b.raft
 	b.raftMu.RUnlock()
 	return node
-}
-
-func (b *Broker) hasRaftNode() bool {
-	return b != nil && b.cfg.Raft.Enabled && b.currentRaftNode() != nil
 }
 
 func errorFromMessage(message string) error {

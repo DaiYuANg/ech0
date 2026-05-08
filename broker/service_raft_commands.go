@@ -130,21 +130,6 @@ func (b *Broker) recordFSMStage(ctx context.Context, commandType, stage string, 
 	b.metrics.RecordFSMStage(ctx, commandType, stage, time.Since(start), err)
 }
 
-func proposeOrApply[T any, R any](ctx context.Context, b *Broker, commandType string, req R, apply func(context.Context, R) (T, error)) (T, error) {
-	b.raftMu.RLock()
-	node := b.raft
-	b.raftMu.RUnlock()
-	if !b.cfg.Raft.Enabled || node == nil {
-		return apply(ctx, req)
-	}
-	var zero T
-	value, err := node.Apply(ctx, commandType, req)
-	if err != nil {
-		return zero, err
-	}
-	return raftValueAs[T](value)
-}
-
 func raftValueAs[T any](value any) (T, error) {
 	var zero T
 	typed, ok := value.(T)
