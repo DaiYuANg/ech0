@@ -25,6 +25,7 @@ type StorxLogStore struct {
 	mu               sync.Mutex
 	partitionLocksMu sync.Mutex
 	writersMu        sync.Mutex
+	readersMu        sync.Mutex
 	rootDir          string
 	segmentsDir      string
 	compression      segmentFrameCompression
@@ -35,6 +36,7 @@ type StorxLogStore struct {
 	metrics          StoreMetrics
 	partitionLocks   *collectionmapping.Map[TopicPartition, *sync.Mutex]
 	writers          *collectionmapping.Map[string, *segmentWriter]
+	readers          *collectionmapping.Map[string, *segmentReader]
 }
 
 type segmentRecordPointer struct {
@@ -92,6 +94,7 @@ func OpenStorxLogStoreWithOptions(path string, options StorxLogOptions) (*StorxL
 		metrics:        options.Metrics,
 		partitionLocks: collectionmapping.NewMap[TopicPartition, *sync.Mutex](),
 		writers:        collectionmapping.NewMap[string, *segmentWriter](),
+		readers:        collectionmapping.NewMap[string, *segmentReader](),
 	}, nil
 }
 
@@ -131,6 +134,7 @@ func (s *StorxLogStore) Close() error {
 	}
 	return errors.Join(
 		s.closeSegmentWriters(),
+		s.closeSegmentReaders(),
 		s.compression.close(),
 		closeSegmentIndex(s.index),
 	)

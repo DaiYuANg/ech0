@@ -106,7 +106,7 @@ func (s *StorxLogStore) readPointers(pointers []segmentRecordPointer) ([]Record,
 	}
 	var resultErr error
 	groups.Range(func(relativePath string, indexes []int) bool {
-		records, err := readSegmentRecords(s.segmentsDir, relativePath, segmentPointersAt(pointers, indexes))
+		records, err := s.readSegmentRecords(relativePath, segmentPointersAt(pointers, indexes))
 		if err != nil {
 			resultErr = err
 			return false
@@ -132,10 +132,11 @@ func segmentPointersAt(pointers []segmentRecordPointer, indexes []int) []segment
 
 func (s *StorxLogStore) readPointer(pointer segmentRecordPointer) (Record, error) {
 	tp := NewTopicPartition(pointer.Topic, pointer.Partition)
-	record, err := readSegmentRecord(s.segmentsDir, s.segmentRelativePath(tp, pointer.SegmentID), pointer.Position, pointer.Length)
+	records, err := s.readSegmentRecords(s.segmentRelativePath(tp, pointer.SegmentID), []segmentRecordPointer{pointer})
 	if err != nil {
 		return Record{}, err
 	}
+	record := records[0]
 	if record.Offset != pointer.Offset {
 		return Record{}, E(CodeCodec, "segment record offset mismatch: index=%d record=%d", pointer.Offset, record.Offset)
 	}

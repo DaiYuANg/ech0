@@ -155,6 +155,7 @@ Follow-up runs after adding `--batch-size` and configurable `raft.commit_timeout
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, raft proposal coalescing, 15s | 456.51 msg/s | 433.04 msg/s | 59.726ms per batch | 116.874ms per batch | 0 |
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, coalescing + grouped segment reads, 15s | 1,041.05 msg/s | 1,030.38 msg/s | 41.487ms per batch | 56.762ms per batch | 0 |
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, partition locks + grouped produce apply, 15s | 1,557.19 msg/s | 1,546.53 msg/s | 40.275ms per batch | 45.957ms per batch | 0 |
+| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, segment write coalescing + reader cache, 15s | 1,522.10 msg/s | 1,511.44 msg/s | 39.298ms per batch | 63.744ms per batch | 0 |
 
 These follow-up numbers show that making `CommitTimeout` configurable is necessary but not enough by itself. The real store batch append path improved cluster produce throughput by roughly 3.9x over the previous `batch_size=16` run and moved batch publish p50 from about 569ms to about 64ms. Raft proposal coalescing helped consume keep up by batching commit offsets. Grouped segment reads then removed the major fetch bottleneck and moved this local Docker run above 1,000 msg/s for both produce and consume.
 
@@ -306,6 +307,38 @@ This run keeps writes deterministic inside the Raft FSM while reducing local sto
 - Produce requests inside one raft command are grouped by target partition, so a partition receives one larger `AppendRecordsBatch` instead of several smaller batch appends.
 - A tested variant that applied partition groups concurrently regressed to about 647 msg/s and raised `append_frame` to about 10.3ms because multiple segment fsyncs competed on the same Docker Desktop storage path.
 - The current remaining cost is mostly durable IO: raft log `put_many` is about 7.2ms, and segment `append_frame` is about 3.6ms per grouped append batch.
+
+After segment write coalescing and reader cache, 2026-05-08:
+
+- 3-node Docker raft cluster.
+- `ECH0_RAFT_COMMIT_TIMEOUT_MS=5`.
+- `--batch-size 16`, 4 producers, 4 consumers, 4 partitions, 1 KiB payload, 15s.
+- Leader target: `127.0.0.1:39090`.
+- Result: 22,832 produced, 22,672 consumed, 1,522.10 msg/s produce rate, 1,511.44 msg/s consume rate, 0 errors.
+- Publish latency: avg 42.030ms, p50 39.298ms, p95 63.744ms, p99 94.377ms.
+- Fetch latency: avg 8.632ms, p50 8.482ms, p95 13.983ms, p99 25.402ms.
+
+| Layer | Stage | Count | Avg |
+| --- | --- | ---: | ---: |
+| raft `produce_batches` | `apply_wait` | 368 | 38.245ms |
+| raft `produce_batches` | `encode` | 368 | 0.164ms |
+| raft `produce_batches` | `total` | 368 | 38.427ms |
+| raft store `logs` | `put_many` | 740 | 8.958ms |
+| FSM `produce_batches` | `apply` | 368 | 13.570ms |
+| store `append_batch` | `total` | 1,431 | 3.476ms |
+| store `append_batch` | `append_frame` | 1,431 | 1.049ms |
+| broker `fetch` | `queue_fetch` | 849 | 7.328ms |
+| store `read_from` | `total` | 849 | 6.885ms |
+| store `read_from` | `read_segments` | 849 | 6.686ms |
+| raft `commit_offsets` | `apply_wait` | 369 | 39.410ms |
+| FSM `commit_offsets` | `apply` | 369 | 4.813ms |
+
+This run shows local segment improvements but also exposes raft log variance:
+
+- Coalescing frames per segment write reduced `append_frame` from about 3.6ms to about 1.0ms and cut `store append_batch total` from about 5.9ms to about 3.5ms.
+- Caching read-only segment file handles reduced `read_segments` from about 8.6ms to about 6.7ms and improved fetch p95 from about 15ms to about 14ms compared with the previous best run.
+- End-to-end throughput stayed near the previous best rather than increasing because raft log `put_many` was slower in this Docker sample (`~9.0ms` versus `~7.2ms`).
+- A bbolt `NoFreelistSync` experiment did not materially improve raft log writes in this workload, so it was not retained. The next high-impact area is reducing raft log entry count or replacing the JSON raft command payload on the hot produce path.
 
 ## Kafka and NATS Comparison Notes
 

@@ -101,22 +101,48 @@ func openSegmentWriter(rootDir, relativePath string) (*segmentWriter, error) {
 }
 
 func (w *segmentWriter) appendFrames(frames [][]byte) ([]int64, error) {
-	positions := make([]int64, 0, len(frames))
-	for _, frame := range frames {
-		positions = append(positions, w.position)
-		written, err := w.file.Write(frame)
-		if err != nil {
-			return nil, wrapExternal(err, "write segment record")
-		}
-		if written != len(frame) {
-			return nil, wrapExternal(io.ErrShortWrite, "write segment record")
-		}
-		w.position += int64(written)
+	if len(frames) == 0 {
+		return nil, nil
 	}
+	positions, payload := w.coalesceFrames(frames)
+	if err := w.writeFrames(payload); err != nil {
+		return nil, err
+	}
+	w.position += int64(len(payload))
 	if err := w.file.Sync(); err != nil {
 		return nil, wrapExternal(err, "sync segment file")
 	}
 	return positions, nil
+}
+
+func (w *segmentWriter) coalesceFrames(frames [][]byte) ([]int64, []byte) {
+	positions := make([]int64, 0, len(frames))
+	total := 0
+	nextPosition := w.position
+	for _, frame := range frames {
+		positions = append(positions, nextPosition)
+		nextPosition += int64(len(frame))
+		total += len(frame)
+	}
+	if len(frames) == 1 {
+		return positions, frames[0]
+	}
+	payload := make([]byte, 0, total)
+	for _, frame := range frames {
+		payload = append(payload, frame...)
+	}
+	return positions, payload
+}
+
+func (w *segmentWriter) writeFrames(payload []byte) error {
+	written, err := w.file.Write(payload)
+	if err != nil {
+		return wrapExternal(err, "write segment record")
+	}
+	if written != len(payload) {
+		return wrapExternal(io.ErrShortWrite, "write segment record")
+	}
+	return nil
 }
 
 func (s *StorxLogStore) closeSegmentWriters() error {

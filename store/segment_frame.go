@@ -3,7 +3,6 @@ package store
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"hash/crc32"
 	"os"
 	"strconv"
@@ -110,54 +109,14 @@ func writeSegmentInt(out *bytes.Buffer, value int) error {
 	return nil
 }
 
-func readSegmentRecord(rootDir, relativePath string, position int64, length int) (Record, error) {
-	if length < segmentFrameHeader {
-		return Record{}, E(CodeCodec, "segment frame length %d is too small", length)
-	}
-	root, err := os.OpenRoot(rootDir)
-	if err != nil {
-		return Record{}, wrapExternal(err, "open segment root")
-	}
-	file, err := root.Open(relativePath)
-	if err != nil {
-		return Record{}, errors.Join(wrapExternal(err, "open segment file"), wrapExternal(root.Close(), "close segment root"))
-	}
-	frame := make([]byte, length)
-	readErr := readSegmentFrameAt(file, frame, position)
-	closeErr := errors.Join(file.Close(), root.Close())
-	if readErr != nil {
-		return Record{}, errors.Join(readErr, wrapExternal(closeErr, "close segment file"))
-	}
-	if closeErr != nil {
-		return Record{}, wrapExternal(closeErr, "close segment file")
-	}
-	record, err := decodeSegmentFrame(frame)
-	if err != nil {
-		return Record{}, err
-	}
-	return record, nil
-}
-
-func readSegmentRecords(rootDir, relativePath string, pointers []segmentRecordPointer) ([]Record, error) {
-	root, err := os.OpenRoot(rootDir)
-	if err != nil {
-		return nil, wrapExternal(err, "open segment root")
-	}
-	file, err := root.Open(relativePath)
-	if err != nil {
-		return nil, errors.Join(wrapExternal(err, "open segment file"), wrapExternal(root.Close(), "close segment root"))
-	}
+func readSegmentRecords(file *os.File, pointers []segmentRecordPointer) ([]Record, error) {
 	records := make([]Record, 0, len(pointers))
 	for _, pointer := range pointers {
 		record, readErr := readSegmentPointer(file, pointer)
 		if readErr != nil {
-			return nil, errors.Join(readErr, wrapExternal(errors.Join(file.Close(), root.Close()), "close segment file"))
+			return nil, readErr
 		}
 		records = append(records, record)
-	}
-	closeErr := errors.Join(file.Close(), root.Close())
-	if closeErr != nil {
-		return nil, wrapExternal(closeErr, "close segment file")
 	}
 	return records, nil
 }
