@@ -46,6 +46,13 @@ func exactPartitionCommandTarget(topic string, partition uint32) partitionComman
 	return partitionCommandTarget{Topic: topic, Partition: partition, PartitionKnown: true}
 }
 
+func publishPartitionCommandTarget(topic string, partitioning PublishPartitioning) partitionCommandTarget {
+	if partitioning.Mode == PartitionExplicit {
+		return exactPartitionCommandTarget(topic, partitioning.Partition)
+	}
+	return topicCommandTarget(topic)
+}
+
 func (target partitionCommandTarget) validate() error {
 	if target.PartitionKnown && target.Topic == "" {
 		return brokerStoreError(store.CodeInvalidArgument, "partition command target missing topic for partition %d", target.Partition)
@@ -148,7 +155,8 @@ func routeCommand[T any, R any](
 }
 
 func (b *Broker) routeCoalescedPartitionCommand(ctx context.Context, commandType string, payload any) (any, error) {
-	value, err := b.commandRouter().ApplyPartitionCommand(ctx, partitionCommandTarget{}, commandType, payload, func(ctx context.Context) (any, error) {
+	target := b.coalescedPartitionCommandTarget(commandType, payload)
+	value, err := b.commandRouter().ApplyPartitionCommand(ctx, target, commandType, payload, func(ctx context.Context) (any, error) {
 		switch req := payload.(type) {
 		case produceBatchesCommand:
 			return b.applyProduceBatches(ctx, req)
@@ -162,4 +170,34 @@ func (b *Broker) routeCoalescedPartitionCommand(ctx context.Context, commandType
 		return nil, wrapBroker("partition_command_route_failed", err, "route coalesced partition command %s", commandType)
 	}
 	return value, nil
+}
+
+func (b *Broker) coalescedPartitionCommandTarget(commandType string, payload any) partitionCommandTarget {
+	switch commandType {
+	case raftCommandProduceBatches:
+		if req, ok := payload.(produceBatchesCommand); ok {
+			return produceBatchesCommandTarget(req)
+		}
+	case raftCommandCommitOffsets:
+		if req, ok := payload.(commitOffsetsCommand); ok {
+			return commitOffsetsCommandTarget(req)
+		}
+	}
+	return partitionCommandTarget{}
+}
+
+func produceBatchesCommandTarget(req produceBatchesCommand) partitionCommandTarget {
+	if len(req.Requests) != 1 {
+		return partitionCommandTarget{}
+	}
+	item := req.Requests[0]
+	return publishPartitionCommandTarget(item.Topic, item.Partitioning)
+}
+
+func commitOffsetsCommandTarget(req commitOffsetsCommand) partitionCommandTarget {
+	if len(req.Requests) != 1 {
+		return partitionCommandTarget{}
+	}
+	item := req.Requests[0]
+	return exactPartitionCommandTarget(item.Topic, item.Partition)
 }

@@ -73,6 +73,51 @@ func TestBrokerSingleNodeRaftBatchProduceCommit(t *testing.T) {
 	}
 }
 
+func TestBrokerSingleNodeRaftClusterRouterResolvesShardPlacement(t *testing.T) {
+	addr := freeTCPAddr(t)
+	cfg := broker.DefaultConfig()
+	cfg.Broker.DataDir = t.TempDir()
+	cfg.Broker.DataShardCount = 3
+	cfg.Raft.Enabled = true
+	cfg.Raft.BindAddr = addr
+	cfg.Raft.HeartbeatIntervalMS = 50
+	cfg.Raft.ElectionTimeoutMaxMS = 100
+	cfg.Raft.ApplyTimeoutMS = 3000
+	cfg.Raft.Cluster = []broker.RaftPeerConfig{{NodeID: cfg.Broker.NodeID, Addr: addr}}
+
+	meta := store.NewMemoryStore()
+	logStore := store.NewMemoryStore()
+	b, err := broker.NewWithStores(cfg, logStore, meta)
+	requireNoError(t, err)
+	ctx := context.Background()
+	requireNoError(t, b.Start(ctx))
+	defer stopBroker(t, b)
+	waitForLeader(t, b)
+
+	topic := store.NewTopicConfig("orders")
+	topic.Partitions = 4
+	createTopic(ctx, t, b, topic)
+	placement, err := meta.LoadShardPlacement(store.NewTopicPartition("orders", 2))
+	requireNoError(t, err)
+	if placement == nil || placement.ShardID != 2 {
+		t.Fatalf("unexpected shard placement: %#v", placement)
+	}
+
+	result, err := b.PublishBatch(ctx, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 2}, []store.RecordAppend{
+		{Payload: []byte("m1")},
+	})
+	requireNoError(t, err)
+	if result.Partition != 2 || len(result.Records) != 1 {
+		t.Fatalf("unexpected publish result: %#v", result)
+	}
+	poll, err := b.Fetch(ctx, "c1", "orders", 2, nil, 10)
+	requireNoError(t, err)
+	if len(poll.Records) != 1 || string(poll.Records[0].Payload) != "m1" {
+		t.Fatalf("unexpected poll result: %#v", poll)
+	}
+	requireNoError(t, b.CommitOffset(ctx, "c1", "orders", 2, poll.NextOffset))
+}
+
 func TestBrokerRaftBindsUnspecifiedAndAdvertisesClusterAddress(t *testing.T) {
 	addr := freeTCPAddr(t)
 	_, port, err := net.SplitHostPort(addr)

@@ -76,7 +76,9 @@ The current first step has landed the placement model without changing runtime r
 - The default placement is `partition % data_shard_count`.
 - Memory and storx metadata stores both persist shard placements.
 - Snapshots include `shard_placements`, so future Raft metadata snapshots carry the placement map.
-- Command routing now carries partition command targets, ready for a later cluster router to resolve to data shard groups.
+- Command routing now carries partition command targets.
+- Cluster mode installs a cluster router skeleton that resolves known `topic/partition` targets to shard IDs and then delegates to the current single Raft group.
+- Batched commands are still delegated to the current single Raft group. A later phase will split multi-shard batches before proposing them to data shard groups.
 
 The public API remains library-first:
 

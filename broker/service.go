@@ -83,8 +83,12 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		produceBatcher: newRaftProduceBatcher(),
 		commitBatcher:  newRaftCommitBatcher(),
 	}
-	b.commands = newSingleGroupCommandRouter(b)
 	b.shards = newBrokerShardResolver(metaStore, cfg.Broker.DataShardCount)
+	fallbackCommands := newSingleGroupCommandRouter(b)
+	b.commands = fallbackCommands
+	if cfg.Raft.Enabled {
+		b.commands = newClusterCommandRouter(fallbackCommands, b.shards)
+	}
 	b.queue = queue.New(logStore, metaStore)
 	b.direct = direct.New(logStore, metaStore)
 	for _, opt := range opts {

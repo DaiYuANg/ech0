@@ -34,7 +34,7 @@ func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning P
 		return ProduceResult{Partition: batch.Partition, Record: batch.Records[0]}, nil
 	}
 	req := produceCommand{Topic: topic, Partitioning: partitioning, Record: cloneAppend(record)}
-	return routePartitionCommand(ctx, b, topicCommandTarget(topic), raftCommandProduce, req, b.applyProduce)
+	return routePartitionCommand(ctx, b, publishPartitionCommandTarget(topic, partitioning), raftCommandProduce, req, b.applyProduce)
 }
 
 func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning PublishPartitioning, records []store.RecordAppend) (ProduceBatchResult, error) {
@@ -46,7 +46,7 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning Pu
 	if b.usesClusterCommandRouter() {
 		return b.proposeProduceBatchCoalesced(ctx, req)
 	}
-	return routePartitionCommand(ctx, b, topicCommandTarget(topic), raftCommandProduceBatch, req, b.applyProduceBatch)
+	return routePartitionCommand(ctx, b, publishPartitionCommandTarget(topic, partitioning), raftCommandProduceBatch, req, b.applyProduceBatch)
 }
 
 func (b *Broker) Fetch(ctx context.Context, consumer, topic string, partition uint32, offset *uint64, maxRecords int) (poll store.PollResult, err error) {
