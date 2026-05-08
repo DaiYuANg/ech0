@@ -7,12 +7,13 @@ import (
 )
 
 type clusterCommandRouter struct {
-	fallback brokerCommandRouter
+	metadata brokerCommandRouter
+	data     dataShardRuntime
 	shards   *brokerShardResolver
 }
 
-func newClusterCommandRouter(fallback brokerCommandRouter, shards *brokerShardResolver) brokerCommandRouter {
-	return clusterCommandRouter{fallback: fallback, shards: shards}
+func newClusterCommandRouter(metadata brokerCommandRouter, data dataShardRuntime, shards *brokerShardResolver) brokerCommandRouter {
+	return clusterCommandRouter{metadata: metadata, data: data, shards: shards}
 }
 
 func (r clusterCommandRouter) ApplyMetadataCommand(
@@ -21,7 +22,7 @@ func (r clusterCommandRouter) ApplyMetadataCommand(
 	payload any,
 	local commandApplyFunc,
 ) (any, error) {
-	value, err := r.fallback.ApplyMetadataCommand(ctx, commandType, payload, local)
+	value, err := r.metadata.ApplyMetadataCommand(ctx, commandType, payload, local)
 	if err != nil {
 		return nil, wrapBroker("metadata_command_route_failed", err, "route metadata command %s", commandType)
 	}
@@ -39,7 +40,7 @@ func (r clusterCommandRouter) ApplyPartitionCommand(
 	if err != nil {
 		return nil, wrapBroker("partition_command_target_resolve_failed", err, "resolve partition command target %s", commandType)
 	}
-	value, err := r.fallback.ApplyPartitionCommand(ctx, resolved, commandType, payload, local)
+	value, err := r.applyResolvedPartitionCommand(ctx, resolved, commandType, payload, local)
 	if err != nil {
 		return nil, wrapBroker("partition_command_route_failed", err, "route partition command %s", commandType)
 	}
@@ -47,7 +48,34 @@ func (r clusterCommandRouter) ApplyPartitionCommand(
 }
 
 func (r clusterCommandRouter) UsesCluster() bool {
-	return r.fallback.UsesCluster()
+	return r.metadata.UsesCluster()
+}
+
+func (r clusterCommandRouter) applyResolvedPartitionCommand(
+	ctx context.Context,
+	target partitionCommandTarget,
+	commandType string,
+	payload any,
+	local commandApplyFunc,
+) (any, error) {
+	if target.ShardKnown && r.data != nil {
+		value, err := r.data.ApplyDataShardCommand(ctx, dataShardCommand{
+			ShardID:     target.ShardID,
+			Target:      target,
+			CommandType: commandType,
+			Payload:     payload,
+			Local:       local,
+		})
+		if err != nil {
+			return nil, wrapBroker("data_shard_command_apply_failed", err, "apply data shard command %s to shard %d", commandType, target.ShardID)
+		}
+		return value, nil
+	}
+	value, err := r.metadata.ApplyPartitionCommand(ctx, target, commandType, payload, local)
+	if err != nil {
+		return nil, wrapBroker("partition_command_metadata_fallback_failed", err, "apply partition command %s through metadata fallback", commandType)
+	}
+	return value, nil
 }
 
 func (r clusterCommandRouter) resolveTarget(target partitionCommandTarget) (partitionCommandTarget, error) {

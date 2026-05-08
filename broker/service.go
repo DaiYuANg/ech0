@@ -29,6 +29,7 @@ type Broker struct {
 	topicCache *ristretto.Cache[string, store.TopicConfig]
 	commands   brokerCommandRouter
 	shards     *brokerShardResolver
+	dataShards dataShardRuntime
 
 	raftMu sync.RWMutex
 	raft   *raftNode
@@ -85,9 +86,10 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	}
 	b.shards = newBrokerShardResolver(metaStore, cfg.Broker.DataShardCount)
 	fallbackCommands := newSingleGroupCommandRouter(b)
+	b.dataShards = newSingleGroupDataShardRuntime(fallbackCommands)
 	b.commands = fallbackCommands
 	if cfg.Raft.Enabled {
-		b.commands = newClusterCommandRouter(fallbackCommands, b.shards)
+		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
 	}
 	b.queue = queue.New(logStore, metaStore)
 	b.direct = direct.New(logStore, metaStore)
