@@ -46,6 +46,10 @@ func exactPartitionCommandTarget(topic string, partition uint32) partitionComman
 	return partitionCommandTarget{Topic: topic, Partition: partition, PartitionKnown: true}
 }
 
+func shardCommandTarget(shardID store.ShardID) partitionCommandTarget {
+	return partitionCommandTarget{ShardID: shardID, ShardKnown: true}
+}
+
 func publishPartitionCommandTarget(topic string, partitioning PublishPartitioning) partitionCommandTarget {
 	if partitioning.Mode == PartitionExplicit {
 		return exactPartitionCommandTarget(topic, partitioning.Partition)
@@ -155,35 +159,36 @@ func routeCommand[T any, R any](
 }
 
 func (b *Broker) routeCoalescedPartitionCommand(ctx context.Context, commandType string, payload any) (any, error) {
-	target := b.coalescedPartitionCommandTarget(commandType, payload)
-	value, err := b.commandRouter().ApplyPartitionCommand(ctx, target, commandType, payload, func(ctx context.Context) (any, error) {
-		switch req := payload.(type) {
-		case produceBatchesCommand:
-			return b.applyProduceBatches(ctx, req)
-		case commitOffsetsCommand:
-			return b.applyCommitOffsets(ctx, req)
-		default:
-			return nil, brokerStoreError(store.CodeCodec, "unsupported coalesced partition command %s", commandType)
+	switch commandType {
+	case raftCommandProduceBatches:
+		req, ok := payload.(produceBatchesCommand)
+		if !ok {
+			return nil, brokerStoreError(store.CodeCodec, "invalid coalesced produce payload %T", payload)
 		}
-	})
+		return b.routeProduceBatchesCommand(ctx, req)
+	case raftCommandCommitOffsets:
+		req, ok := payload.(commitOffsetsCommand)
+		if !ok {
+			return nil, brokerStoreError(store.CodeCodec, "invalid coalesced commit payload %T", payload)
+		}
+		return b.routeCommitOffsetsCommand(ctx, req)
+	default:
+		return nil, brokerStoreError(store.CodeCodec, "unsupported coalesced partition command %s", commandType)
+	}
+}
+
+func (b *Broker) applyRoutedPartitionCommand(
+	ctx context.Context,
+	target partitionCommandTarget,
+	commandType string,
+	payload any,
+	local commandApplyFunc,
+) (any, error) {
+	value, err := b.commandRouter().ApplyPartitionCommand(ctx, target, commandType, payload, local)
 	if err != nil {
 		return nil, wrapBroker("partition_command_route_failed", err, "route coalesced partition command %s", commandType)
 	}
 	return value, nil
-}
-
-func (b *Broker) coalescedPartitionCommandTarget(commandType string, payload any) partitionCommandTarget {
-	switch commandType {
-	case raftCommandProduceBatches:
-		if req, ok := payload.(produceBatchesCommand); ok {
-			return produceBatchesCommandTarget(req)
-		}
-	case raftCommandCommitOffsets:
-		if req, ok := payload.(commitOffsetsCommand); ok {
-			return commitOffsetsCommandTarget(req)
-		}
-	}
-	return partitionCommandTarget{}
 }
 
 func produceBatchesCommandTarget(req produceBatchesCommand) partitionCommandTarget {

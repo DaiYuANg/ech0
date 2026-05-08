@@ -49,10 +49,11 @@ The root API deliberately does not expose the full broker `Config`. Embedded use
 
 ## Internal Service Model
 
-`broker.Broker` is the main service boundary. Mutating operations are routed through `proposeOrApply`:
+`broker.Broker` is the main service boundary. Mutating operations are routed through command routers:
 
 - In standalone mode, commands apply directly to the local store-backed runtime.
 - In Raft mode, commands are proposed to the Raft leader and applied by the FSM.
+- Metadata commands and partition-owned commands are separated before they enter the compatibility Raft path.
 
 Read operations use the local runtime today, with `RaftReadPolicy` reserved in configuration for stricter clustered read behavior.
 
@@ -78,7 +79,8 @@ The current first step has landed the placement model without changing runtime r
 - Snapshots include `shard_placements`, so future Raft metadata snapshots carry the placement map.
 - Command routing now carries partition command targets.
 - Cluster mode installs a cluster router skeleton that resolves known `topic/partition` targets to shard IDs and then delegates to the current single Raft group.
-- Batched commands are still delegated to the current single Raft group. A later phase will split multi-shard batches before proposing them to data shard groups.
+- Coalesced `produce_batches` and `commit_offsets` are split by resolved shard target before dispatch. The current runtime still delegates each shard group to the compatibility single Raft group, but result merging already preserves original request order.
+- Non-explicit produce partitioning is resolved before dispatch and rewritten to an explicit partition command. That makes the data-plane command target stable for future per-shard Raft groups.
 
 The public API remains library-first:
 
