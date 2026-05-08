@@ -10,6 +10,8 @@ type partitionCommandTarget struct {
 	Topic          string
 	Partition      uint32
 	PartitionKnown bool
+	ShardID        store.ShardID
+	ShardKnown     bool
 }
 
 type commandApplyFunc func(context.Context) (any, error)

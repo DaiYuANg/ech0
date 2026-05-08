@@ -34,6 +34,7 @@ type BrokerConfig struct {
 	MaintenanceConcurrency       int64   `json:"maintenance_concurrency"         koanf:"maintenance_concurrency"         mapstructure:"maintenance_concurrency"         toml:"maintenance_concurrency"`
 	GroupAssignmentStrategy      string  `json:"group_assignment_strategy"       koanf:"group_assignment_strategy"       mapstructure:"group_assignment_strategy"       toml:"group_assignment_strategy"`
 	GroupStickyAssignments       bool    `json:"group_sticky_assignments"        koanf:"group_sticky_assignments"        mapstructure:"group_sticky_assignments"        toml:"group_sticky_assignments"`
+	DataShardCount               uint32  `json:"data_shard_count"                koanf:"data_shard_count"                mapstructure:"data_shard_count"                toml:"data_shard_count"`
 	RetryWorkerEnabled           bool    `json:"retry_worker_enabled"            koanf:"retry_worker_enabled"            mapstructure:"retry_worker_enabled"            toml:"retry_worker_enabled"`
 	RetryWorkerIntervalSecs      uint64  `json:"retry_worker_interval_secs"      koanf:"retry_worker_interval_secs"      mapstructure:"retry_worker_interval_secs"      toml:"retry_worker_interval_secs"`
 	RetryWorkerMaxRecords        int     `json:"retry_worker_max_records"        koanf:"retry_worker_max_records"        mapstructure:"retry_worker_max_records"        toml:"retry_worker_max_records"`

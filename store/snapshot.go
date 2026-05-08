@@ -15,6 +15,7 @@ type Snapshot struct {
 	Records     collectionmapping.Map[string, []Record]      `json:"records"`
 	LogOffsets  collectionmapping.Map[string, uint64]        `json:"log_offsets"`
 	Offsets     collectionmapping.Map[string, uint64]        `json:"offsets"`
+	Placements  collectionlist.List[ShardPlacement]          `json:"shard_placements"`
 	Members     collectionlist.List[ConsumerGroupMember]     `json:"members"`
 	Assignments collectionlist.List[ConsumerGroupAssignment] `json:"assignments"`
 	BrokerState *BrokerState                                 `json:"broker_state,omitempty"`
@@ -28,6 +29,7 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		Records:     *collectionmapping.NewMapWithCapacity[string, []Record](s.records.Len()),
 		LogOffsets:  *collectionmapping.NewMapWithCapacity[string, uint64](s.nextOffsets.Len()),
 		Offsets:     *collectionmapping.NewMapWithCapacity[string, uint64](s.offsets.Len()),
+		Placements:  *collectionlist.NewListWithCapacity[ShardPlacement](s.placements.Len()),
 		Members:     *collectionlist.NewListWithCapacity[ConsumerGroupMember](s.members.Len()),
 		Assignments: *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](s.assignments.Len()),
 	}
@@ -48,6 +50,14 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		snap.Offsets.Set(key, value)
 		return true
 	})
+	placements := collectionlist.NewListWithCapacity[ShardPlacement](s.placements.Len())
+	s.placements.Range(func(_ TopicPartition, placement ShardPlacement) bool {
+		placements.Add(cloneShardPlacement(placement))
+		return true
+	})
+	for _, placement := range sortShardPlacements(placements.Values()) {
+		snap.Placements.Add(placement)
+	}
 	s.members.Range(func(_ string, member ConsumerGroupMember) bool {
 		member.Topics = sortedStrings(member.Topics)
 		snap.Members.Add(member)
@@ -77,6 +87,7 @@ func (s *MemoryStore) Restore(snapshot Snapshot) error {
 	s.records = state.records
 	s.nextOffsets = state.nextOffsets
 	s.offsets = state.offsets
+	s.placements = state.placements
 	s.members = state.members
 	s.assignments = state.assignments
 	s.brokerState = state.brokerState
@@ -89,6 +100,7 @@ type memoryRestoreState struct {
 	records     *collectionmapping.Map[TopicPartition, []Record]
 	nextOffsets *collectionmapping.Map[TopicPartition, uint64]
 	offsets     *collectionmapping.Map[string, uint64]
+	placements  *collectionmapping.Map[TopicPartition, ShardPlacement]
 	members     *collectionmapping.Map[string, ConsumerGroupMember]
 	assignments *collectionmapping.Map[string, ConsumerGroupAssignment]
 	brokerState *BrokerState
@@ -108,6 +120,7 @@ func buildMemoryRestoreState(snapshot Snapshot) (memoryRestoreState, error) {
 		records:     records,
 		nextOffsets: restoreMemoryLogOffsets(snapshot.LogOffsets, records),
 		offsets:     restoreMemoryOffsets(snapshot.Offsets),
+		placements:  restoreMemoryShardPlacements(snapshot.Placements),
 		members:     restoreMemoryMembers(snapshot.Members),
 		assignments: restoreMemoryAssignments(snapshot.Assignments),
 		brokerState: cloneBrokerState(snapshot.BrokerState),
@@ -163,6 +176,17 @@ func restoreMemoryOffsets(snapshotOffsets collectionmapping.Map[string, uint64])
 		return true
 	})
 	return offsets
+}
+
+func restoreMemoryShardPlacements(snapshotPlacements collectionlist.List[ShardPlacement]) *collectionmapping.Map[TopicPartition, ShardPlacement] {
+	placements := collectionmapping.NewMapWithCapacity[TopicPartition, ShardPlacement](snapshotPlacements.Len())
+	snapshotPlacements.Range(func(_ int, placement ShardPlacement) bool {
+		if validateShardPlacement(placement) == nil {
+			placements.Set(placement.TopicPartition(), cloneShardPlacement(placement))
+		}
+		return true
+	})
+	return placements
 }
 
 func restoreMemoryMembers(snapshotMembers collectionlist.List[ConsumerGroupMember]) *collectionmapping.Map[string, ConsumerGroupMember] {

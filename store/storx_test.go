@@ -147,6 +147,26 @@ func TestStorxMetadataGroupMembersUseSecondaryIndexAfterReopen(t *testing.T) {
 	}
 }
 
+func TestStorxMetadataShardPlacementsPersistAfterReopen(t *testing.T) {
+	metaPath := filepath.Join(t.TempDir(), "meta", "metadata.bbolt")
+	metaStore := openMetadataStore(t, metaPath)
+	requireNoError(t, metaStore.SaveShardPlacement(store.NewShardPlacement("orders", 1, 3)))
+	requireNoError(t, metaStore.Close())
+
+	metaStore = openMetadataStore(t, metaPath)
+	defer closeMetadataStore(t, metaStore)
+	placement, err := metaStore.LoadShardPlacement(store.NewTopicPartition("orders", 1))
+	requireNoError(t, err)
+	if placement == nil || placement.ShardID != 3 {
+		t.Fatalf("unexpected shard placement after reopen: %#v", placement)
+	}
+	placements, err := metaStore.ListShardPlacements()
+	requireNoError(t, err)
+	if len(placements) != 1 || placements[0].Topic != "orders" || placements[0].Partition != 1 {
+		t.Fatalf("unexpected shard placements: %#v", placements)
+	}
+}
+
 func TestStorxObserverReceivesStorageEvents(t *testing.T) {
 	events := 0
 	obs := storxobserver.ObserverFunc(func(_ context.Context, event storxobserver.Event) {

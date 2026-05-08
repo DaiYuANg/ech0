@@ -17,6 +17,9 @@ func (s *StorxMetadataStore) Restore(snapshot Snapshot) error {
 	if err := s.restoreMetadataOffsets(snapshot); err != nil {
 		return err
 	}
+	if err := s.restoreMetadataShardPlacements(snapshot.Placements); err != nil {
+		return err
+	}
 	if err := s.restoreMetadataMembers(snapshot.Members); err != nil {
 		return err
 	}
@@ -33,6 +36,7 @@ func (s *StorxMetadataStore) clearMetadataBuckets() error {
 		bucketClearer[string, ConsumerGroupMember]{s.members.Repository().Bucket()},
 		bucketClearer[string, ConsumerGroupAssignment]{s.assignments},
 		bucketClearer[string, BrokerState]{s.brokerState},
+		bucketClearer[string, ShardPlacement]{s.placements},
 	} {
 		if err := bucket.Clear(context.Background()); err != nil {
 			return wrapExternal(err, "clear metadata bucket")
@@ -63,6 +67,20 @@ func (s *StorxMetadataStore) restoreMetadataOffsets(snapshot Snapshot) error {
 		return true
 	})
 	return wrapExternal(s.offsets.PutMany(context.Background(), entries.Values()...), "restore consumer offsets")
+}
+
+func (s *StorxMetadataStore) restoreMetadataShardPlacements(placements collectionlist.List[ShardPlacement]) error {
+	entries := collectionlist.NewListWithCapacity[bboltx.Entry[string, ShardPlacement]](placements.Len())
+	placements.Range(func(_ int, placement ShardPlacement) bool {
+		if validateShardPlacement(placement) == nil {
+			entries.Add(bboltx.Entry[string, ShardPlacement]{
+				Key:   partitionKey(placement.TopicPartition()),
+				Value: cloneShardPlacement(placement),
+			})
+		}
+		return true
+	})
+	return wrapExternal(s.placements.PutMany(context.Background(), entries.Values()...), "restore shard placements")
 }
 
 func (s *StorxMetadataStore) restoreMetadataMembers(members collectionlist.List[ConsumerGroupMember]) error {

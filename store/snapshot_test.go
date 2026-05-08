@@ -30,6 +30,7 @@ func TestMemorySnapshotRoundTripsJSONWithCollectionLists(t *testing.T) {
 			{MemberID: "worker-1", Topic: "orders", Partition: 0},
 		},
 	}))
+	requireNoError(t, st.SaveShardPlacement(store.NewShardPlacement("orders", 0, 2)))
 	snapshot, err := st.Snapshot()
 	requireNoError(t, err)
 	raw, err := json.Marshal(snapshot)
@@ -53,5 +54,10 @@ func TestMemorySnapshotRoundTripsJSONWithCollectionLists(t *testing.T) {
 	requireNoError(t, err)
 	if assignment == nil || len(assignment.Assignments) != 1 {
 		t.Fatalf("unexpected restored assignment: %#v", assignment)
+	}
+	placement, err := restored.LoadShardPlacement(store.NewTopicPartition("orders", 0))
+	requireNoError(t, err)
+	if placement == nil || placement.ShardID != 2 {
+		t.Fatalf("unexpected restored shard placement: %#v", placement)
 	}
 }

@@ -77,5 +77,6 @@ func newStorxMetadataStore(db *bboltx.DB) *StorxMetadataStore {
 		membersByGroup: membersByGroup,
 		assignments:    bboltx.NewBucketWithDB(db, bucketAssignments, keyCodec, codec.JSON[ConsumerGroupAssignment]()),
 		brokerState:    bboltx.NewBucketWithDB(db, bucketBrokerState, keyCodec, codec.JSON[BrokerState]()),
+		placements:     bboltx.NewBucketWithDB(db, bucketPlacements, keyCodec, codec.JSON[ShardPlacement]()),
 	}
 }

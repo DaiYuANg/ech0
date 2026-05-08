@@ -69,6 +69,15 @@ The target clustered architecture splits the system into a control plane and a d
 
 Data shards are the scalability unit. A shard owns one or more topic partitions. For Kafka-like scaling, operators can configure shard count at or above the hot partition count so leaders distribute across nodes. A first production implementation can map `topic/partition` to a stable shard ID, then later support explicit placement and rebalancing.
 
+The current first step has landed the placement model without changing runtime routing behavior:
+
+- `broker.data_shard_count` configures the deterministic shard plan.
+- Topic creation persists one `ShardPlacement` per `topic/partition`.
+- The default placement is `partition % data_shard_count`.
+- Memory and storx metadata stores both persist shard placements.
+- Snapshots include `shard_placements`, so future Raft metadata snapshots carry the placement map.
+- Command routing now carries partition command targets, ready for a later cluster router to resolve to data shard groups.
+
 The public API remains library-first:
 
 - Embedded users still call `Open`, `CreateTopic`, `Publish`, `Fetch`, `Ack`, `Nack`, `Schedule`, and request/reply helpers.

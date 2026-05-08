@@ -19,6 +19,7 @@ func DefaultConfig() Config {
 			MaintenanceConcurrency:       4,
 			GroupAssignmentStrategy:      "round_robin",
 			GroupStickyAssignments:       true,
+			DataShardCount:               1,
 			RetryWorkerEnabled:           true,
 			RetryWorkerIntervalSecs:      5,
 			RetryWorkerMaxRecords:        256,
@@ -132,6 +133,9 @@ func normalizeBrokerRuntimeLimits(cfg *BrokerConfig) {
 	}
 	if cfg.MaintenanceConcurrency == 0 {
 		cfg.MaintenanceConcurrency = 4
+	}
+	if cfg.DataShardCount == 0 {
+		cfg.DataShardCount = 1
 	}
 }
 

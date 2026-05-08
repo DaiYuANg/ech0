@@ -9,8 +9,24 @@ type TopicPartition struct {
 	Partition uint32 `json:"partition"`
 }
 
+type ShardID uint32
+
+type ShardPlacement struct {
+	Topic     string  `json:"topic"`
+	Partition uint32  `json:"partition"`
+	ShardID   ShardID `json:"shard_id"`
+}
+
 func NewTopicPartition(topic string, partition uint32) TopicPartition {
 	return TopicPartition{Topic: topic, Partition: partition}
+}
+
+func NewShardPlacement(topic string, partition uint32, shardID ShardID) ShardPlacement {
+	return ShardPlacement{Topic: topic, Partition: partition, ShardID: shardID}
+}
+
+func (p ShardPlacement) TopicPartition() TopicPartition {
+	return NewTopicPartition(p.Topic, p.Partition)
 }
 
 type TopicCleanupPolicy string

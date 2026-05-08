@@ -16,6 +16,7 @@ const (
 	bucketMembersGroup = "group_members_by_group"
 	bucketAssignments  = "group_assignments"
 	bucketBrokerState  = "broker_state"
+	bucketPlacements   = "shard_placements"
 	brokerStateKey     = "current"
 )
 
@@ -27,6 +28,7 @@ type StorxMetadataStore struct {
 	membersByGroup *bboltx.SecondaryIndexMany[string, ConsumerGroupMember, string]
 	assignments    *bboltx.Bucket[string, ConsumerGroupAssignment]
 	brokerState    *bboltx.Bucket[string, BrokerState]
+	placements     *bboltx.Bucket[string, ShardPlacement]
 }
 
 func (s *StorxMetadataStore) Close() error {
@@ -225,9 +227,14 @@ func (s *StorxMetadataStore) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, wrapExternal(err, "walk consumer offsets")
 	}
+	placements, err := s.ListShardPlacements()
+	if err != nil {
+		return Snapshot{}, err
+	}
 	return Snapshot{
 		Topics:      *collectionlist.NewListWithCapacity[TopicConfig](len(topics), topics...),
 		Offsets:     *offsets,
+		Placements:  *collectionlist.NewListWithCapacity[ShardPlacement](len(placements), placements...),
 		Members:     *collectionlist.NewListWithCapacity[ConsumerGroupMember](len(members), members...),
 		Assignments: *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](len(assignments), assignments...),
 		BrokerState: state,

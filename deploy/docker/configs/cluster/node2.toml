@@ -9,6 +9,7 @@ max_batch_payload_bytes = 8388608
 max_fetch_records = 1000
 group_assignment_strategy = "round_robin"
 group_sticky_assignments = true
+data_shard_count = 1
 retry_worker_enabled = true
 retry_worker_interval_secs = 5
 retry_worker_max_records = 256

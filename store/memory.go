@@ -17,6 +17,7 @@ type MemoryStore struct {
 	records     *collectionmapping.Map[TopicPartition, []Record]
 	nextOffsets *collectionmapping.Map[TopicPartition, uint64]
 	offsets     *collectionmapping.Map[string, uint64]
+	placements  *collectionmapping.Map[TopicPartition, ShardPlacement]
 	members     *collectionmapping.Map[string, ConsumerGroupMember]
 	assignments *collectionmapping.Map[string, ConsumerGroupAssignment]
 	brokerState *BrokerState
@@ -29,6 +30,7 @@ func NewMemoryStore() *MemoryStore {
 		records:     collectionmapping.NewMap[TopicPartition, []Record](),
 		nextOffsets: collectionmapping.NewMap[TopicPartition, uint64](),
 		offsets:     collectionmapping.NewMap[string, uint64](),
+		placements:  collectionmapping.NewMap[TopicPartition, ShardPlacement](),
 		members:     collectionmapping.NewMap[string, ConsumerGroupMember](),
 		assignments: collectionmapping.NewMap[string, ConsumerGroupAssignment](),
 	}

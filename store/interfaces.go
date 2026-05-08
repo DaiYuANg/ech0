@@ -33,6 +33,12 @@ type TopicCatalogStore interface {
 	ListTopics() ([]TopicConfig, error)
 }
 
+type ShardPlacementStore interface {
+	SaveShardPlacement(placement ShardPlacement) error
+	LoadShardPlacement(topicPartition TopicPartition) (*ShardPlacement, error)
+	ListShardPlacements() ([]ShardPlacement, error)
+}
+
 type ConsumerGroupStore interface {
 	SaveGroupMember(member ConsumerGroupMember) error
 	LoadGroupMember(group string, memberID string) (*ConsumerGroupMember, error)

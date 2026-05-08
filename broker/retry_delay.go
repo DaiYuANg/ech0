@@ -107,11 +107,17 @@ func (b *Broker) ensureAuxTopic(source store.TopicConfig, auxTopic string) error
 		if err := b.meta.SaveTopicConfig(cfg); err != nil {
 			return wrapBrokerStore(err, "save auxiliary topic config")
 		}
+		if err := b.ensureTopicShardPlacements(cfg); err != nil {
+			return wrapBroker("auxiliary_topic_shard_placement_failed", err, "ensure auxiliary topic shard placement")
+		}
 		b.cacheTopicConfig(cfg)
 		return nil
 	}
 	if err := b.queue.CreateTopic(cfg); err != nil && store.ErrorCode(err) != store.CodeTopicExists {
 		return wrapBroker("auxiliary_topic_create_failed", err, "create auxiliary topic")
+	}
+	if err := b.ensureTopicShardPlacements(cfg); err != nil {
+		return wrapBroker("auxiliary_topic_shard_placement_failed", err, "ensure auxiliary topic shard placement")
 	}
 	b.cacheTopicConfig(cfg)
 	return nil

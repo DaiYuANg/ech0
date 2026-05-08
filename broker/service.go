@@ -28,6 +28,7 @@ type Broker struct {
 	metrics    *MetricsRuntime
 	topicCache *ristretto.Cache[string, store.TopicConfig]
 	commands   brokerCommandRouter
+	shards     *brokerShardResolver
 
 	raftMu sync.RWMutex
 	raft   *raftNode
@@ -83,6 +84,7 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		commitBatcher:  newRaftCommitBatcher(),
 	}
 	b.commands = newSingleGroupCommandRouter(b)
+	b.shards = newBrokerShardResolver(metaStore, cfg.Broker.DataShardCount)
 	b.queue = queue.New(logStore, metaStore)
 	b.direct = direct.New(logStore, metaStore)
 	for _, opt := range opts {

@@ -15,6 +15,7 @@ type snapshotJSON struct {
 	Records     json.RawMessage `json:"records"`
 	LogOffsets  json.RawMessage `json:"log_offsets"`
 	Offsets     json.RawMessage `json:"offsets"`
+	Placements  json.RawMessage `json:"shard_placements"`
 	Members     json.RawMessage `json:"members"`
 	Assignments json.RawMessage `json:"assignments"`
 	BrokerState *BrokerState    `json:"broker_state,omitempty"`
@@ -37,6 +38,10 @@ func (s Snapshot) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	placements, err := marshalSnapshotCollection(&s.Placements, "shard placements")
+	if err != nil {
+		return nil, err
+	}
 	members, err := marshalSnapshotCollection(&s.Members, "members")
 	if err != nil {
 		return nil, err
@@ -50,6 +55,7 @@ func (s Snapshot) MarshalJSON() ([]byte, error) {
 		Records:     records,
 		LogOffsets:  logOffsets,
 		Offsets:     offsets,
+		Placements:  placements,
 		Members:     members,
 		Assignments: assignments,
 		BrokerState: s.BrokerState,
@@ -72,6 +78,7 @@ func (s *Snapshot) UnmarshalJSON(data []byte) error {
 	records := collectionmapping.NewMap[string, []Record]()
 	logOffsets := collectionmapping.NewMap[string, uint64]()
 	offsets := collectionmapping.NewMap[string, uint64]()
+	placements := collectionlist.NewList[ShardPlacement]()
 	members := collectionlist.NewList[ConsumerGroupMember]()
 	assignments := collectionlist.NewList[ConsumerGroupAssignment]()
 	if err := unmarshalSnapshotCollection(wire.Topics, topics, "topics"); err != nil {
@@ -86,6 +93,9 @@ func (s *Snapshot) UnmarshalJSON(data []byte) error {
 	if err := unmarshalSnapshotCollection(wire.Offsets, offsets, "offsets"); err != nil {
 		return err
 	}
+	if err := unmarshalSnapshotCollection(wire.Placements, placements, "shard placements"); err != nil {
+		return err
+	}
 	if err := unmarshalSnapshotCollection(wire.Members, members, "members"); err != nil {
 		return err
 	}
@@ -97,6 +107,7 @@ func (s *Snapshot) UnmarshalJSON(data []byte) error {
 		Records:     *records,
 		LogOffsets:  *logOffsets,
 		Offsets:     *offsets,
+		Placements:  *placements,
 		Members:     *members,
 		Assignments: *assignments,
 		BrokerState: wire.BrokerState,
