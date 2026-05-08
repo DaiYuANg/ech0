@@ -210,6 +210,12 @@ func (n *raftNode) validateApply(ctx context.Context) error {
 }
 
 func encodeRaftCommand(commandType string, payload any) ([]byte, error) {
+	if encoded, ok, err := encodeBinaryRaftCommand(commandType, payload); ok || err != nil {
+		if err != nil {
+			return nil, wrapBroker("raft_binary_command_encode_failed", err, "encode binary raft command")
+		}
+		return encoded, nil
+	}
 	raw, err := marshalJSON(payload)
 	if err != nil {
 		return nil, wrapBroker("raft_payload_encode_failed", err, "encode raft payload")

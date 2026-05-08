@@ -156,6 +156,7 @@ Follow-up runs after adding `--batch-size` and configurable `raft.commit_timeout
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, coalescing + grouped segment reads, 15s | 1,041.05 msg/s | 1,030.38 msg/s | 41.487ms per batch | 56.762ms per batch | 0 |
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, partition locks + grouped produce apply, 15s | 1,557.19 msg/s | 1,546.53 msg/s | 40.275ms per batch | 45.957ms per batch | 0 |
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, segment write coalescing + reader cache, 15s | 1,522.10 msg/s | 1,511.44 msg/s | 39.298ms per batch | 63.744ms per batch | 0 |
+| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, binary raft hot command codec, 15s | 1,404.43 msg/s | 1,400.16 msg/s | 36.285ms per batch | 100.158ms per batch | 0 |
 
 These follow-up numbers show that making `CommitTimeout` configurable is necessary but not enough by itself. The real store batch append path improved cluster produce throughput by roughly 3.9x over the previous `batch_size=16` run and moved batch publish p50 from about 569ms to about 64ms. Raft proposal coalescing helped consume keep up by batching commit offsets. Grouped segment reads then removed the major fetch bottleneck and moved this local Docker run above 1,000 msg/s for both produce and consume.
 
@@ -338,7 +339,48 @@ This run shows local segment improvements but also exposes raft log variance:
 - Coalescing frames per segment write reduced `append_frame` from about 3.6ms to about 1.0ms and cut `store append_batch total` from about 5.9ms to about 3.5ms.
 - Caching read-only segment file handles reduced `read_segments` from about 8.6ms to about 6.7ms and improved fetch p95 from about 15ms to about 14ms compared with the previous best run.
 - End-to-end throughput stayed near the previous best rather than increasing because raft log `put_many` was slower in this Docker sample (`~9.0ms` versus `~7.2ms`).
-- A bbolt `NoFreelistSync` experiment did not materially improve raft log writes in this workload, so it was not retained. The next high-impact area is reducing raft log entry count or replacing the JSON raft command payload on the hot produce path.
+- A bbolt `NoFreelistSync` experiment did not materially improve raft log writes in this workload, so it was not retained. The next pass below replaces the hot JSON raft command payload with a compact binary codec; after that, raft log entry count and fsync cadence remain the primary targets.
+
+After binary raft hot command codec, 2026-05-08:
+
+- 3-node Docker raft cluster.
+- `ECH0_RAFT_COMMIT_TIMEOUT_MS=5`.
+- `--batch-size 16`, 4 producers, 4 consumers, 4 partitions, 1 KiB payload, 15s.
+- Leader target: `127.0.0.1:39090`.
+- Result: 21,072 produced, 21,008 consumed, 1,404.43 msg/s produce rate, 1,400.16 msg/s consume rate, 0 errors.
+- Publish latency: avg 45.455ms, p50 36.285ms, p95 100.158ms, p99 130.952ms.
+- Fetch latency: avg 11.710ms, p50 9.364ms, p95 32.827ms, p99 66.494ms.
+- Docker logs check: no `rollback`, `fail`, `error`, `panic`, or `fatal` matches in the final 200 lines.
+
+| Layer | Stage | Count | Avg |
+| --- | --- | ---: | ---: |
+| raft `produce_batches` | `apply_wait` | 384 | 36.399ms |
+| raft `produce_batches` | `encode` | 384 | 0.030ms |
+| raft `produce_batches` | `total` | 384 | 36.450ms |
+| raft store `logs` | `put_many` | 780 | 7.943ms |
+| FSM `produce_batches` | `decode_payload` | 384 | 0.031ms |
+| FSM `produce_batches` | `apply` | 384 | 14.224ms |
+| store `append_batch` | `total` | 1,321 | 4.117ms |
+| store `append_batch` | `append_frame` | 1,321 | 1.200ms |
+| broker `fetch` | `queue_fetch` | 910 | 8.905ms |
+| store `read_from` | `total` | 910 | 8.175ms |
+| store `read_from` | `read_segments` | 910 | 7.959ms |
+| raft `commit_offsets` | `apply_wait` | 393 | 36.497ms |
+| FSM `commit_offsets` | `apply` | 393 | 5.668ms |
+
+Raft log volume in this sample:
+
+| Metric | Value |
+| --- | ---: |
+| raft log bytes | 22,196,655 |
+| raft log entries | 780 |
+| raft log bytes per entry | 28,457 |
+
+Readout:
+
+- The compact binary codec reduces raft payload overhead on `produce_batches` and `commit_offsets`; encode time drops from the previous sample's `~0.164ms` to `~0.030ms`.
+- Raft log bytes per entry are now about 28.5 KiB in this workload. The previous local sample was roughly 32 MiB across about 740 log entries, so the hot command codec materially reduces log byte volume.
+- End-to-end throughput did not exceed the previous best in this particular Docker run because p95 publish and fetch latency regressed. The remaining dominant costs are still raft log persistence (`put_many`) and local read/fetch IO variance, not command encoding.
 
 ## Kafka and NATS Comparison Notes
 

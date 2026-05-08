@@ -17,6 +17,20 @@ func (b *Broker) applyRaftCommand(data []byte) (value any, err error) {
 	}()
 
 	decodeStart := time.Now()
+	binaryCommandType, binaryBody, binaryCommand, binaryErr := decodeBinaryRaftEnvelope(data)
+	if binaryCommand {
+		if binaryErr != nil {
+			err = wrapBroker("raft_command_decode_failed", binaryErr, "decode binary raft command")
+			b.recordFSMStage(ctx, commandType, "decode_envelope", decodeStart, err)
+			return nil, err
+		}
+		commandType = binaryCommandType
+		b.recordFSMStage(ctx, commandType, "decode_envelope", decodeStart, nil)
+		handlerStart := time.Now()
+		value, err = b.applyBinaryRaftCommand(ctx, commandType, binaryBody)
+		b.recordFSMStage(ctx, commandType, "handler", handlerStart, err)
+		return value, err
+	}
 	var cmd raftCommand
 	decodeErr := unmarshalJSON(data, &cmd)
 	if decodeErr != nil {
