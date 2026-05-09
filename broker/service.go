@@ -92,11 +92,17 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	if cfg.Raft.Enabled {
 		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
 	}
-	b.queue = newSingleMessageRuntime(logStore, metaStore)
-	b.direct = direct.New(logStore, metaStore)
 	for _, opt := range opts {
 		opt(b)
 	}
+	b.applyRuntimeDefaults()
+	if err := b.initMessageRuntime(logStore, metaStore); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (b *Broker) applyRuntimeDefaults() {
 	if b.events == nil {
 		b.events = eventx.New()
 	}
@@ -106,7 +112,16 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	if b.metrics == nil {
 		b.metrics = NewNoopMetricsRuntime(b.logger)
 	}
-	return b, nil
+}
+
+func (b *Broker) initMessageRuntime(logStore store.MessageLogStore, metaStore metadataStore) error {
+	runtime, err := newBrokerMessageRuntime(b, logStore, metaStore)
+	if err != nil {
+		return err
+	}
+	b.queue = runtime
+	b.direct = direct.New(logStore, metaStore)
+	return nil
 }
 
 func WithLogger(logger *slog.Logger) Option {
@@ -171,6 +186,7 @@ func (b *Broker) Stop(ctx context.Context) error {
 		result = errors.Join(result, node.Close())
 	}
 	result = errors.Join(result, b.closeDataShards())
+	result = errors.Join(result, b.closeMessageRuntime())
 	b.closeTopicCache()
 	if b.events != nil {
 		result = errors.Join(result, wrapBroker("event_bus_close_failed", b.events.Close(), "close event bus"))

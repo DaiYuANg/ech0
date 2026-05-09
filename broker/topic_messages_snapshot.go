@@ -15,13 +15,13 @@ func (b *Broker) TopicMessagesSnapshot(topic string, partition uint32, offset ui
 		limit = b.cfg.Broker.MaxFetchRecords
 	}
 	tp := store.NewTopicPartition(topic, partition)
-	records, err := b.log.ReadFrom(tp, offset, limit)
+	records, err := b.queue.ReadFrom(tp, offset, limit)
 	if err != nil {
-		return TopicMessagesPageSummary{}, wrapBrokerStore(err, "read topic messages")
+		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_read_failed", err, "read topic messages")
 	}
-	highWatermark, err := topicPartitionHighWatermark(b.log, tp)
+	highWatermark, err := b.queue.LastOffset(tp)
 	if err != nil {
-		return TopicMessagesPageSummary{}, err
+		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_high_watermark_failed", err, "load topic message high watermark")
 	}
 	items := collectionlist.NewList[TopicMessageSummary]()
 	nextOffset := offset
@@ -46,17 +46,17 @@ func (b *Broker) TopicMessagesCursorSnapshot(topic string, partition uint32, cur
 		limit = b.cfg.Broker.MaxFetchRecords
 	}
 	tp := store.NewTopicPartition(topic, partition)
-	pager, ok := b.log.(store.MessageLogPager)
+	pager, ok := b.queue.(messagePageRuntime)
 	if !ok {
 		return b.TopicMessagesSnapshot(topic, partition, 0, limit)
 	}
 	page, err := pager.ReadPage(tp, cursor, limit)
 	if err != nil {
-		return TopicMessagesPageSummary{}, wrapBrokerStore(err, "page topic messages")
+		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_page_failed", err, "page topic messages")
 	}
-	highWatermark, err := topicPartitionHighWatermark(b.log, tp)
+	highWatermark, err := b.queue.LastOffset(tp)
 	if err != nil {
-		return TopicMessagesPageSummary{}, err
+		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_high_watermark_failed", err, "load topic message high watermark")
 	}
 	items := collectionlist.NewListWithCapacity[TopicMessageSummary](len(page.Records))
 	nextOffset := uint64(0)

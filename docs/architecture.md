@@ -84,6 +84,11 @@ The current first step has landed the placement model without changing runtime r
 - The cluster router now depends on a `dataShardRuntime` boundary. The default implementation is still a single-group adapter, but data commands now enter the codebase through an explicit shard runtime seam.
 - Data shard runtimes are registered behind a shard registry. Today each configured shard points at the compatibility single-group runtime; the next implementation can swap individual shard entries to local or Raft-backed runtimes.
 - Each configured shard also has a runtime spec with target directories for shard-local Raft, segment log, and Badger state. Runtime health exposes the configured shard IDs and their current compatibility runtime mode.
+- The broker message runtime is now an internal interface. The default adapter preserves the existing single log behavior.
+- When storx storage is used with `broker.data_shard_count > 1`, broker message reads and writes use a sharded message runtime. Each shard opens its own segment log and Badger index under `data/shards/shard-NNNN`.
+- Topic metadata remains global. `CreateTopic` writes one global topic config, while each message shard initializes its own local log state for that topic.
+- `Publish`, `Fetch`, `Ack`, admin topic message snapshots, and direct `ReadFrom` helpers route by the resolved `topic/partition -> shard` placement.
+- Raft clustered writes still use the compatibility single-group router. The current sharded message runtime is a local storage boundary, not yet a separate Raft group per shard.
 
 The public API remains library-first:
 
