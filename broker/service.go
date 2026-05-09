@@ -20,7 +20,7 @@ type Broker struct {
 	cfg        Config
 	log        store.MessageLogStore
 	meta       metadataStore
-	queue      *queue.Runtime
+	queue      messageRuntime
 	direct     *direct.Runtime
 	router     *partitionRouter
 	events     eventx.BusRuntime
