@@ -133,7 +133,52 @@ BenchmarkStorxLogStoreAppendBatch100x1KB-16    766.196 us/op    133.65 MB/s    7
 BenchmarkStorxLogStoreAppendBatch100x1KB-16    757.737 us/op    135.14 MB/s    704,748 B/op    1,893 allocs/op
 ```
 
-Compared with the Docker Desktop Kafka single-node producer-only average below (`92,854.90 msg/s`), this embedded run is about `1.03x` Kafka's measured write rate on this host. This is not yet a full TCP parity claim: the Docker TCP path and replicated cluster path still need the same post-change rerun.
+Compared with the Docker Desktop Kafka single-node producer-only average below (`92,854.90 msg/s`), this embedded run is about `1.03x` Kafka's measured write rate on this host. The local TCP rerun below shows the single-node TCP path is now within about `10.4%` of that same-host Kafka producer-only baseline.
+
+## Local TCP Single-Replica Rerun: 2026-05-09
+
+This run was captured after the batch-first write path landed and after the TCP benchmark client used the broker batch produce path. It targeted a locally started broker process on Windows, not a Docker container.
+
+Settings:
+
+- Broker: `ech0 --data-dir .tmp/tcp-bench-data --broker-addr 127.0.0.1:39090 --admin-addr 127.0.0.1:39091`.
+- Runtime: `single_replica_cluster`, one Dragonboat metadata group, local segment data shard runtime.
+- Producer-only command: `ech0bench --broker-addr 127.0.0.1:39090 --duration 20s --producers 4 --consumers 0 --partitions 4 --payload-bytes 1024 --batch-size 32 --producer-inflight 4 --fetch-batch 128`.
+- Balanced command: same settings with `--consumers 4`.
+- Payload: 1 KiB records, 4 partitions, 4 producers, 16 total producer in-flight batch requests.
+
+Producer-only:
+
+| Run | Produce Rate | Throughput | Publish p50 | Publish p95 | Publish p99 | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 99,285.07 msg/s | 96.96 MiB/s | 4.735ms | 9.814ms | 12.509ms | 0 |
+| 2 | 96,386.10 msg/s | 94.13 MiB/s | 5.206ms | 10.027ms | 12.886ms | 0 |
+| 3 | 57,711.43 msg/s | 56.36 MiB/s | 3.668ms | 30.147ms | 102.564ms | 0 |
+| 4 | 70,523.47 msg/s | 68.87 MiB/s | 5.521ms | 14.434ms | 45.416ms | 0 |
+| 5 | 92,220.71 msg/s | 90.06 MiB/s | 4.477ms | 12.304ms | 21.938ms | 0 |
+| Average | 83,225.36 msg/s | 81.28 MiB/s | n/a | n/a | n/a | 0 |
+
+Balanced produce and consume:
+
+| Run | Produce Rate | Consume Rate | Produce Throughput | Consume Throughput | Publish p50 | Publish p99 | Fetch p99 | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 88,885.92 msg/s | 88,879.52 msg/s | 86.80 MiB/s | 86.80 MiB/s | 5.218ms | 18.301ms | 6.185ms | 0 |
+| 2 | 84,483.80 msg/s | 84,480.60 msg/s | 82.50 MiB/s | 82.50 MiB/s | 5.738ms | 18.727ms | 5.149ms | 0 |
+| 3 | 89,229.33 msg/s | 89,218.13 msg/s | 87.14 MiB/s | 87.13 MiB/s | 5.370ms | 19.661ms | 4.567ms | 0 |
+| Average | 87,533.02 msg/s | 87,526.08 msg/s | 85.48 MiB/s | 85.48 MiB/s | n/a | n/a | n/a | 0 |
+
+Relative to the same-host Kafka single-node producer-only baseline below (`92,854.90 msg/s`):
+
+| Comparison | Ratio | ech0 Share |
+| --- | ---: | ---: |
+| Kafka single node / ech0 local TCP producer-only | 1.12x | 89.63% |
+| Kafka single node / ech0 local TCP balanced produce rate | 1.06x | 94.27% |
+
+Readout:
+
+- Single-node TCP peak throughput is now in the same range as the Kafka single-node reference. The remaining gap is mostly stability: producer-only run 3 and run 4 show host or IO scheduling variance and elevated tail latency.
+- The balanced produce+consume run was steadier than producer-only and consumed at the same rate it produced.
+- This does not replace the replicated-cluster comparison. The 3-node Dragonboat path still needs the same post-change rerun against Kafka RF=3.
 
 ## Docker Desktop Kafka Comparison: 2026-05-09
 
