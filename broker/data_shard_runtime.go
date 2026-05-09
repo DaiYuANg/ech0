@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/DaiYuANg/ech0/store"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 )
 
 type dataShardCommand struct {
@@ -16,6 +17,33 @@ type dataShardCommand struct {
 
 type dataShardRuntime interface {
 	ApplyDataShardCommand(context.Context, dataShardCommand) (any, error)
+}
+
+type dataShardRegistry struct {
+	runtimes *collectionmapping.Map[store.ShardID, dataShardRuntime]
+}
+
+func newCompatibilityDataShardRegistry(shardCount uint32, runtime dataShardRuntime) dataShardRuntime {
+	if shardCount == 0 {
+		shardCount = 1
+	}
+	runtimes := collectionmapping.NewMapWithCapacity[store.ShardID, dataShardRuntime](int(shardCount))
+	for shardIndex := range shardCount {
+		runtimes.Set(store.ShardID(shardIndex), runtime)
+	}
+	return dataShardRegistry{runtimes: runtimes}
+}
+
+func (r dataShardRegistry) ApplyDataShardCommand(ctx context.Context, cmd dataShardCommand) (any, error) {
+	runtime, ok := r.runtimes.Get(cmd.ShardID)
+	if !ok || runtime == nil {
+		return nil, brokerStoreError(store.CodeInvalidArgument, "data shard %d is not registered", cmd.ShardID)
+	}
+	value, err := runtime.ApplyDataShardCommand(ctx, cmd)
+	if err != nil {
+		return nil, wrapBroker("data_shard_runtime_apply_failed", err, "apply data shard command %s on shard %d", cmd.CommandType, cmd.ShardID)
+	}
+	return value, nil
 }
 
 type singleGroupDataShardRuntime struct {

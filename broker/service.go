@@ -86,7 +86,7 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	}
 	b.shards = newBrokerShardResolver(metaStore, cfg.Broker.DataShardCount)
 	fallbackCommands := newSingleGroupCommandRouter(b)
-	b.dataShards = newSingleGroupDataShardRuntime(fallbackCommands)
+	b.dataShards = newCompatibilityDataShardRegistry(cfg.Broker.DataShardCount, newSingleGroupDataShardRuntime(fallbackCommands))
 	b.commands = fallbackCommands
 	if cfg.Raft.Enabled {
 		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
