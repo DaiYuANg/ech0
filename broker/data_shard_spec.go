@@ -9,7 +9,6 @@ type dataShardSpec struct {
 	ShardID        store.ShardID
 	Dir            string
 	SegmentLogPath string
-	BadgerPath     string
 }
 
 func buildDataShardSpecs(cfg Config) []dataShardSpec {
@@ -24,7 +23,6 @@ func buildDataShardSpecs(cfg Config) []dataShardSpec {
 			ShardID:        shardID,
 			Dir:            cfg.ShardDir(shardID),
 			SegmentLogPath: cfg.ShardSegmentLogPath(shardID),
-			BadgerPath:     cfg.ShardBadgerPath(shardID),
 		})
 	}
 	return specs.Values()

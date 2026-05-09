@@ -3,20 +3,13 @@ package store
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/arcgolabs/storx/bboltx"
 	"github.com/arcgolabs/storx/codec"
 	"github.com/arcgolabs/storx/keycodec"
-	"github.com/arcgolabs/storx/observer"
 )
-
-type StorxMetadataOptions struct {
-	Logger    *slog.Logger
-	Observers []observer.Observer
-}
 
 func OpenStorxMetadataStore(path string) (*StorxMetadataStore, error) {
 	return OpenStorxMetadataStoreWithOptionsContext(context.Background(), path, StorxMetadataOptions{})
@@ -26,20 +19,17 @@ func OpenStorxMetadataStoreWithOptions(path string, options StorxMetadataOptions
 	return OpenStorxMetadataStoreWithOptionsContext(context.Background(), path, options)
 }
 
-func OpenStorxMetadataStoreWithOptionsContext(ctx context.Context, path string, options StorxMetadataOptions) (*StorxMetadataStore, error) {
+func OpenStorxMetadataStoreWithOptionsContext(ctx context.Context, path string, _ StorxMetadataOptions) (*StorxMetadataStore, error) {
 	if path == "" {
 		return nil, E(CodeInvalidArgument, "metadata path is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, wrapExternal(err, "open metadata store")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, wrapExternal(err, "create metadata directory")
 	}
-	db, err := bboltx.Open(
-		path,
-		0o600,
-		nil,
-		bboltx.WithDBLogger(options.Logger),
-		bboltx.WithDBObservers(options.Observers...),
-	)
+	db, err := bboltx.Open(path, 0o600, nil)
 	if err != nil {
 		return nil, wrapExternal(err, "open metadata store")
 	}

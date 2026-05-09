@@ -1,19 +1,16 @@
 package store_test
 
 import (
-	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/DaiYuANg/ech0/store"
-	storxobserver "github.com/arcgolabs/storx/observer"
 )
 
 func TestStorxStoresPersistLogAndMetadata(t *testing.T) {
 	root := t.TempDir()
-	logPath := filepath.Join(root, "segments", "log.bbolt")
+	logPath := filepath.Join(root, "segments")
 	metaPath := filepath.Join(root, "meta", "metadata.bbolt")
 
 	logStore := openLogStore(t, logPath)
@@ -32,27 +29,25 @@ func TestStorxStoresPersistLogAndMetadata(t *testing.T) {
 	requirePersistedTopic(t, metaStore)
 }
 
-func TestStorxLogStoreUsesCustomIndexPath(t *testing.T) {
+func TestStorxLogStorePersistsSegmentIndexesNextToSegments(t *testing.T) {
 	root := t.TempDir()
 	logPath := filepath.Join(root, "segments")
-	indexPath := filepath.Join(root, "badger")
 
-	logStore, err := store.OpenStorxLogStoreWithOptions(logPath, store.StorxLogOptions{IndexPath: indexPath})
+	logStore, err := store.OpenStorxLogStore(logPath)
 	requireNoError(t, err)
 	persistLogRecord(t, logStore)
 	requireNoError(t, logStore.Close())
 
-	logStore, err = store.OpenStorxLogStoreWithOptions(logPath, store.StorxLogOptions{IndexPath: indexPath})
+	logStore, err = store.OpenStorxLogStore(logPath)
 	requireNoError(t, err)
 	defer closeLogStore(t, logStore)
 	requirePersistedRecord(t, logStore)
 
-	if _, err := os.Stat(indexPath); err != nil {
-		t.Fatalf("expected custom index path to exist: %v", err)
+	if _, err := os.Stat(filepath.Join(logPath, "topics.json")); err != nil {
+		t.Fatalf("expected segment manifest to exist: %v", err)
 	}
-	defaultIndexPath := filepath.Join(logPath, "index.badger")
-	if _, err := os.Stat(defaultIndexPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("expected default index path to remain unused, got: %v", err)
+	if _, err := os.Stat(filepath.Join(logPath, "segments", "b3JkZXJz", "0", "00000000000000000000.idx")); err != nil {
+		t.Fatalf("expected segment index to exist: %v", err)
 	}
 }
 
@@ -103,7 +98,7 @@ func requirePersistedTopic(t *testing.T, metaStore *store.StorxMetadataStore) {
 }
 
 func TestStorxLogReadPageUsesCursor(t *testing.T) {
-	st := openLogStore(t, filepath.Join(t.TempDir(), "segments", "log.bbolt"))
+	st := openLogStore(t, filepath.Join(t.TempDir(), "segments"))
 	defer closeLogStore(t, st)
 	topic := store.NewTopicConfig("orders")
 	requireNoError(t, st.CreateTopic(topic))
@@ -125,7 +120,7 @@ func TestStorxLogReadPageUsesCursor(t *testing.T) {
 }
 
 func TestStorxLogAppendRecordsBatchPersistsAcrossSegmentRoll(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "segments", "log.bbolt")
+	logPath := filepath.Join(t.TempDir(), "segments")
 	st := openLogStore(t, logPath)
 	topic := store.NewTopicConfig("orders")
 	topic.SegmentMaxBytes = 1
@@ -196,27 +191,6 @@ func TestStorxMetadataShardPlacementsPersistAfterReopen(t *testing.T) {
 	requireNoError(t, err)
 	if len(placements) != 1 || placements[0].Topic != "orders" || placements[0].Partition != 1 {
 		t.Fatalf("unexpected shard placements: %#v", placements)
-	}
-}
-
-func TestStorxObserverReceivesStorageEvents(t *testing.T) {
-	events := 0
-	obs := storxobserver.ObserverFunc(func(_ context.Context, event storxobserver.Event) {
-		if event.Engine == "badger" && event.TargetType == "namespace" {
-			events++
-		}
-	})
-	st, err := store.OpenStorxLogStoreWithOptions(
-		filepath.Join(t.TempDir(), "segments", "log.bbolt"),
-		store.StorxLogOptions{Observers: []store.StorxObserver{obs}},
-	)
-	requireNoError(t, err)
-	defer closeLogStore(t, st)
-	requireNoError(t, st.CreateTopic(store.NewTopicConfig("orders")))
-	_, err = st.Append(store.NewTopicPartition("orders", 0), []byte("m1"))
-	requireNoError(t, err)
-	if events == 0 {
-		t.Fatal("expected storx observer to receive events")
 	}
 }
 

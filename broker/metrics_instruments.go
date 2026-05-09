@@ -71,17 +71,17 @@ func (m *MetricsRuntime) initStorageCounters(obs observabilityx.Observability) {
 	))
 	m.storageOperationsTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"storage_operations_total",
-		observabilityx.WithDescription("Completed storx storage operations"),
+		observabilityx.WithDescription("Completed storage operations"),
 		observabilityx.WithLabelKeys("engine", "target_type", "target", "operation", "status"),
 	))
 	m.storageOperationErrorsTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"storage_operation_errors_total",
-		observabilityx.WithDescription("Failed storx storage operations"),
+		observabilityx.WithDescription("Failed storage operations"),
 		observabilityx.WithLabelKeys("engine", "target_type", "target", "operation"),
 	))
 	m.storageOperationDuration = obs.Histogram(observabilityx.NewHistogramSpec(
 		"storage_operation_duration_seconds",
-		observabilityx.WithDescription("Storx storage operation duration"),
+		observabilityx.WithDescription("Storage operation duration"),
 		observabilityx.WithUnit("s"),
 		observabilityx.WithLabelKeys("engine", "target_type", "target", "operation", "status"),
 	))

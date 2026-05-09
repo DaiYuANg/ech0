@@ -25,9 +25,6 @@ func TestConfigShardPathsUseTargetLayout(t *testing.T) {
 	if got, want := cfg.ShardSegmentLogPath(store.ShardID(12)), filepath.Join("var", "lib", "ech0", "shards", "shard-0012", "segments"); got != want {
 		t.Fatalf("shard segment path = %q, want %q", got, want)
 	}
-	if got, want := cfg.ShardBadgerPath(store.ShardID(12)), filepath.Join("var", "lib", "ech0", "shards", "shard-0012", "badger"); got != want {
-		t.Fatalf("shard badger path = %q, want %q", got, want)
-	}
 }
 
 func TestBrokerRuntimeHealthIncludesConfiguredDataShards(t *testing.T) {

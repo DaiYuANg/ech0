@@ -43,7 +43,7 @@ Raft mode coordinates mutating broker commands through Dragonboat multi-group Ra
 - Direct sends and direct acks.
 - Consumer group membership, heartbeats, and rebalances.
 
-Dragonboat stores Raft logs under `data/dragonboat/<node_id>`. Broker metadata and message log stores must implement `store.Snapshotter`; startup validates this requirement.
+Dragonboat owns raft-side logs, snapshots, membership state, and recovery files under `data/dragonboat/<node_id>`. Broker state machines expose `store.Snapshotter` so Dragonboat can capture and restore business state; raft mode does not open a separate broker metadata database.
 
 `raft.bind_addr` is the local listen address and may use `0.0.0.0` in containers. The current node's matching entry in `raft.cluster` is used as the Raft advertised address, so cluster entries should use routable peer addresses such as Docker service names.
 
@@ -78,7 +78,7 @@ Admin and OpenAPI use `arcgolabs/httpx` for the HTTP surface while the default s
 
 Metrics are exposed through the admin server and are wired through the broker metrics package. The project uses the arcgolabs observability stack where it fits the runtime surface.
 
-Current metric coverage includes broker/runtime counters, stream gauges, cleanup counters, produce counters, and storx storage operation metrics. Storage metrics are emitted from `storx/observer` and include operation count, error count, and duration labels for engine, target type, target, operation, and status.
+Current metric coverage includes broker/runtime counters, stream gauges, cleanup counters, produce counters, Dragonboat storage metrics, and segment-log hot-path metrics. Segment-log metrics are emitted through the internal `store.StoreMetrics` interface and include append/read operation, stage, record count, duration, and error status.
 
 Hot-path performance metrics include broker command duration, Dragonboat proposal duration, FSM duration, fetch duration, store append duration, and store read duration. They are intended for short benchmark and load-test runs where stage-level labels are useful for locating bottlenecks.
 

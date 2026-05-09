@@ -8,7 +8,7 @@ The public root package keeps the mental model intentionally small: configure a 
 
 - Library-first embedded broker API in the root `ech0` package.
 - Single binary entry point in `cmd/ech0`.
-- Persistent storage built on `arcgolabs/storx`.
+- Persistent segment-log storage with shard-local binary indexes.
 - Dependency injection, logging, events, and helpers using `arcgolabs/dix`, `logx`, `eventx`, and `collectionx`.
 - Admin and OpenAPI HTTP surface built with `arcgolabs/httpx` on Fiber.
 - Raft mode for clustered broker coordination.

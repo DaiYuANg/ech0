@@ -35,7 +35,7 @@ func TestMemoryRetentionKeepsOffsetsMonotonic(t *testing.T) {
 }
 
 func TestStorxCompactionRemovesStaleKeyVersions(t *testing.T) {
-	st := openLogStore(t, filepath.Join(t.TempDir(), "segments", "log.bbolt"))
+	st := openLogStore(t, filepath.Join(t.TempDir(), "segments"))
 	defer closeLogStore(t, st)
 	topic := store.NewTopicConfig("orders")
 	topic.CleanupPolicy = store.TopicCleanupCompact

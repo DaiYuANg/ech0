@@ -16,7 +16,14 @@ type Broker struct {
 	broker    *internalbroker.Broker
 	scheduled *internalbroker.ScheduledRuntime
 	logStore  *store.StorxLogStore
-	metaStore *store.StorxMetadataStore
+	metaStore metadataStore
+}
+
+type metadataStore interface {
+	store.OffsetStore
+	store.TopicCatalogStore
+	store.ConsumerGroupStore
+	store.BrokerStateStore
 }
 
 func Open(ctx context.Context, opts Options) (*Broker, error) {
@@ -27,10 +34,10 @@ func Open(ctx context.Context, opts Options) (*Broker, error) {
 	if err != nil {
 		return nil, oops.In("embedded").Code("open_log_store_failed").Wrapf(err, "open log store")
 	}
-	metaStore, err := store.OpenStorxMetadataStoreWithOptionsContext(ctx, cfg.MetadataPath(), store.StorxMetadataOptions{})
+	metaStore, err := openEmbeddedMetadataStore(ctx, cfg)
 	if err != nil {
 		return nil, errors.Join(
-			oops.In("embedded").Code("open_metadata_store_failed").Wrapf(err, "open metadata store"),
+			err,
 			closeLogStore(logStore),
 		)
 	}
@@ -67,6 +74,17 @@ func Open(ctx context.Context, opts Options) (*Broker, error) {
 		)
 	}
 	return &Broker{broker: b, scheduled: scheduled, logStore: logStore, metaStore: metaStore}, nil
+}
+
+func openEmbeddedMetadataStore(ctx context.Context, cfg internalbroker.Config) (metadataStore, error) {
+	if cfg.Raft.Enabled {
+		return store.NewMemoryStore(), nil
+	}
+	metaStore, err := store.OpenStorxMetadataStoreWithOptionsContext(ctx, cfg.MetadataPath(), store.StorxMetadataOptions{})
+	if err != nil {
+		return nil, oops.In("embedded").Code("open_metadata_store_failed").Wrapf(err, "open bboltx metadata store")
+	}
+	return metaStore, nil
 }
 
 func Run(ctx context.Context, opts Options) (err error) {
@@ -248,11 +266,15 @@ func stopInternalBroker(ctx context.Context, broker *internalbroker.Broker) erro
 	return nil
 }
 
-func closeMetadataStore(metaStore *store.StorxMetadataStore) error {
+func closeMetadataStore(metaStore metadataStore) error {
 	if metaStore == nil {
 		return nil
 	}
-	if err := metaStore.Close(); err != nil {
+	closer, ok := metaStore.(interface{ Close() error })
+	if !ok {
+		return nil
+	}
+	if err := closer.Close(); err != nil {
 		return oops.In("embedded").Code("metadata_store_close_failed").Wrapf(err, "close metadata store")
 	}
 	return nil

@@ -1,0 +1,102 @@
+package store
+
+import "sort"
+
+func (s *StorxLogStore) recordPointersFrom(tp TopicPartition, offset uint64, maxRecords int) []segmentRecordPointer {
+	if maxRecords <= 0 {
+		return nil
+	}
+	s.indexMu.RLock()
+	defer s.indexMu.RUnlock()
+	pointers := s.records.GetOrDefault(tp, nil)
+	start := segmentPointerSearch(pointers, offset)
+	end := min(start+maxRecords, len(pointers))
+	return cloneSegmentPointers(pointers[start:end])
+}
+
+func (s *StorxLogStore) recordPointersPage(
+	tp TopicPartition,
+	offset uint64,
+	maxRecords int,
+) ([]segmentRecordPointer, bool) {
+	if maxRecords <= 0 {
+		return nil, false
+	}
+	s.indexMu.RLock()
+	defer s.indexMu.RUnlock()
+	pointers := s.records.GetOrDefault(tp, nil)
+	start := segmentPointerSearch(pointers, offset)
+	end := start + maxRecords
+	hasMore := end < len(pointers)
+	end = min(end, len(pointers))
+	return cloneSegmentPointers(pointers[start:end]), hasMore
+}
+
+func (s *StorxLogStore) recordAppendedPointer(tp TopicPartition, pointer segmentRecordPointer) {
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	pointers := s.records.GetOrDefault(tp, nil)
+	s.records.Set(tp, appendSegmentPointerSorted(pointers, pointer))
+	if pointer.Offset >= s.nextOffsets.GetOrDefault(tp, 0) {
+		s.nextOffsets.Set(tp, pointer.Offset+1)
+	}
+}
+
+func (s *StorxLogStore) recordAppendedPointers(tp TopicPartition, pointers []segmentRecordPointer) {
+	if len(pointers) == 0 {
+		return
+	}
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	existing := s.records.GetOrDefault(tp, nil)
+	existing = append(existing, pointers...)
+	sortSegmentPointers(existing)
+	s.records.Set(tp, existing)
+	s.nextOffsets.Set(tp, nextOffsetFromPointers(existing))
+}
+
+func (s *StorxLogStore) removeRecordPointers(tp TopicPartition, remove interface{ Contains(uint64) bool }) []segmentRecordPointer {
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	existing := s.records.GetOrDefault(tp, nil)
+	kept := make([]segmentRecordPointer, 0, len(existing))
+	removed := make([]segmentRecordPointer, 0)
+	for _, pointer := range existing {
+		if remove.Contains(pointer.Offset) {
+			removed = append(removed, pointer)
+			continue
+		}
+		kept = append(kept, pointer)
+	}
+	s.records.Set(tp, kept)
+	s.nextOffsets.Set(tp, nextOffsetFromPointers(kept))
+	return removed
+}
+
+func segmentPointerSearch(pointers []segmentRecordPointer, offset uint64) int {
+	return sort.Search(len(pointers), func(index int) bool {
+		return pointers[index].Offset >= offset
+	})
+}
+
+func appendSegmentPointerSorted(pointers []segmentRecordPointer, pointer segmentRecordPointer) []segmentRecordPointer {
+	index := segmentPointerSearch(pointers, pointer.Offset)
+	if index == len(pointers) {
+		return append(pointers, pointer)
+	}
+	if pointers[index].Offset == pointer.Offset {
+		pointers[index] = pointer
+		return pointers
+	}
+	pointers = append(pointers, segmentRecordPointer{})
+	copy(pointers[index+1:], pointers[index:])
+	pointers[index] = pointer
+	return pointers
+}
+
+func cloneSegmentPointers(pointers []segmentRecordPointer) []segmentRecordPointer {
+	if len(pointers) == 0 {
+		return nil
+	}
+	return append([]segmentRecordPointer(nil), pointers...)
+}

@@ -4,22 +4,16 @@ import (
 	"context"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
-	"github.com/arcgolabs/storx/badgerx"
 )
-
-const segmentIndexValueLogGCDiscardRatio = 0.5
 
 func (s *StorxLogStore) EnforceRetention(ctx context.Context, nowMS uint64) (RetentionCleanupResult, error) {
 	if err := ctx.Err(); err != nil {
-		return RetentionCleanupResult{}, wrapExternal(err, "enforce storx retention")
+		return RetentionCleanupResult{}, wrapExternal(err, "enforce segment retention")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := RetentionCleanupResult{}
-	topics, err := s.listLogTopics(ctx)
-	if err != nil {
-		return result, err
-	}
+	topics := s.listLogTopics()
 	for i := range topics {
 		topic := topics[i]
 		for partition := range topic.Partitions {
@@ -30,29 +24,20 @@ func (s *StorxLogStore) EnforceRetention(ctx context.Context, nowMS uint64) (Ret
 			result.RemovedRecords += removed
 		}
 	}
-	if result.RemovedRecords > 0 {
-		return result, s.runSegmentIndexValueLogGC(ctx)
-	}
 	return result, nil
 }
 
 func (s *StorxLogStore) Compact(ctx context.Context, nowMS uint64, sealedSegmentBatch int) (CompactionCleanupResult, error) {
 	_ = sealedSegmentBatch
 	if err := ctx.Err(); err != nil {
-		return CompactionCleanupResult{}, wrapExternal(err, "compact storx records")
+		return CompactionCleanupResult{}, wrapExternal(err, "compact segment records")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	topics, err := s.listLogTopics(ctx)
-	if err != nil {
-		return CompactionCleanupResult{}, err
-	}
+	topics := s.listLogTopics()
 	result, err := s.compactTopics(ctx, topics, nowMS)
 	if err != nil {
 		return CompactionCleanupResult{}, err
-	}
-	if result.RemovedRecords > 0 {
-		return result, s.runSegmentIndexValueLogGC(ctx)
 	}
 	return result, nil
 }
@@ -75,15 +60,8 @@ func (s *StorxLogStore) compactTopics(ctx context.Context, topics []TopicConfig,
 	return result, nil
 }
 
-func (s *StorxLogStore) runSegmentIndexValueLogGC(ctx context.Context) error {
-	if s == nil || s.index == nil {
-		return nil
-	}
-	return wrapExternal(s.index.RunValueLogGC(ctx, segmentIndexValueLogGCDiscardRatio), "run segment index value log gc")
-}
-
 func (s *StorxLogStore) enforcePartitionRetention(ctx context.Context, topic TopicConfig, tp TopicPartition, nowMS uint64) (int, error) {
-	entries, records, err := s.partitionRecordEntries(ctx, tp)
+	records, err := s.partitionRecords(ctx, tp)
 	if err != nil {
 		return 0, err
 	}
@@ -91,11 +69,11 @@ func (s *StorxLogStore) enforcePartitionRetention(ctx context.Context, topic Top
 	if remove.IsEmpty() {
 		return 0, nil
 	}
-	return s.deleteRecordEntries(ctx, entries, remove)
+	return s.deleteRecordPointers(tp, remove)
 }
 
 func (s *StorxLogStore) compactPartition(ctx context.Context, topic TopicConfig, tp TopicPartition, nowMS uint64) (int, error) {
-	entries, records, err := s.partitionRecordEntries(ctx, tp)
+	records, err := s.partitionRecords(ctx, tp)
 	if err != nil {
 		return 0, err
 	}
@@ -103,50 +81,39 @@ func (s *StorxLogStore) compactPartition(ctx context.Context, topic TopicConfig,
 	if remove.IsEmpty() {
 		return 0, nil
 	}
-	return s.deleteRecordEntries(ctx, entries, remove)
+	return s.deleteRecordPointers(tp, remove)
 }
 
-func (s *StorxLogStore) listLogTopics(ctx context.Context) ([]TopicConfig, error) {
-	entries, err := scanBadgerNamespace(ctx, s.topics)
-	if err != nil {
-		return nil, wrapExternal(err, "walk log topics")
-	}
-	topics := collectionlist.NewListWithCapacity[TopicConfig](len(entries))
-	for _, entry := range entries {
-		topics.Add(cloneTopic(entry.Value))
-	}
-	return topics.Values(), nil
+func (s *StorxLogStore) listLogTopics() []TopicConfig {
+	s.indexMu.RLock()
+	topics := collectionlist.NewListWithCapacity[TopicConfig](s.topics.Len())
+	s.topics.Range(func(_ string, topic TopicConfig) bool {
+		topics.Add(cloneTopic(topic))
+		return true
+	})
+	s.indexMu.RUnlock()
+	return topics.Values()
 }
 
-func (s *StorxLogStore) partitionRecordEntries(ctx context.Context, tp TopicPartition) ([]badgerx.Entry[recordIndexKey, segmentRecordPointer], []Record, error) {
-	prefix, err := recordIndexPrefix(tp)
-	if err != nil {
-		return nil, nil, err
+func (s *StorxLogStore) partitionRecords(ctx context.Context, tp TopicPartition) ([]Record, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, wrapExternal(err, "list partition log records")
 	}
-	entries, err := s.records.List(
-		ctx,
-		badgerx.WithPrefix[recordIndexKey](prefix),
-	)
+	pointers := s.recordPointersFrom(tp, 0, maxSegmentInt())
+	records, err := s.readPointers(pointers)
 	if err != nil {
-		return nil, nil, wrapExternal(err, "list partition log records")
+		return nil, err
 	}
-	records, err := s.recordsFromPointers(entries)
-	if err != nil {
-		return nil, nil, err
-	}
-	return entries, records, nil
+	return records, nil
 }
 
-func (s *StorxLogStore) deleteRecordEntries(ctx context.Context, entries []badgerx.Entry[recordIndexKey, segmentRecordPointer], remove interface{ Contains(uint64) bool }) (int, error) {
-	keys := collectionlist.NewList[recordIndexKey]()
-	for _, entry := range entries {
-		if !remove.Contains(entry.Value.Offset) {
-			continue
-		}
-		keys.Add(entry.Key)
+func (s *StorxLogStore) deleteRecordPointers(tp TopicPartition, remove interface{ Contains(uint64) bool }) (int, error) {
+	removed := s.removeRecordPointers(tp, remove)
+	if len(removed) == 0 {
+		return 0, nil
 	}
-	if err := s.records.DeleteMany(ctx, keys.Values()...); err != nil {
+	if err := s.appendSegmentIndexDeletes(removed); err != nil {
 		return 0, wrapExternal(err, "delete compacted log indexes")
 	}
-	return keys.Len(), nil
+	return len(removed), nil
 }

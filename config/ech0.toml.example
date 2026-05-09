@@ -30,6 +30,8 @@ bind_addr = "127.0.0.1:9091"
 
 [storage]
 segments_dir = "segments"
+# Used only when raft.enabled=false. In raft mode, Dragonboat owns raft-side
+# logs, snapshots, membership state, and recovery files.
 metadata_path = "meta/metadata.bbolt"
 retention_cleanup_enabled = true
 retention_cleanup_interval_secs = 30

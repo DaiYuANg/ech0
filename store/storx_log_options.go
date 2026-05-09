@@ -1,15 +1,10 @@
 package store
 
 import (
-	"log/slog"
 	"strings"
-
-	"github.com/arcgolabs/storx/observer"
 )
 
 type SegmentCompression string
-
-type StorxObserver = observer.Observer
 
 const (
 	SegmentCompressionNone SegmentCompression = "none"
@@ -18,9 +13,6 @@ const (
 
 type StorxLogOptions struct {
 	Compression SegmentCompression
-	IndexPath   string
-	Logger      *slog.Logger
-	Observers   []observer.Observer
 	Metrics     StoreMetrics
 }
 
@@ -30,7 +22,6 @@ func (o StorxLogOptions) normalize() (StorxLogOptions, error) {
 		return StorxLogOptions{}, err
 	}
 	o.Compression = compression
-	o.Observers = observer.Clone(o.Observers)
 	return o, nil
 }
 

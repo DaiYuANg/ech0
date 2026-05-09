@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,30 +8,20 @@ import (
 	"time"
 
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
-	"github.com/arcgolabs/storx/badgerx"
-	"github.com/arcgolabs/storx/codec"
-	"github.com/arcgolabs/storx/keycodec"
-	"github.com/dgraph-io/badger/v4"
-)
-
-const (
-	indexLogTopics  = "message/topics"
-	indexLogRecords = "message/records"
-	indexLogOffsets = "message/next_offsets"
 )
 
 type StorxLogStore struct {
 	mu               sync.Mutex
+	indexMu          sync.RWMutex
 	partitionLocksMu sync.Mutex
 	writersMu        sync.Mutex
 	readersMu        sync.Mutex
 	rootDir          string
 	segmentsDir      string
 	compression      segmentFrameCompression
-	index            *badgerx.DB
-	topics           *badgerx.Namespace[string, TopicConfig]
-	records          *badgerx.Namespace[recordIndexKey, segmentRecordPointer]
-	nextOffsets      *badgerx.Namespace[partitionIndexKey, uint64]
+	topics           *collectionmapping.Map[string, TopicConfig]
+	records          *collectionmapping.Map[TopicPartition, []segmentRecordPointer]
+	nextOffsets      *collectionmapping.Map[TopicPartition, uint64]
 	metrics          StoreMetrics
 	partitionLocks   *collectionmapping.Map[TopicPartition, *sync.Mutex]
 	writers          *collectionmapping.Map[string, *segmentWriter]
@@ -78,28 +67,36 @@ func OpenStorxLogStoreWithOptions(path string, options StorxLogOptions) (*StorxL
 	if mkdirErr := os.MkdirAll(segmentsDir, 0o750); mkdirErr != nil {
 		return nil, errors.Join(wrapExternal(mkdirErr, "create segment log directory"), compression.close())
 	}
-	indexPath := options.IndexPath
-	if indexPath == "" {
-		indexPath = filepath.Join(rootDir, "index.badger")
-	}
-	index, err := openSegmentIndex(indexPath, options)
-	if err != nil {
-		return nil, errors.Join(err, compression.close())
-	}
-	stringKeyCodec := keycodec.String()
-	return &StorxLogStore{
+	store := &StorxLogStore{
 		rootDir:        rootDir,
 		segmentsDir:    segmentsDir,
 		compression:    compression,
-		index:          index,
-		topics:         badgerx.NewNamespaceWithDB(index, indexLogTopics, stringKeyCodec, codec.JSON[TopicConfig]()),
-		records:        badgerx.NewNamespaceWithDB(index, indexLogRecords, recordIndexKeyCodec(), codec.JSON[segmentRecordPointer]()),
-		nextOffsets:    badgerx.NewNamespaceWithDB(index, indexLogOffsets, partitionIndexKeyCodec(), codec.JSON[uint64]()),
+		topics:         collectionmapping.NewMap[string, TopicConfig](),
+		records:        collectionmapping.NewMap[TopicPartition, []segmentRecordPointer](),
+		nextOffsets:    collectionmapping.NewMap[TopicPartition, uint64](),
 		metrics:        options.Metrics,
 		partitionLocks: collectionmapping.NewMap[TopicPartition, *sync.Mutex](),
 		writers:        collectionmapping.NewMap[string, *segmentWriter](),
 		readers:        collectionmapping.NewMap[string, *segmentReader](),
-	}, nil
+	}
+	if err := store.loadLogManifest(); err != nil {
+		return nil, errors.Join(err, compression.close())
+	}
+	if err := store.loadSegmentIndexes(); err != nil {
+		return nil, errors.Join(err, compression.close())
+	}
+	return store, nil
+}
+
+func (s *StorxLogStore) Close() error {
+	if s == nil {
+		return nil
+	}
+	return errors.Join(
+		s.closeSegmentWriters(),
+		s.closeSegmentReaders(),
+		s.compression.close(),
+	)
 }
 
 func normalizeSegmentRoot(path string) (string, error) {
@@ -116,68 +113,47 @@ func normalizeSegmentRoot(path string) (string, error) {
 	return root, nil
 }
 
-func openSegmentIndex(path string, storeOptions StorxLogOptions) (*badgerx.DB, error) {
-	if err := os.MkdirAll(path, 0o750); err != nil {
-		return nil, wrapExternal(err, "create segment index directory")
-	}
-	options := badger.DefaultOptions(path).WithLogger(nil)
-	index, err := badgerx.Open(
-		options,
-		badgerx.WithDBLogger(storeOptions.Logger),
-		badgerx.WithDBObservers(storeOptions.Observers...),
-	)
-	if err != nil {
-		return nil, wrapExternal(err, "open segment index")
-	}
-	return index, nil
-}
-
-func (s *StorxLogStore) Close() error {
-	if s == nil {
-		return nil
-	}
-	return errors.Join(
-		s.closeSegmentWriters(),
-		s.closeSegmentReaders(),
-		s.compression.close(),
-		closeSegmentIndex(s.index),
-	)
-}
-
-func closeSegmentIndex(index *badgerx.DB) error {
-	if index == nil {
-		return nil
-	}
-	return wrapExternal(index.Close(), "close segment index")
-}
-
 func (s *StorxLogStore) CreateTopic(topic TopicConfig) error {
+	if err := validateLogTopicForCreate(&topic); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.registerLogTopic(topic); err != nil {
+		return err
+	}
+	if err := s.persistLogManifest(); err != nil {
+		return err
+	}
+	return s.createLogTopicDirs(topic)
+}
+
+func validateLogTopicForCreate(topic *TopicConfig) error {
 	if topic.Name == "" {
 		return E(CodeInvalidArgument, "topic name is required")
 	}
 	if topic.Partitions == 0 {
 		return E(CodeInvalidArgument, "topic %s must have at least one partition", topic.Name)
 	}
-	normalizeTopic(&topic)
+	normalizeTopic(topic)
+	return nil
+}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	exists, err := s.topics.Exists(context.Background(), topic.Name)
-	if err != nil {
-		return wrapExternal(err, "check log topic")
-	}
-	if exists {
+func (s *StorxLogStore) registerLogTopic(topic TopicConfig) error {
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	if _, exists := s.topics.Get(topic.Name); exists {
 		return E(CodeTopicExists, "topic %s already exists", topic.Name)
 	}
-	if err := s.topics.Set(context.Background(), topic.Name, cloneTopic(topic)); err != nil {
-		return wrapExternal(err, "save log topic")
-	}
+	s.topics.Set(topic.Name, cloneTopic(topic))
+	s.ensureTopicPartitionsLocked(topic)
+	return nil
+}
+
+func (s *StorxLogStore) createLogTopicDirs(topic TopicConfig) error {
 	for partition := range topic.Partitions {
-		tp := NewTopicPartition(topic.Name, partition)
-		if err := s.nextOffsets.Set(context.Background(), nextOffsetKey(tp), 0); err != nil {
-			return wrapExternal(err, "initialize log partition offset")
-		}
-		if err := os.MkdirAll(s.partitionDir(tp), 0o750); err != nil {
+		if err := os.MkdirAll(s.partitionDir(NewTopicPartition(topic.Name, partition)), 0o750); err != nil {
 			return wrapExternal(err, "create segment partition directory")
 		}
 	}
@@ -185,10 +161,9 @@ func (s *StorxLogStore) CreateTopic(topic TopicConfig) error {
 }
 
 func (s *StorxLogStore) TopicExists(topic string) (bool, error) {
-	exists, err := s.topics.Exists(context.Background(), topic)
-	if err != nil {
-		return false, wrapExternal(err, "check log topic")
-	}
+	s.indexMu.RLock()
+	defer s.indexMu.RUnlock()
+	_, exists := s.topics.Get(topic)
 	return exists, nil
 }
 
@@ -239,11 +214,8 @@ func (s *StorxLogStore) prepareAppendRecord(operation string, topicPartition Top
 		return appendRecordPlan{}, E(CodeInvalidArgument, "payload size %d exceeds max_message_bytes %d", len(appendRecord.Payload), topic.MaxMessageBytes)
 	}
 	offsetStart := time.Now()
-	offset, offsetErr := s.nextOffset(topicPartition)
-	s.recordAppendStage(operation, "next_offset", 1, offsetStart, offsetErr)
-	if offsetErr != nil {
-		return appendRecordPlan{}, offsetErr
-	}
+	offset := s.nextOffset(topicPartition)
+	s.recordAppendStage(operation, "next_offset", 1, offsetStart, nil)
 	record := newStoredRecord(offset, appendRecord)
 	encodeStart := time.Now()
 	frame, encodeErr := encodeSegmentFrameWithCompression(record, s.compression)
@@ -262,17 +234,14 @@ func (s *StorxLogStore) commitAppendRecord(operation string, topicPartition Topi
 		return Record{}, appendErr
 	}
 	indexStart := time.Now()
-	indexErr := s.records.Set(context.Background(), recordKey(topicPartition, plan.offset), pointer)
+	indexErr := s.appendSegmentIndexPointers(s.segmentRelativePath(topicPartition, pointer.SegmentID), []segmentRecordPointer{pointer})
 	s.recordAppendStage(operation, "index_set", 1, indexStart, indexErr)
 	if indexErr != nil {
 		return Record{}, wrapExternal(indexErr, "save segment record index")
 	}
 	nextOffsetStart := time.Now()
-	nextOffsetErr := s.nextOffsets.Set(context.Background(), nextOffsetKey(topicPartition), plan.offset+1)
-	s.recordAppendStage(operation, "next_offset_set", 1, nextOffsetStart, nextOffsetErr)
-	if nextOffsetErr != nil {
-		return Record{}, wrapExternal(nextOffsetErr, "advance next log offset")
-	}
+	s.recordAppendedPointer(topicPartition, pointer)
+	s.recordAppendStage(operation, "next_offset_set", 1, nextOffsetStart, nil)
 	return cloneRecord(plan.record), nil
 }
 

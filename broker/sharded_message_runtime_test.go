@@ -54,7 +54,7 @@ func newShardedStorxTestBroker(t *testing.T) (broker.Config, *broker.Broker, fun
 	cfg := broker.DefaultConfig()
 	cfg.Broker.DataDir = t.TempDir()
 	cfg.Broker.DataShardCount = 2
-	centralLog := openBrokerStorxLog(t, cfg.SegmentLogPath(), "")
+	centralLog := openBrokerStorxLog(t, cfg.SegmentLogPath())
 	metaStore, err := store.OpenStorxMetadataStore(cfg.MetadataPath())
 	requireNoError(t, err)
 	b, err := broker.NewWithStores(cfg, centralLog, metaStore)
@@ -122,7 +122,7 @@ func assertTopicMessageSnapshot(t *testing.T, b *broker.Broker, partition uint32
 
 func assertShardPayload(t *testing.T, cfg broker.Config, shardID store.ShardID, partition uint32, want string) {
 	t.Helper()
-	logStore := openBrokerStorxLog(t, cfg.ShardSegmentLogPath(shardID), cfg.ShardBadgerPath(shardID))
+	logStore := openBrokerStorxLog(t, cfg.ShardSegmentLogPath(shardID))
 	defer closeBrokerStorxLog(t, logStore)
 	records, err := logStore.ReadFrom(store.NewTopicPartition("orders", partition), 0, 10)
 	requireNoError(t, err)
@@ -131,9 +131,9 @@ func assertShardPayload(t *testing.T, cfg broker.Config, shardID store.ShardID, 
 	}
 }
 
-func openBrokerStorxLog(t *testing.T, path, indexPath string) *store.StorxLogStore {
+func openBrokerStorxLog(t *testing.T, path string) *store.StorxLogStore {
 	t.Helper()
-	logStore, err := store.OpenStorxLogStoreWithOptions(path, store.StorxLogOptions{IndexPath: indexPath})
+	logStore, err := store.OpenStorxLogStore(path)
 	requireNoError(t, err)
 	return logStore
 }

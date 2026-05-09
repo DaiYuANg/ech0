@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"encoding/binary"
 	"hash/crc32"
 	"os"
@@ -15,10 +14,7 @@ const (
 )
 
 func encodeSegmentFrameWithCompression(record Record, compression segmentFrameCompression) ([]byte, error) {
-	body, err := encodeSegmentRecordBody(record)
-	if err != nil {
-		return nil, err
-	}
+	body := encodeSegmentRecordBody(record)
 	magic, payload, err := compression.encode(body)
 	if err != nil {
 		return nil, err
@@ -26,109 +22,176 @@ func encodeSegmentFrameWithCompression(record Record, compression segmentFrameCo
 	return encodeSegmentFrameEnvelope(magic, payload)
 }
 
-func encodeSegmentRecordBody(record Record) ([]byte, error) {
-	body := bytes.NewBuffer(nil)
-	if err := writeSegmentRecordFields(body, record); err != nil {
-		return nil, err
-	}
-	if err := writeSegmentHeaders(body, record.Headers); err != nil {
-		return nil, err
-	}
-	if err := writeSegmentBytes(body, record.Payload); err != nil {
-		return nil, err
-	}
-	return body.Bytes(), nil
+func encodeSegmentRecordBody(record Record) []byte {
+	body := make([]byte, 0, segmentRecordBodySize(record))
+	body = appendSegmentRecordFields(body, record)
+	body = appendSegmentHeaders(body, record.Headers)
+	body = appendSegmentBytes(body, record.Payload)
+	return body
 }
 
-func writeSegmentRecordFields(out *bytes.Buffer, record Record) error {
-	if err := binary.Write(out, binary.BigEndian, record.Offset); err != nil {
-		return wrapExternal(err, "encode segment offset")
+func segmentRecordBodySize(record Record) int {
+	size := 8 + 8 + 2
+	size += segmentBytesEncodedLen(len(record.Key))
+	size += segmentIntEncodedLen(len(record.Headers))
+	for _, header := range record.Headers {
+		size += segmentStringEncodedLen(header.Key)
+		size += segmentBytesEncodedLen(len(header.Value))
 	}
-	if err := binary.Write(out, binary.BigEndian, record.TimestampMS); err != nil {
-		return wrapExternal(err, "encode segment timestamp")
-	}
-	if err := binary.Write(out, binary.BigEndian, record.Attributes); err != nil {
-		return wrapExternal(err, "encode segment attributes")
-	}
-	return writeSegmentBytes(out, record.Key)
+	size += segmentBytesEncodedLen(len(record.Payload))
+	return size
 }
 
-func writeSegmentHeaders(out *bytes.Buffer, headers []RecordHeader) error {
-	if err := writeSegmentInt(out, len(headers)); err != nil {
-		return err
-	}
+func appendSegmentRecordFields(out []byte, record Record) []byte {
+	out = binary.BigEndian.AppendUint64(out, record.Offset)
+	out = binary.BigEndian.AppendUint64(out, record.TimestampMS)
+	out = binary.BigEndian.AppendUint16(out, record.Attributes)
+	return appendSegmentBytes(out, record.Key)
+}
+
+func appendSegmentHeaders(out []byte, headers []RecordHeader) []byte {
+	out = appendSegmentIntBytes(out, len(headers))
 	for _, header := range headers {
-		if err := writeSegmentString(out, header.Key); err != nil {
-			return err
-		}
-		if err := writeSegmentBytes(out, header.Value); err != nil {
-			return err
-		}
+		out = appendSegmentString(out, header.Key)
+		out = appendSegmentBytes(out, header.Value)
 	}
-	return nil
+	return out
 }
 
 func encodeSegmentFrameEnvelope(magic uint32, body []byte) ([]byte, error) {
-	frame := bytes.NewBuffer(make([]byte, 0, segmentFrameHeader+len(body)))
-	if err := binary.Write(frame, binary.BigEndian, magic); err != nil {
-		return nil, wrapExternal(err, "encode segment magic")
-	}
-	if err := binary.Write(frame, binary.BigEndian, crc32.ChecksumIEEE(body)); err != nil {
-		return nil, wrapExternal(err, "encode segment checksum")
-	}
-	if _, err := frame.Write(body); err != nil {
-		return nil, wrapExternal(err, "encode segment payload")
-	}
-	return frame.Bytes(), nil
+	frame := make([]byte, segmentFrameHeader+len(body))
+	binary.BigEndian.PutUint32(frame[0:4], magic)
+	binary.BigEndian.PutUint32(frame[4:8], crc32.ChecksumIEEE(body))
+	copy(frame[segmentFrameHeader:], body)
+	return frame, nil
 }
 
-func writeSegmentString(out *bytes.Buffer, value string) error {
-	return writeSegmentBytes(out, []byte(value))
+func appendSegmentString(out []byte, value string) []byte {
+	out = appendSegmentIntBytes(out, len(value))
+	return append(out, value...)
 }
 
-func writeSegmentBytes(out *bytes.Buffer, value []byte) error {
-	if err := writeSegmentInt(out, len(value)); err != nil {
-		return err
-	}
-	if _, err := out.Write(value); err != nil {
-		return wrapExternal(err, "encode segment bytes")
-	}
-	return nil
+func appendSegmentBytes(out, value []byte) []byte {
+	out = appendSegmentIntBytes(out, len(value))
+	return append(out, value...)
 }
 
-func writeSegmentInt(out *bytes.Buffer, value int) error {
-	if value < 0 {
-		return E(CodeInvalidArgument, "negative segment length: %d", value)
+func appendSegmentIntBytes(out []byte, value int) []byte {
+	out = strconv.AppendInt(out, int64(value), 10)
+	return append(out, ':')
+}
+
+func segmentBytesEncodedLen(length int) int {
+	return segmentIntEncodedLen(length) + length
+}
+
+func segmentStringEncodedLen(value string) int {
+	return segmentIntEncodedLen(len(value)) + len(value)
+}
+
+func segmentIntEncodedLen(value int) int {
+	if value == 0 {
+		return 2
 	}
-	if _, err := out.WriteString(strconv.Itoa(value)); err != nil {
-		return wrapExternal(err, "encode segment length")
+	digits := 0
+	for value > 0 {
+		digits++
+		value /= 10
 	}
-	if err := out.WriteByte(':'); err != nil {
-		return wrapExternal(err, "encode segment length separator")
-	}
-	return nil
+	return digits + 1
 }
 
 func readSegmentRecords(file *os.File, pointers []segmentRecordPointer) ([]Record, error) {
-	records := make([]Record, 0, len(pointers))
-	for _, pointer := range pointers {
-		record, readErr := readSegmentPointer(file, pointer)
-		if readErr != nil {
-			return nil, readErr
+	records := make([]Record, len(pointers))
+	spans, err := contiguousSegmentPointerSpans(pointers)
+	if err != nil {
+		return nil, err
+	}
+	for _, span := range spans {
+		if err := readSegmentPointerSpan(file, pointers, span, records); err != nil {
+			return nil, err
 		}
-		records = append(records, record)
 	}
 	return records, nil
 }
 
-func readSegmentPointer(file *os.File, pointer segmentRecordPointer) (Record, error) {
+type segmentPointerSpan struct {
+	start    int
+	end      int
+	position int64
+	length   int
+}
+
+func contiguousSegmentPointerSpans(pointers []segmentRecordPointer) ([]segmentPointerSpan, error) {
+	if len(pointers) == 0 {
+		return nil, nil
+	}
+	nextPosition, err := segmentPointerEnd(pointers[0])
+	if err != nil {
+		return nil, err
+	}
+	spans := make([]segmentPointerSpan, 0, 1)
+	current := segmentPointerSpan{start: 0, end: 1, position: pointers[0].Position, length: pointers[0].Length}
+	for index := 1; index < len(pointers); index++ {
+		pointer := pointers[index]
+		pointerEnd, err := segmentPointerEnd(pointer)
+		if err != nil {
+			return nil, err
+		}
+		if pointer.Position == nextPosition {
+			current.end = index + 1
+			current.length += pointer.Length
+			nextPosition = pointerEnd
+			continue
+		}
+		spans = append(spans, current)
+		current = segmentPointerSpan{start: index, end: index + 1, position: pointer.Position, length: pointer.Length}
+		nextPosition = pointerEnd
+	}
+	return append(spans, current), nil
+}
+
+func segmentPointerEnd(pointer segmentRecordPointer) (int64, error) {
+	if pointer.Position < 0 {
+		return 0, E(CodeCodec, "segment frame position %d is negative", pointer.Position)
+	}
 	if pointer.Length < segmentFrameHeader {
-		return Record{}, E(CodeCodec, "segment frame length %d is too small", pointer.Length)
+		return 0, E(CodeCodec, "segment frame length %d is too small", pointer.Length)
 	}
-	frame := make([]byte, pointer.Length)
-	if err := readSegmentFrameAt(file, frame, pointer.Position); err != nil {
-		return Record{}, err
+	length := int64(pointer.Length)
+	const maxPosition = int64(1<<63 - 1)
+	if pointer.Position > maxPosition-length {
+		return 0, E(CodeCodec, "segment frame position overflows int64: position=%d length=%d", pointer.Position, pointer.Length)
 	}
+	return pointer.Position + length, nil
+}
+
+func readSegmentPointerSpan(file *os.File, pointers []segmentRecordPointer, span segmentPointerSpan, records []Record) error {
+	if span.length < segmentFrameHeader {
+		return E(CodeCodec, "segment pointer span length %d is too small", span.length)
+	}
+	frameData := make([]byte, span.length)
+	if err := readSegmentFrameAt(file, frameData, span.position); err != nil {
+		return err
+	}
+	cursor := 0
+	for pointerIndex := span.start; pointerIndex < span.end; pointerIndex++ {
+		pointer := pointers[pointerIndex]
+		next := cursor + pointer.Length
+		if next > len(frameData) {
+			return E(CodeCodec, "segment pointer span decode exceeds buffer: next=%d len=%d", next, len(frameData))
+		}
+		record, err := decodeSegmentPointerFrame(pointer, frameData[cursor:next])
+		if err != nil {
+			return err
+		}
+		records[pointerIndex] = record
+		cursor = next
+	}
+	return nil
+}
+
+func decodeSegmentPointerFrame(pointer segmentRecordPointer, frame []byte) (Record, error) {
 	record, err := decodeSegmentFrame(frame)
 	if err != nil {
 		return Record{}, err

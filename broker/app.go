@@ -44,18 +44,16 @@ func NewApp(cfg Config) (*dix.App, error) {
 			dix.Provider2(NewMetricsRuntime),
 			dix.ProviderErr3(func(cfg Config, logger *slog.Logger, metrics *MetricsRuntime) (*store.StorxLogStore, error) {
 				return store.OpenStorxLogStoreWithOptions(cfg.SegmentLogPath(), store.StorxLogOptions{
-					Logger:    logger,
-					Observers: []store.StorxObserver{newStorageMetricsObserver(metrics)},
-					Metrics:   metrics,
+					Metrics: metrics,
 				})
 			}),
-			dix.ProviderErr3(func(cfg Config, logger *slog.Logger, metrics *MetricsRuntime) (*store.StorxMetadataStore, error) {
-				return store.OpenStorxMetadataStoreWithOptions(cfg.MetadataPath(), store.StorxMetadataOptions{
-					Logger:    logger,
-					Observers: []store.StorxObserver{newStorageMetricsObserver(metrics)},
-				})
+			dix.ProviderErr1(func(cfg Config) (metadataStore, error) {
+				if cfg.Raft.Enabled {
+					return store.NewMemoryStore(), nil
+				}
+				return store.OpenStorxMetadataStoreWithOptions(cfg.MetadataPath(), store.StorxMetadataOptions{})
 			}),
-			dix.ProviderErr6(func(cfg Config, logger *slog.Logger, bus eventx.BusRuntime, metrics *MetricsRuntime, logStore *store.StorxLogStore, metaStore *store.StorxMetadataStore) (*Broker, error) {
+			dix.ProviderErr6(func(cfg Config, logger *slog.Logger, bus eventx.BusRuntime, metrics *MetricsRuntime, logStore *store.StorxLogStore, metaStore metadataStore) (*Broker, error) {
 				return NewWithStores(cfg, logStore, metaStore, WithLogger(logger), WithEventBus(bus), WithMetrics(metrics))
 			}),
 			dix.ProviderErr3(NewScheduledRuntime),
@@ -81,8 +79,12 @@ func NewApp(cfg Config) (*dix.App, error) {
 			dix.OnStop(func(_ context.Context, logStore *store.StorxLogStore) error {
 				return logStore.Close()
 			}),
-			dix.OnStop(func(_ context.Context, metaStore *store.StorxMetadataStore) error {
-				return metaStore.Close()
+			dix.OnStop(func(_ context.Context, metaStore metadataStore) error {
+				closer, ok := metaStore.(interface{ Close() error })
+				if !ok {
+					return nil
+				}
+				return closer.Close()
 			}),
 			dix.OnStop(func(ctx context.Context, broker *Broker) error {
 				return broker.Stop(ctx)

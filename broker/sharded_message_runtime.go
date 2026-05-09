@@ -50,25 +50,14 @@ func newShardedMessageRuntime(
 	return runtime, nil
 }
 
-func openMessageShard(spec dataShardSpec, meta metadataStore, logger *slog.Logger, metrics *MetricsRuntime) (*messageShard, error) {
+func openMessageShard(spec dataShardSpec, meta metadataStore, _ *slog.Logger, metrics *MetricsRuntime) (*messageShard, error) {
 	logStore, err := store.OpenStorxLogStoreWithOptions(spec.SegmentLogPath, store.StorxLogOptions{
-		IndexPath: spec.BadgerPath,
-		Logger:    logger,
-		Observers: storageObservers(metrics),
-		Metrics:   metrics,
+		Metrics: metrics,
 	})
 	if err != nil {
 		return nil, wrapBroker("message_shard_open_failed", err, "open message shard %d", spec.ShardID)
 	}
 	return &messageShard{id: spec.ShardID, log: logStore, queue: queue.New(logStore, meta)}, nil
-}
-
-func storageObservers(metrics *MetricsRuntime) []store.StorxObserver {
-	observer := newStorageMetricsObserver(metrics)
-	if observer == nil {
-		return nil
-	}
-	return []store.StorxObserver{observer}
 }
 
 func (r *shardedMessageRuntime) CreateTopic(topic store.TopicConfig) error {

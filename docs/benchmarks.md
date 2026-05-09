@@ -43,7 +43,7 @@ benchstat before.txt after.txt
 | --- | --- |
 | `protocol` | Binary command body encode/decode for produce, fetch response, and request start. |
 | `transport` | Frame read/write overhead for 1 KiB and 64 KiB bodies. |
-| `store` | Memory store baseline, storx segment append, batch append, and indexed reads. |
+| `store` | Memory store baseline, segment-log append, batch append, and indexed reads. |
 | `broker` | Publish, publish/fetch/commit, TCP frame handling, request/reply, and parallel publish. |
 
 ## Stress Tool
@@ -191,9 +191,9 @@ Selected Go benchmark results:
 | `transport` write 1KiB frame | 315.3 ns/op | 464 B/op, 10 allocs/op |
 | `transport` read 1KiB frame | 170.5 ns/op | 1,104 B/op, 3 allocs/op |
 | `store` memory append 1KiB | 239.631 us/op | 3,560 B/op, 3 allocs/op |
-| `store` storx append 1KiB | 1.286 ms/op | 72,511 B/op, 865 allocs/op |
-| `store` storx append batch 100x1KiB | 1.717 ms/op | 730,650 B/op, 6,131 allocs/op |
-| `store` storx read 100x1KiB | 0.717 ms/op | 652,083 B/op, 6,299 allocs/op |
+| `store` segment-log append 1KiB | 1.286 ms/op | 72,511 B/op, 865 allocs/op |
+| `store` segment-log append batch 100x1KiB | 1.717 ms/op | 730,650 B/op, 6,131 allocs/op |
+| `store` segment-log read 100x1KiB | 0.717 ms/op | 652,083 B/op, 6,299 allocs/op |
 | `broker` publish, memory store | 189.749 us/op | 5,988 B/op, 15 allocs/op |
 | `broker` TCP produce frame, memory store | 101.399 us/op | 8,283 B/op, 62 allocs/op |
 | `mapper` fetch records manual, 100x1KiB | 24.358 us/op | 141,728 B/op, 701 allocs/op |
@@ -202,7 +202,7 @@ Selected Go benchmark results:
 Readout:
 
 - Protocol and frame IO are not the current bottleneck for 1 KiB messages.
-- The persistent path is dominated by storx append/index work. A single storx append is roughly 6.8x slower than the broker memory-store publish benchmark.
+- The persistent path is dominated by segment append/index work. A single segment-log append is roughly 6.8x slower than the broker memory-store publish benchmark.
 - The raft cluster path is roughly 13.3x lower throughput than embedded mode in this run. The difference is expected because the benchmark currently sends one TCP produce per message and raft serializes writes through a single leader/quorum path.
 - Mapper remains useful for control-plane and maintenance conversions, but manual conversion should stay on hot fetch/produce loops.
 - The next highest-impact benchmark feature is producer batching. Kafka and NATS both rely heavily on async or batch publication for throughput, while this `ech0bench` run intentionally used one produce request per message.
@@ -306,7 +306,7 @@ The batch append refactor removed the per-record append loop from the batch path
 - Store `append_batch total` improved from about 149.6ms to about 16.4ms per 16-record batch, or roughly 9.1x.
 - `append_record` hot-path metrics disappear from the optimized batch run because `AppendRecordsBatch` no longer calls `AppendRecord` internally.
 - `append_frame` is still the largest store substage at about 11.3ms per 16-record batch, which points to durable segment file write/sync cost as the next storage target.
-- Raft `apply_wait` is now about 65.8ms versus FSM `total` at about 16.5ms, so the remaining cluster produce latency is mostly raft queue/quorum/log wait rather than command JSON codec or Badger index writes.
+- Raft `apply_wait` is now about 65.8ms versus FSM `total` at about 16.5ms, so the remaining cluster produce latency in that historical run was mostly raft queue/quorum/log wait rather than command JSON codec or the old Badger index writes.
 - Consumer throughput trails producer throughput in this sample. The next benchmark pass should separate read/fetch batching, consumer offset commit cadence, and backlog drain behavior.
 
 After raft coalescing, persistent segment writers, and grouped segment reads, 2026-05-08:
@@ -404,7 +404,7 @@ This run shows local segment improvements but also exposes raft log variance:
 - Coalescing frames per segment write reduced `append_frame` from about 3.6ms to about 1.0ms and cut `store append_batch total` from about 5.9ms to about 3.5ms.
 - Caching read-only segment file handles reduced `read_segments` from about 8.6ms to about 6.7ms and improved fetch p95 from about 15ms to about 14ms compared with the previous best run.
 - End-to-end throughput stayed near the previous best rather than increasing because raft log `put_many` was slower in this Docker sample (`~9.0ms` versus `~7.2ms`).
-- A bbolt `NoFreelistSync` experiment did not materially improve raft log writes in this workload, so it was not retained. The next pass below replaces the hot JSON raft command payload with a compact binary codec; after that, raft log entry count and fsync cadence remain the primary targets.
+- A legacy bbolt `NoFreelistSync` experiment did not materially improve raft log writes in this workload, so it was not retained. Dragonboat now owns raft storage; raft log entry count and fsync cadence remain Dragonboat-level tuning targets.
 
 After binary raft hot command codec, 2026-05-08:
 
@@ -514,7 +514,7 @@ Recommended fair comparison plan:
 
 - High `protocol` encode/decode allocations point to binary codec copy pressure.
 - High `transport` time with small bodies points to frame IO overhead.
-- Slow `StorxLogStoreAppend` relative to `MemoryStoreAppend` points to segment file or Badger index cost.
+- Slow `StorxLogStoreAppend` relative to `MemoryStoreAppend` points to segment file or segment index cost.
 - Slow `StorxLogStoreReadFrom` points to pointer lookup, segment seek/read, or record decode cost.
 - Broker publish slower than store append points to routing, cloning, events, metrics, or Raft/propose overhead.
 - TCP frame handling slower than broker publish points to protocol encode/decode and handler conversion overhead.

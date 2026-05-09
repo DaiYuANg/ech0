@@ -1,25 +1,21 @@
 package store
 
 import (
-	"context"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
-
-	"github.com/arcgolabs/storx/badgerx"
 )
 
-func (s *StorxLogStore) nextOffset(topicPartition TopicPartition) (uint64, error) {
-	offset, ok, err := s.nextOffsets.Get(context.Background(), nextOffsetKey(topicPartition))
-	if err != nil {
-		return 0, wrapExternal(err, "load next log offset")
-	}
+func (s *StorxLogStore) nextOffset(topicPartition TopicPartition) uint64 {
+	s.indexMu.RLock()
+	offset, ok := s.nextOffsets.Get(topicPartition)
+	s.indexMu.RUnlock()
 	if !ok {
-		return 0, nil
+		return 0
 	}
-	return offset, nil
+	return offset
 }
 
 func (s *StorxLogStore) appendFrame(
@@ -246,21 +242,11 @@ func (s *StorxLogStore) segmentIDForAppend(
 }
 
 func (s *StorxLogStore) lastRecordPointer(topicPartition TopicPartition) (segmentRecordPointer, bool, error) {
-	prefix, err := recordIndexPrefix(topicPartition)
-	if err != nil {
-		return segmentRecordPointer{}, false, err
-	}
-	entries, err := s.records.List(
-		context.Background(),
-		badgerx.WithPrefix[recordIndexKey](prefix),
-		badgerx.WithReverse[recordIndexKey](true),
-		badgerx.WithLimit[recordIndexKey](1),
-	)
-	if err != nil {
-		return segmentRecordPointer{}, false, wrapExternal(err, "load last segment record index")
-	}
-	if len(entries) == 0 {
+	s.indexMu.RLock()
+	defer s.indexMu.RUnlock()
+	pointers := s.records.GetOrDefault(topicPartition, nil)
+	if len(pointers) == 0 {
 		return segmentRecordPointer{}, false, nil
 	}
-	return entries[0].Value, true, nil
+	return pointers[len(pointers)-1], true, nil
 }

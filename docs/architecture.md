@@ -8,7 +8,7 @@ ech0 is a Go embedded message broker with a library-first public API and a stand
 | --- | --- |
 | `ech0` | Public embedded API. Opens and closes a broker, creates topics, publishes, fetches, acks, nacks, and schedules messages. |
 | `broker` | Runtime orchestration. Owns queue/direct/request-reply APIs, Raft apply paths, scheduler jobs, admin server, metrics, and config loading. |
-| `store` | Persistence contracts and implementations. Owns topic metadata, offsets, groups, snapshots, segment log, Badger index, and bbolt metadata. |
+| `store` | Persistence contracts and implementations. Owns topic metadata contracts, offsets, groups, snapshots, segment log, and segment indexes. |
 | `protocol` | Wire messages and custom binary command body codecs. |
 | `transport` | TCP frame header/body IO. |
 | `queue` | Topic/partition queue runtime over `store.MessageLogStore` and offset metadata. |
@@ -28,7 +28,7 @@ The binary path builds a full broker runtime:
 The embedded path in the root package does less:
 
 1. Normalize `ech0.Options`.
-2. Open storx-backed stores under `Options.DataDir`.
+2. Open segment-log and bboltx metadata stores under `Options.DataDir`.
 3. Construct and start the internal broker.
 4. Start the scheduled runtime if retry or delay is enabled.
 5. Return a small `*ech0.Broker` API to the caller.
@@ -75,20 +75,20 @@ The current clustered implementation has these properties:
 - `broker.data_shard_count` configures the deterministic shard plan.
 - Topic creation persists one `ShardPlacement` per `topic/partition`.
 - The default placement is `partition % data_shard_count`.
-- Memory and storx metadata stores both persist shard placements.
+- Memory and file-backed metadata stores both persist shard placements.
 - Snapshots include `shard_placements`, so future Raft metadata snapshots carry the placement map.
 - Command routing now carries partition command targets.
 - Cluster mode installs a cluster router that resolves known `topic/partition` targets to shard IDs and proposes data commands to the matching Dragonboat data group.
 - Coalesced `produce_batches` and `commit_offsets` are split by resolved shard target before dispatch. Result merging preserves original request order across group proposals.
 - Non-explicit produce partitioning is resolved before dispatch and rewritten to an explicit partition command. That makes the data-plane command target stable for future per-shard Raft groups.
 - The cluster router depends on a `dataShardRuntime` boundary. In Raft mode, each configured shard points at a Dragonboat group runtime.
-- Each configured shard also has a runtime spec with target directories for shard-local segment log and Badger state. Runtime health exposes the configured shard IDs and their current runtime mode.
+- Each configured shard also has a runtime spec with a target directory for its shard-local segment log. Runtime health exposes the configured shard IDs and their current runtime mode.
 - The broker message runtime is now an internal interface. The default adapter preserves the existing single log behavior.
-- When storx storage is used with `broker.data_shard_count > 1`, broker message reads and writes use a sharded message runtime. Each shard opens its own segment log and Badger index under `data/shards/shard-NNNN`.
+- When sharded segment storage is used with `broker.data_shard_count > 1`, broker message reads and writes use a sharded message runtime. Each shard opens its own segment log under `data/shards/shard-NNNN`.
 - Topic metadata remains global. `CreateTopic` writes one global topic config, while each message shard initializes its own local log state for that topic.
 - `Publish`, `Fetch`, `Ack`, admin topic message snapshots, and direct `ReadFrom` helpers route by the resolved `topic/partition -> shard` placement.
-- Retention and compaction maintenance run through the message runtime, so storx sharded mode applies cleanup across all local shard logs.
-- Raft FSM snapshots now read and restore message data through the message runtime, so sharded storx snapshots merge shard log records and restore them by recorded placement.
+- Retention and compaction maintenance run through the message runtime, so sharded segment mode applies cleanup across all local shard logs.
+- Raft FSM snapshots now read and restore message data through the message runtime, so sharded segment snapshots merge shard log records and restore them by recorded placement.
 - Raft clustered writes no longer use the single global data path. The remaining cluster work is leader-aware client routing/forwarding, per-group scheduler ownership, and narrower per-group snapshots.
 
 The public API remains library-first:
@@ -134,7 +134,7 @@ This keeps correctness simple during the first architecture change. Faster follo
 
 ## Target Storage Layout
 
-The target storage layout keeps badger plus segment log, but scopes it by ownership:
+The target storage layout keeps Dragonboat state, metadata, and shard-local segment logs separate:
 
 ```text
 data/
@@ -143,17 +143,15 @@ data/
       wal/
       ...
   metadata/
-    bbolt/
+    metadata.bbolt  # standalone/non-Raft only
   shards/
     shard-0000/
       segments/
-      badger/
     shard-0001/
       segments/
-      badger/
 ```
 
-Within a shard, the segment log remains the message storage backend. Dragonboat owns the replication and ordering log for the metadata and data groups under the NodeHost directory. This still writes through Raft and the segment log, but the work is spread across independent groups and independent stores instead of one global queue.
+Within a shard, the segment log remains the message storage backend and maintains its own `*.idx` files for offset-to-frame pointers. Dragonboat owns the replication and ordering log for the metadata and data groups under the NodeHost directory. This still writes through Raft and the segment log, but the work is spread across independent groups and independent stores instead of one global queue.
 
 A later, more invasive storage optimization can make the Raft log and message segment log share a batch format or reduce duplicated payload writes. That should be a second-stage optimization after sharding proves out.
 
@@ -178,7 +176,7 @@ A later, more invasive storage optimization can make the Raft log and message se
 4. Add data shard runtimes:
    - One local queue/store runtime per shard.
    - One Dragonboat Raft group per shard in clustered mode.
-   - Separate shard-local segment and Badger stores.
+   - Separate shard-local segment stores.
 
 5. Cut over hot paths:
    - Route produce batches to data shard leaders.
@@ -219,7 +217,6 @@ The implementation favors arcgolabs libraries where they match the responsibilit
 - `configx` for binary configuration loading.
 - `httpx` on Fiber for Admin/OpenAPI surfaces.
 - `observabilityx` for metrics wiring.
-- `storx` adapters for Badger and bbolt-backed stores.
 - `dragonboat` for clustered multi-group Raft.
 - `ants` for bounded background and shard fan-out work.
 - `HdrHistogram` for benchmark latency percentiles.

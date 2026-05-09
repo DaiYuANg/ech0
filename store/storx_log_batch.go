@@ -1,12 +1,9 @@
 package store
 
 import (
-	"context"
 	"errors"
 	"os"
 	"time"
-
-	"github.com/arcgolabs/storx/badgerx"
 )
 
 type appendBatchPlan struct {
@@ -56,11 +53,8 @@ func (s *StorxLogStore) prepareAppendBatch(
 	}
 
 	offsetStart := time.Now()
-	baseOffset, offsetErr := s.nextOffset(topicPartition)
-	s.recordAppendStage(operation, "next_offset", len(appendRecords), offsetStart, offsetErr)
-	if offsetErr != nil {
-		return appendBatchPlan{}, offsetErr
-	}
+	baseOffset := s.nextOffset(topicPartition)
+	s.recordAppendStage(operation, "next_offset", len(appendRecords), offsetStart, nil)
 
 	records := make([]Record, len(appendRecords))
 	frames := make([][]byte, len(appendRecords))
@@ -203,27 +197,33 @@ func (s *StorxLogStore) commitAppendBatch(
 	}
 
 	indexStart := time.Now()
-	entries := make([]badgerx.Entry[recordIndexKey, segmentRecordPointer], 0, len(pointers))
-	for _, pointer := range pointers {
-		entries = append(entries, badgerx.Entry[recordIndexKey, segmentRecordPointer]{
-			Key:   recordKey(topicPartition, pointer.Offset),
-			Value: pointer,
-		})
-	}
-	indexErr := s.records.SetMany(context.Background(), entries)
+	indexErr := s.appendBatchSegmentIndexes(topicPartition, pointers)
 	s.recordAppendStage(operation, "index_set", len(plan.records), indexStart, indexErr)
 	if indexErr != nil {
 		return nil, wrapExternal(indexErr, "save segment record indexes")
 	}
 
 	nextOffsetStart := time.Now()
-	lastOffset := plan.records[len(plan.records)-1].Offset
-	nextOffsetErr := s.nextOffsets.Set(context.Background(), nextOffsetKey(topicPartition), lastOffset+1)
-	s.recordAppendStage(operation, "next_offset_set", len(plan.records), nextOffsetStart, nextOffsetErr)
-	if nextOffsetErr != nil {
-		return nil, wrapExternal(nextOffsetErr, "advance next log offset")
-	}
+	s.recordAppendedPointers(topicPartition, pointers)
+	s.recordAppendStage(operation, "next_offset_set", len(plan.records), nextOffsetStart, nil)
 	return cloneRecords(plan.records), nil
+}
+
+func (s *StorxLogStore) appendBatchSegmentIndexes(topicPartition TopicPartition, pointers []segmentRecordPointer) error {
+	start := 0
+	for start < len(pointers) {
+		segmentID := pointers[start].SegmentID
+		end := start + 1
+		for end < len(pointers) && pointers[end].SegmentID == segmentID {
+			end++
+		}
+		relativePath := s.segmentRelativePath(topicPartition, segmentID)
+		if err := s.appendSegmentIndexPointers(relativePath, pointers[start:end]); err != nil {
+			return err
+		}
+		start = end
+	}
+	return nil
 }
 
 func (s *StorxLogStore) appendBatchFrames(topicPartition TopicPartition, plan appendBatchPlan) ([]segmentRecordPointer, error) {

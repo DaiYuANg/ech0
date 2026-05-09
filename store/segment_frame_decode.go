@@ -1,12 +1,9 @@
 package store
 
 import (
-	"bytes"
 	"encoding/binary"
 	"hash/crc32"
-	"io"
 	"os"
-	"strconv"
 )
 
 func readSegmentFrameAt(file *os.File, frame []byte, position int64) error {
@@ -17,22 +14,19 @@ func readSegmentFrameAt(file *os.File, frame []byte, position int64) error {
 }
 
 func decodeSegmentFrame(frame []byte) (Record, error) {
-	reader := bytes.NewReader(frame)
-	magic, checksum, err := readSegmentFrameHeader(reader)
-	if err != nil {
-		return Record{}, err
+	if len(frame) < segmentFrameHeader {
+		return Record{}, E(CodeCodec, "segment frame length %d is too small", len(frame))
 	}
+	magic := binary.BigEndian.Uint32(frame[0:4])
+	checksum := binary.BigEndian.Uint32(frame[4:8])
 	if magic != segmentFrameMagic && magic != segmentFrameZstdMagic {
 		return Record{}, E(CodeCodec, "invalid segment frame magic %x", magic)
 	}
-	body, err := readSegmentFrameBody(reader)
-	if err != nil {
-		return Record{}, err
-	}
+	body := frame[segmentFrameHeader:]
 	if crc32.ChecksumIEEE(body) != checksum {
 		return Record{}, E(CodeCodec, "segment frame checksum mismatch")
 	}
-	body, err = decodeSegmentFramePayload(magic, body)
+	body, err := decodeSegmentFramePayload(magic, body)
 	if err != nil {
 		return Record{}, err
 	}
@@ -50,37 +44,17 @@ func decodeSegmentFramePayload(magic uint32, body []byte) ([]byte, error) {
 	}
 }
 
-func readSegmentFrameHeader(reader *bytes.Reader) (uint32, uint32, error) {
-	var magic uint32
-	if err := binary.Read(reader, binary.BigEndian, &magic); err != nil {
-		return 0, 0, wrapExternal(err, "decode segment magic")
-	}
-	var checksum uint32
-	if err := binary.Read(reader, binary.BigEndian, &checksum); err != nil {
-		return 0, 0, wrapExternal(err, "decode segment checksum")
-	}
-	return magic, checksum, nil
-}
-
-func readSegmentFrameBody(reader *bytes.Reader) ([]byte, error) {
-	body := make([]byte, reader.Len())
-	if _, err := io.ReadFull(reader, body); err != nil {
-		return nil, wrapExternal(err, "read segment frame body")
-	}
-	return body, nil
-}
-
 func decodeSegmentRecordBody(body []byte) (Record, error) {
-	reader := bytes.NewReader(body)
+	decoder := segmentRecordDecoder{body: body}
 	record := Record{}
-	if err := readSegmentRecordFields(reader, &record); err != nil {
+	if err := decoder.readRecordFields(&record); err != nil {
 		return Record{}, err
 	}
-	headers, err := readSegmentHeaders(reader)
+	headers, err := decoder.readHeaders()
 	if err != nil {
 		return Record{}, err
 	}
-	payload, err := readSegmentBytes(reader)
+	payload, err := decoder.readBytes()
 	if err != nil {
 		return Record{}, err
 	}
@@ -89,35 +63,71 @@ func decodeSegmentRecordBody(body []byte) (Record, error) {
 	return record, nil
 }
 
-func readSegmentRecordFields(reader *bytes.Reader, record *Record) error {
-	if err := binary.Read(reader, binary.BigEndian, &record.Offset); err != nil {
-		return wrapExternal(err, "decode segment offset")
-	}
-	if err := binary.Read(reader, binary.BigEndian, &record.TimestampMS); err != nil {
-		return wrapExternal(err, "decode segment timestamp")
-	}
-	if err := binary.Read(reader, binary.BigEndian, &record.Attributes); err != nil {
-		return wrapExternal(err, "decode segment attributes")
-	}
-	key, err := readSegmentBytes(reader)
+type segmentRecordDecoder struct {
+	body   []byte
+	cursor int
+}
+
+func (d *segmentRecordDecoder) readRecordFields(record *Record) error {
+	offset, err := d.readU64("offset")
 	if err != nil {
 		return err
 	}
+	timestamp, err := d.readU64("timestamp")
+	if err != nil {
+		return err
+	}
+	attributes, err := d.readU16("attributes")
+	if err != nil {
+		return err
+	}
+	key, err := d.readBytes()
+	if err != nil {
+		return err
+	}
+	record.Offset = offset
+	record.TimestampMS = timestamp
+	record.Attributes = attributes
 	record.Key = key
 	return nil
 }
 
-func readSegmentHeaders(reader *bytes.Reader) ([]RecordHeader, error) {
-	count, err := readSegmentInt(reader)
+func (d *segmentRecordDecoder) readU64(field string) (uint64, error) {
+	raw, err := d.readFixed(8, field)
+	if err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint64(raw), nil
+}
+
+func (d *segmentRecordDecoder) readU16(field string) (uint16, error) {
+	raw, err := d.readFixed(2, field)
+	if err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint16(raw), nil
+}
+
+func (d *segmentRecordDecoder) readFixed(length int, field string) ([]byte, error) {
+	if length > d.remaining() {
+		return nil, E(CodeCodec, "segment %s length %d exceeds remaining frame size %d", field, length, d.remaining())
+	}
+	value := d.body[d.cursor : d.cursor+length]
+	d.cursor += length
+	return value, nil
+}
+
+func (d *segmentRecordDecoder) readHeaders() ([]RecordHeader, error) {
+	count, err := d.readInt()
 	if err != nil {
 		return nil, err
 	}
-	if count > reader.Len()/4 {
+	if count > d.remaining()/4 {
 		return nil, E(CodeCodec, "segment header count %d exceeds remaining frame size", count)
 	}
 	headers := make([]RecordHeader, 0, count)
 	for range count {
-		header, err := readSegmentHeader(reader)
+		header, err := d.readHeader()
 		if err != nil {
 			return nil, err
 		}
@@ -126,64 +136,88 @@ func readSegmentHeaders(reader *bytes.Reader) ([]RecordHeader, error) {
 	return headers, nil
 }
 
-func readSegmentHeader(reader *bytes.Reader) (RecordHeader, error) {
-	key, err := readSegmentBytes(reader)
+func (d *segmentRecordDecoder) readHeader() (RecordHeader, error) {
+	key, err := d.readBytes()
 	if err != nil {
 		return RecordHeader{}, err
 	}
-	value, err := readSegmentBytes(reader)
+	value, err := d.readBytes()
 	if err != nil {
 		return RecordHeader{}, err
 	}
 	return RecordHeader{Key: string(key), Value: value}, nil
 }
 
-func readSegmentBytes(reader *bytes.Reader) ([]byte, error) {
-	length, err := readSegmentInt(reader)
+func (d *segmentRecordDecoder) readBytes() ([]byte, error) {
+	length, err := d.readInt()
 	if err != nil {
 		return nil, err
 	}
-	if length > reader.Len() {
-		return nil, E(CodeCodec, "segment bytes length %d exceeds remaining frame size %d", length, reader.Len())
+	if length > d.remaining() {
+		return nil, E(CodeCodec, "segment bytes length %d exceeds remaining frame size %d", length, d.remaining())
 	}
-	value := make([]byte, length)
-	if _, err := io.ReadFull(reader, value); err != nil {
-		return nil, wrapExternal(err, "decode segment bytes")
-	}
+	value := d.body[d.cursor : d.cursor+length]
+	d.cursor += length
 	return value, nil
 }
 
-func readSegmentInt(reader *bytes.Reader) (int, error) {
-	digits, err := readSegmentLengthDigits(reader)
-	if err != nil {
-		return 0, err
+func (d *segmentRecordDecoder) readInt() (int, error) {
+	length := 0
+	digits := 0
+	for {
+		digit, err := d.readByte()
+		if err != nil {
+			return 0, err
+		}
+		if digit == ':' {
+			return finishSegmentInt(length, digits)
+		}
+		nextDigit, ok := segmentLengthDigit(digit)
+		if !ok {
+			return 0, E(CodeCodec, "invalid segment length digit %q", digit)
+		}
+		length, err = appendSegmentLengthDigit(length, nextDigit)
+		if err != nil {
+			return 0, err
+		}
+		digits++
 	}
-	if digits.Len() == 0 {
+}
+
+func (d *segmentRecordDecoder) readByte() (byte, error) {
+	if d.cursor >= len(d.body) {
+		return 0, E(CodeCodec, "decode segment length")
+	}
+	value := d.body[d.cursor]
+	d.cursor++
+	return value, nil
+}
+
+func (d *segmentRecordDecoder) remaining() int {
+	return len(d.body) - d.cursor
+}
+
+func finishSegmentInt(length, digits int) (int, error) {
+	if digits == 0 {
 		return 0, E(CodeCodec, "empty segment length")
-	}
-	length, err := strconv.Atoi(digits.String())
-	if err != nil {
-		return 0, E(CodeCodec, "invalid segment length %q: %v", digits.String(), err)
 	}
 	return length, nil
 }
 
-func readSegmentLengthDigits(reader *bytes.Reader) (*bytes.Buffer, error) {
-	digits := bytes.NewBuffer(nil)
-	for {
-		digit, err := reader.ReadByte()
-		if err != nil {
-			return nil, wrapExternal(err, "decode segment length")
-		}
-		if digit == ':' {
-			break
-		}
-		if digit < '0' || digit > '9' {
-			return nil, E(CodeCodec, "invalid segment length digit %q", digit)
-		}
-		if err := digits.WriteByte(digit); err != nil {
-			return nil, wrapExternal(err, "decode segment length digit")
-		}
+func segmentLengthDigit(digit byte) (int, bool) {
+	if digit < '0' || digit > '9' {
+		return 0, false
 	}
-	return digits, nil
+	return int(digit - '0'), true
+}
+
+func appendSegmentLengthDigit(length, digit int) (int, error) {
+	if length > (maxSegmentInt()-digit)/10 {
+		return 0, E(CodeCodec, "segment length overflows int")
+	}
+	return length*10 + digit, nil
+}
+
+func maxSegmentInt() int {
+	return int(^uint(0) >> 1)
 }

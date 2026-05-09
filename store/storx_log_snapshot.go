@@ -2,21 +2,14 @@ package store
 
 import (
 	"cmp"
-	"context"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 )
 
 func (s *StorxLogStore) Snapshot() (Snapshot, error) {
-	topics, err := s.snapshotTopics()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	nextOffsets, err := s.snapshotLogOffsets()
-	if err != nil {
-		return Snapshot{}, err
-	}
+	topics := s.snapshotTopics()
+	nextOffsets := s.snapshotLogOffsets()
 	records, err := s.snapshotRecords()
 	if err != nil {
 		return Snapshot{}, err
@@ -24,59 +17,70 @@ func (s *StorxLogStore) Snapshot() (Snapshot, error) {
 	return Snapshot{Topics: topics, Records: *records, LogOffsets: *nextOffsets}, nil
 }
 
-func (s *StorxLogStore) snapshotTopics() (collectionlist.List[TopicConfig], error) {
-	entries, err := scanBadgerNamespace(context.Background(), s.topics)
-	if err != nil {
-		return collectionlist.List[TopicConfig]{}, wrapExternal(err, "walk log topics")
-	}
-	topics := collectionlist.NewListWithCapacity[TopicConfig](len(entries))
-	for _, entry := range entries {
-		topics.Add(cloneTopic(entry.Value))
-	}
+func (s *StorxLogStore) snapshotTopics() collectionlist.List[TopicConfig] {
+	s.indexMu.RLock()
+	topics := collectionlist.NewListWithCapacity[TopicConfig](s.topics.Len())
+	s.topics.Range(func(_ string, topic TopicConfig) bool {
+		topics.Add(cloneTopic(topic))
+		return true
+	})
+	s.indexMu.RUnlock()
 	return *topics.
 		Sort(func(left, right TopicConfig) int {
 			return cmp.Compare(left.Name, right.Name)
-		}), nil
+		})
 }
 
-func (s *StorxLogStore) snapshotLogOffsets() (*collectionmapping.Map[string, uint64], error) {
-	entries, err := scanBadgerNamespace(context.Background(), s.nextOffsets)
-	if err != nil {
-		return nil, wrapExternal(err, "walk log next offsets")
-	}
+func (s *StorxLogStore) snapshotLogOffsets() *collectionmapping.Map[string, uint64] {
+	s.indexMu.RLock()
 	nextOffsets := collectionmapping.NewMap[string, uint64]()
-	for _, entry := range entries {
-		tp, err := entry.Key.topicPartition()
-		if err != nil {
-			return nil, err
-		}
-		nextOffsets.Set(partitionKey(tp), entry.Value)
-	}
-	return nextOffsets, nil
+	s.nextOffsets.Range(func(tp TopicPartition, value uint64) bool {
+		nextOffsets.Set(partitionKey(tp), value)
+		return true
+	})
+	s.indexMu.RUnlock()
+	return nextOffsets
 }
 
 func (s *StorxLogStore) snapshotRecords() (*collectionmapping.Map[string, []Record], error) {
-	entries, err := scanBadgerNamespace(context.Background(), s.records)
-	if err != nil {
-		return nil, wrapExternal(err, "walk segment record indexes")
-	}
 	records := collectionmapping.NewMap[string, []Record]()
-	for _, entry := range entries {
-		tp, err := entry.Key.topicPartition()
-		if err != nil {
+	pointers := s.snapshotPointers()
+	for tp, topicPointers := range pointers {
+		if err := s.snapshotPartitionRecords(tp, topicPointers, records); err != nil {
 			return nil, err
 		}
-		record, err := s.readPointer(entry.Value)
-		if err != nil {
-			return nil, err
-		}
-		key := partitionKey(tp)
-		topicRecords := records.GetOrDefault(key, nil)
-		records.Set(key, append(topicRecords, cloneRecord(record)))
 	}
 	records.Range(func(key string, topicRecords []Record) bool {
 		records.Set(key, sortedRecords(topicRecords))
 		return true
 	})
 	return records, nil
+}
+
+func (s *StorxLogStore) snapshotPointers() map[TopicPartition][]segmentRecordPointer {
+	s.indexMu.RLock()
+	defer s.indexMu.RUnlock()
+	out := make(map[TopicPartition][]segmentRecordPointer, s.records.Len())
+	s.records.Range(func(tp TopicPartition, pointers []segmentRecordPointer) bool {
+		out[tp] = cloneSegmentPointers(pointers)
+		return true
+	})
+	return out
+}
+
+func (s *StorxLogStore) snapshotPartitionRecords(
+	tp TopicPartition,
+	pointers []segmentRecordPointer,
+	records *collectionmapping.Map[string, []Record],
+) error {
+	for _, pointer := range pointers {
+		record, err := s.readPointer(pointer)
+		if err != nil {
+			return err
+		}
+		key := partitionKey(tp)
+		topicRecords := records.GetOrDefault(key, nil)
+		records.Set(key, append(topicRecords, cloneRecord(record)))
+	}
+	return nil
 }

@@ -1,12 +1,8 @@
 package store
 
 import (
-	"context"
+	"strconv"
 	"time"
-
-	collectionlist "github.com/arcgolabs/collectionx/list"
-	collectionmapping "github.com/arcgolabs/collectionx/mapping"
-	"github.com/arcgolabs/storx/badgerx"
 )
 
 func (s *StorxLogStore) ReadFrom(topicPartition TopicPartition, offset uint64, maxRecords int) (out []Record, err error) {
@@ -24,23 +20,11 @@ func (s *StorxLogStore) ReadFrom(topicPartition TopicPartition, offset uint64, m
 	if err != nil {
 		return nil, err
 	}
-	prefix, err := recordIndexPrefix(topicPartition)
-	if err != nil {
-		return nil, err
-	}
 	indexStart := time.Now()
-	entries, err := s.records.List(
-		context.Background(),
-		badgerx.WithPrefix[recordIndexKey](prefix),
-		badgerx.WithStart(recordKey(topicPartition, offset)),
-		badgerx.WithLimit[recordIndexKey](maxRecords),
-	)
-	s.recordReadStage(operation, "index_list", len(entries), indexStart, err)
-	if err != nil {
-		return nil, wrapExternal(err, "list segment record indexes")
-	}
+	pointers := s.recordPointersFrom(topicPartition, offset, maxRecords)
+	s.recordReadStage(operation, "index_list", len(pointers), indexStart, nil)
 	readStart := time.Now()
-	out, err = s.recordsFromPointers(entries)
+	out, err = s.readPointers(pointers)
 	s.recordReadStage(operation, "read_segments", len(out), readStart, err)
 	return out, err
 }
@@ -60,74 +44,57 @@ func (s *StorxLogStore) ReadPage(topicPartition TopicPartition, cursor string, m
 	if err != nil {
 		return RecordPage{}, err
 	}
-	prefix, err := recordIndexPrefix(topicPartition)
+	offset, err := pageCursorOffset(cursor)
 	if err != nil {
 		return RecordPage{}, err
 	}
 	pageStart := time.Now()
-	page, err := s.records.Page(
-		context.Background(),
-		cursor,
-		badgerx.WithPrefix[recordIndexKey](prefix),
-		badgerx.WithLimit[recordIndexKey](maxRecords),
-	)
-	s.recordReadStage(operation, "index_page", len(page.Entries), pageStart, err)
-	if err != nil {
-		return RecordPage{}, wrapExternal(err, "page segment record index")
-	}
+	pointers, hasMore := s.recordPointersPage(topicPartition, offset, maxRecords)
+	s.recordReadStage(operation, "index_page", len(pointers), pageStart, nil)
 	readStart := time.Now()
-	records, err := s.recordsFromPointers(page.Entries)
+	records, err := s.readPointers(pointers)
 	s.recordReadStage(operation, "read_segments", len(records), readStart, err)
 	if err != nil {
 		return RecordPage{}, err
 	}
+	nextCursor := ""
+	if len(records) > 0 {
+		nextCursor = strconv.FormatUint(records[len(records)-1].Offset+1, 10)
+	}
 	return RecordPage{
 		Records:    records,
-		NextCursor: page.NextCursor,
-		HasMore:    page.HasMore,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
 	}, nil
 }
 
-func (s *StorxLogStore) recordsFromPointers(entries []badgerx.Entry[recordIndexKey, segmentRecordPointer]) ([]Record, error) {
-	pointers := make([]segmentRecordPointer, len(entries))
-	for index, entry := range entries {
-		pointers[index] = entry.Value
-	}
-	return s.readPointers(pointers)
-}
-
 func (s *StorxLogStore) readPointers(pointers []segmentRecordPointer) ([]Record, error) {
-	out := make([]Record, len(pointers))
-	groups := collectionmapping.NewMap[string, []int]()
-	for index, pointer := range pointers {
+	out := make([]Record, 0, len(pointers))
+	for start := 0; start < len(pointers); {
+		pointer := pointers[start]
+		end := contiguousSegmentPointerRun(pointers, start)
 		tp := NewTopicPartition(pointer.Topic, pointer.Partition)
-		relativePath := s.segmentRelativePath(tp, pointer.SegmentID)
-		groups.Set(relativePath, append(groups.GetOrDefault(relativePath, nil), index))
-	}
-	var resultErr error
-	groups.Range(func(relativePath string, indexes []int) bool {
-		records, err := s.readSegmentRecords(relativePath, segmentPointersAt(pointers, indexes))
+		records, err := s.readSegmentRecords(s.segmentRelativePath(tp, pointer.SegmentID), pointers[start:end])
 		if err != nil {
-			resultErr = err
-			return false
+			return nil, err
 		}
-		for recordIndex, pointerIndex := range indexes {
-			out[pointerIndex] = cloneRecord(records[recordIndex])
-		}
-		return true
-	})
-	if resultErr != nil {
-		return nil, resultErr
+		out = append(out, records...)
+		start = end
 	}
 	return out, nil
 }
 
-func segmentPointersAt(pointers []segmentRecordPointer, indexes []int) []segmentRecordPointer {
-	out := collectionlist.NewListWithCapacity[segmentRecordPointer](len(indexes))
-	for _, index := range indexes {
-		out.Add(pointers[index])
+func contiguousSegmentPointerRun(pointers []segmentRecordPointer, start int) int {
+	first := pointers[start]
+	end := start + 1
+	for end < len(pointers) {
+		next := pointers[end]
+		if next.Topic != first.Topic || next.Partition != first.Partition || next.SegmentID != first.SegmentID {
+			return end
+		}
+		end++
 	}
-	return out.Values()
+	return end
 }
 
 func (s *StorxLogStore) readPointer(pointer segmentRecordPointer) (Record, error) {
@@ -147,10 +114,9 @@ func (s *StorxLogStore) LastOffset(topicPartition TopicPartition) (*uint64, erro
 	if _, err := s.loadTopicForPartition(topicPartition); err != nil {
 		return nil, err
 	}
-	next, ok, err := s.nextOffsets.Get(context.Background(), nextOffsetKey(topicPartition))
-	if err != nil {
-		return nil, wrapExternal(err, "load next log offset")
-	}
+	s.indexMu.RLock()
+	next, ok := s.nextOffsets.Get(topicPartition)
+	s.indexMu.RUnlock()
 	if !ok || next == 0 {
 		var absent *uint64
 		return absent, nil
@@ -160,10 +126,9 @@ func (s *StorxLogStore) LastOffset(topicPartition TopicPartition) (*uint64, erro
 }
 
 func (s *StorxLogStore) loadTopicForPartition(topicPartition TopicPartition) (TopicConfig, error) {
-	topic, ok, err := s.topics.Get(context.Background(), topicPartition.Topic)
-	if err != nil {
-		return TopicConfig{}, wrapExternal(err, "load log topic")
-	}
+	s.indexMu.RLock()
+	topic, ok := s.topics.Get(topicPartition.Topic)
+	s.indexMu.RUnlock()
 	if !ok {
 		return TopicConfig{}, E(CodeTopicNotFound, "topic %s not found", topicPartition.Topic)
 	}
@@ -171,4 +136,15 @@ func (s *StorxLogStore) loadTopicForPartition(topicPartition TopicPartition) (To
 		return TopicConfig{}, E(CodePartitionNotFound, "partition %s/%d not found", topicPartition.Topic, topicPartition.Partition)
 	}
 	return cloneTopic(topic), nil
+}
+
+func pageCursorOffset(cursor string) (uint64, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	offset, err := strconv.ParseUint(cursor, 10, 64)
+	if err != nil {
+		return 0, E(CodeInvalidArgument, "invalid page cursor %q: %v", cursor, err)
+	}
+	return offset, nil
 }

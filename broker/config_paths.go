@@ -35,10 +35,6 @@ func (c Config) ShardSegmentLogPath(shardID store.ShardID) string {
 	return filepath.Join(c.ShardDir(shardID), "segments")
 }
 
-func (c Config) ShardBadgerPath(shardID store.ShardID) string {
-	return filepath.Join(c.ShardDir(shardID), "badger")
-}
-
 func (c Config) SegmentLogPath() string {
 	dir := c.Storage.SegmentsDir
 	if dir == "" {

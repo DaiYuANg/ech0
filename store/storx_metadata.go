@@ -20,6 +20,8 @@ const (
 	brokerStateKey     = "current"
 )
 
+type StorxMetadataOptions struct{}
+
 type StorxMetadataStore struct {
 	db             *bboltx.DB
 	topics         *bboltx.Bucket[string, TopicConfig]
