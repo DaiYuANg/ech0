@@ -161,7 +161,7 @@ func (b *Broker) fetchDelayedRecords(req processDelayCommand, delayTP store.Topi
 	if err != nil {
 		return nil, err
 	}
-	records, err := b.log.ReadFrom(delayTP, startOffset, req.MaxRecords)
+	records, err := b.queue.ReadFrom(delayTP, startOffset, req.MaxRecords)
 	if err != nil {
 		return nil, wrapBrokerStore(err, "read delayed records")
 	}

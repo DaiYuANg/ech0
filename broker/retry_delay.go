@@ -65,7 +65,7 @@ type DelayScheduleResult struct {
 }
 
 func (b *Broker) readRecordAtOffset(tp store.TopicPartition, offset uint64) (store.Record, error) {
-	records, err := b.log.ReadFrom(tp, offset, 1)
+	records, err := b.queue.ReadFrom(tp, offset, 1)
 	if err != nil {
 		return store.Record{}, wrapBrokerStore(err, "read record by offset")
 	}
@@ -99,7 +99,7 @@ func (b *Broker) ensureAuxTopic(source store.TopicConfig, auxTopic string) error
 	cfg.DeadLetterTopic = source.DeadLetterTopic
 	cfg.DelayEnabled = source.DelayEnabled
 	cfg.CompactionEnabled = false
-	exists, err := b.log.TopicExists(auxTopic)
+	exists, err := b.queue.TopicExists(auxTopic)
 	if err != nil {
 		return wrapBrokerStore(err, "check auxiliary topic")
 	}

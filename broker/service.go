@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/DaiYuANg/ech0/direct"
-	"github.com/DaiYuANg/ech0/queue"
 	"github.com/DaiYuANg/ech0/store"
 	"github.com/arcgolabs/eventx"
 	"github.com/dgraph-io/ristretto/v2"
@@ -93,7 +92,7 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	if cfg.Raft.Enabled {
 		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
 	}
-	b.queue = queue.New(logStore, metaStore)
+	b.queue = newSingleMessageRuntime(logStore, metaStore)
 	b.direct = direct.New(logStore, metaStore)
 	for _, opt := range opts {
 		opt(b)
