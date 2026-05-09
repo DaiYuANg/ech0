@@ -19,10 +19,6 @@ func (c Config) DragonboatDir() string {
 	return filepath.Join(c.DataDir(), "dragonboat", strconv.FormatUint(c.Broker.NodeID, 10))
 }
 
-func (c Config) MetadataDir() string {
-	return filepath.Join(c.DataDir(), "metadata")
-}
-
 func (c Config) ShardsDir() string {
 	return filepath.Join(c.DataDir(), "shards")
 }
@@ -46,17 +42,6 @@ func (c Config) SegmentLogPath() string {
 	return filepath.Join(c.DataDir(), dir)
 }
 
-func (c Config) MetadataPath() string {
-	path := c.Storage.MetadataPath
-	if path == "" {
-		path = "meta/metadata.bbolt"
-	}
-	if filepath.IsAbs(path) {
-		return path
-	}
-	return filepath.Join(c.DataDir(), path)
-}
-
 func (c Config) LogFilePath() string {
 	return filepath.Join(c.DataDir(), c.Logging.Directory, c.Logging.FilePrefix+".log")
 }
@@ -77,8 +62,6 @@ func configFlagName(name string) string {
 		return "admin.bind_addr"
 	case "data-dir":
 		return "broker.data_dir"
-	case "raft":
-		return "raft.enabled"
 	default:
 		return strings.ReplaceAll(strings.ToLower(name), "-", "_")
 	}

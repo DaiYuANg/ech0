@@ -26,6 +26,7 @@ debug_enabled = false
 
 [storage]
 segments_dir = "segments"
+segment_read_mode = "pread"
 retention_cleanup_enabled = true
 retention_cleanup_interval_secs = 30
 compaction_cleanup_enabled = true
@@ -44,7 +45,6 @@ max_files = 14
 ansi = false
 
 [raft]
-enabled = true
 bind_addr = "0.0.0.0:3210"
 metrics_interval_ms = 1000
 heartbeat_interval_ms = 150

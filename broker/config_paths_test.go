@@ -13,9 +13,6 @@ func TestConfigShardPathsUseTargetLayout(t *testing.T) {
 	cfg.Broker.DataDir = filepath.Join("var", "lib", "ech0")
 	cfg.Broker.NodeID = 7
 
-	if got, want := cfg.MetadataDir(), filepath.Join("var", "lib", "ech0", "metadata"); got != want {
-		t.Fatalf("metadata dir = %q, want %q", got, want)
-	}
 	if got, want := cfg.DragonboatDir(), filepath.Join("var", "lib", "ech0", "dragonboat", "7"); got != want {
 		t.Fatalf("dragonboat dir = %q, want %q", got, want)
 	}
@@ -43,7 +40,7 @@ func TestBrokerRuntimeHealthIncludesConfiguredDataShards(t *testing.T) {
 		if shard.ShardID != store.ShardID(index) {
 			t.Fatalf("data shard health[%d] shard_id = %d", index, shard.ShardID)
 		}
-		if shard.RuntimeMode != "standalone" {
+		if shard.RuntimeMode != "dragonboat_group" {
 			t.Fatalf("data shard health[%d] runtime_mode = %q", index, shard.RuntimeMode)
 		}
 	}

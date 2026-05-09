@@ -19,9 +19,6 @@ bind_addr = "127.0.0.1:19090"
 
 [admin]
 bind_addr = "127.0.0.1:19091"
-
-[raft]
-enabled = false
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -29,8 +26,7 @@ enabled = false
 
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	flags.String("broker-addr", "", "")
-	flags.Bool("raft", false, "")
-	if err := flags.Parse([]string{"--broker-addr=127.0.0.1:29090", "--raft"}); err != nil {
+	if err := flags.Parse([]string{"--broker-addr=127.0.0.1:29090"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,7 +43,7 @@ enabled = false
 	if cfg.Broker.BindAddr != "127.0.0.1:29090" {
 		t.Fatalf("expected flag broker addr, got %q", cfg.Broker.BindAddr)
 	}
-	if !cfg.Raft.Enabled {
-		t.Fatalf("expected flag raft enabled")
+	if cfg.Raft.BindAddr != "127.0.0.1:3210" {
+		t.Fatalf("expected default raft bind addr, got %q", cfg.Raft.BindAddr)
 	}
 }

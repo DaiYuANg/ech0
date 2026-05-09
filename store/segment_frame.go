@@ -115,6 +115,20 @@ func readSegmentRecords(file *os.File, pointers []segmentRecordPointer) ([]Recor
 	return records, nil
 }
 
+func readMappedSegmentRecords(data []byte, pointers []segmentRecordPointer) ([]Record, error) {
+	records := make([]Record, len(pointers))
+	spans, err := contiguousSegmentPointerSpans(pointers)
+	if err != nil {
+		return nil, err
+	}
+	for _, span := range spans {
+		if err := readMappedSegmentPointerSpan(data, pointers, span, records); err != nil {
+			return nil, err
+		}
+	}
+	return records, nil
+}
+
 type segmentPointerSpan struct {
 	start    int
 	end      int
@@ -189,6 +203,46 @@ func readSegmentPointerSpan(file *os.File, pointers []segmentRecordPointer, span
 		cursor = next
 	}
 	return nil
+}
+
+func readMappedSegmentPointerSpan(data []byte, pointers []segmentRecordPointer, span segmentPointerSpan, records []Record) error {
+	if span.length < segmentFrameHeader {
+		return E(CodeCodec, "segment pointer span length %d is too small", span.length)
+	}
+	frameData, err := mappedSegmentSpan(data, span.position, span.length)
+	if err != nil {
+		return err
+	}
+	cursor := 0
+	for pointerIndex := span.start; pointerIndex < span.end; pointerIndex++ {
+		pointer := pointers[pointerIndex]
+		next := cursor + pointer.Length
+		if next > len(frameData) {
+			return E(CodeCodec, "segment pointer span decode exceeds mmap buffer: next=%d len=%d", next, len(frameData))
+		}
+		record, err := decodeSegmentPointerFrame(pointer, frameData[cursor:next])
+		if err != nil {
+			return err
+		}
+		records[pointerIndex] = record
+		cursor = next
+	}
+	return nil
+}
+
+func mappedSegmentSpan(data []byte, position int64, length int) ([]byte, error) {
+	if position < 0 {
+		return nil, E(CodeCodec, "segment mmap position %d is negative", position)
+	}
+	if length < segmentFrameHeader {
+		return nil, E(CodeCodec, "segment mmap length %d is too small", length)
+	}
+	start := position
+	end := position + int64(length)
+	if end < start || end > int64(len(data)) {
+		return nil, E(CodeCodec, "segment mmap span exceeds file: position=%d length=%d file_size=%d", position, length, len(data))
+	}
+	return data[int(start):int(end)], nil
 }
 
 func decodeSegmentPointerFrame(pointer segmentRecordPointer, frame []byte) (Record, error) {

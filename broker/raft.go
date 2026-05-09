@@ -58,10 +58,10 @@ func startRaft(ctx context.Context, b *Broker) (*raftNode, error) {
 
 func validateRaftStores(b *Broker) error {
 	if _, ok := b.meta.(store.Snapshotter); !ok {
-		return brokerStoreError(store.CodeInvalidArgument, "raft mode requires metadata store to implement store.Snapshotter")
+		return brokerStoreError(store.CodeInvalidArgument, "dragonboat runtime requires metadata store to implement store.Snapshotter")
 	}
 	if b.queue == nil {
-		return brokerStoreError(store.CodeInvalidArgument, "raft mode requires message runtime to implement store.Snapshotter")
+		return brokerStoreError(store.CodeInvalidArgument, "dragonboat runtime requires message runtime to implement store.Snapshotter")
 	}
 	return nil
 }

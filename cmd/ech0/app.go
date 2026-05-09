@@ -98,7 +98,7 @@ func (r *cliBrokerRunner) Run(ctx context.Context) error {
 		return oops.
 			In("cli").
 			Code("broker_run_failed").
-			With("node_id", r.cfg.Broker.NodeID, "raft_enabled", r.cfg.Raft.Enabled).
+			With("node_id", r.cfg.Broker.NodeID, "raft_engine", "dragonboat").
 			Wrapf(err, "run broker")
 	}
 	return nil

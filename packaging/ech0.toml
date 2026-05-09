@@ -27,9 +27,7 @@ debug_enabled = false
 
 [storage]
 segments_dir = "segments"
-# Used only when raft.enabled=false. In raft mode, Dragonboat owns raft-side
-# logs, snapshots, membership state, and recovery files.
-metadata_path = "meta/metadata.bbolt"
+segment_read_mode = "pread"
 retention_cleanup_enabled = true
 retention_cleanup_interval_secs = 30
 compaction_cleanup_enabled = true
@@ -48,7 +46,6 @@ max_files = 14
 ansi = false
 
 [raft]
-enabled = false
 bind_addr = "0.0.0.0:3210"
 read_policy = "local"
 heartbeat_interval_ms = 150

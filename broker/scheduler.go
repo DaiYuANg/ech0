@@ -193,7 +193,7 @@ func (r *ScheduledRuntime) Start(ctx context.Context) error {
 	}
 	r.scheduler.Start()
 	if r.logger != nil {
-		r.logger.Info("scheduled runtime started", "runtime", "gocron", "raft_elector", r.cfg.Raft.Enabled)
+		r.logger.Info("scheduled runtime started", "runtime", "gocron", "distributed_elector", "dragonboat")
 	}
 	return nil
 }
@@ -222,9 +222,6 @@ func (e raftElector) IsLeader(ctx context.Context) error {
 func (b *Broker) canRunScheduledJobs() bool {
 	if b == nil {
 		return false
-	}
-	if !b.cfg.Raft.Enabled {
-		return true
 	}
 	health := b.RuntimeHealth()
 	return health.Raft != nil && health.Raft.LocalIsLeader

@@ -99,7 +99,7 @@ func (r singleGroupCommandRouter) apply(ctx context.Context, commandType string,
 }
 
 func (r singleGroupCommandRouter) raftNode() *raftNode {
-	if r.broker == nil || !r.broker.cfg.Raft.Enabled {
+	if r.broker == nil {
 		return nil
 	}
 	return r.broker.currentRaftNode()

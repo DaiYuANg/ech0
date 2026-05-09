@@ -55,8 +55,7 @@ func newShardedStorxTestBroker(t *testing.T) (broker.Config, *broker.Broker, fun
 	cfg.Broker.DataDir = t.TempDir()
 	cfg.Broker.DataShardCount = 2
 	centralLog := openBrokerStorxLog(t, cfg.SegmentLogPath())
-	metaStore, err := store.OpenStorxMetadataStore(cfg.MetadataPath())
-	requireNoError(t, err)
+	metaStore := store.NewMemoryStore()
 	b, err := broker.NewWithStores(cfg, centralLog, metaStore)
 	requireNoError(t, err)
 	stopped := false
@@ -70,7 +69,6 @@ func newShardedStorxTestBroker(t *testing.T) (broker.Config, *broker.Broker, fun
 			stopped = true
 		}
 		closeBrokerStorxLog(t, centralLog)
-		closeBrokerStorxMetadata(t, metaStore)
 		closed = true
 	}
 }
@@ -142,12 +140,5 @@ func closeBrokerStorxLog(t *testing.T, logStore *store.StorxLogStore) {
 	t.Helper()
 	if err := logStore.Close(); err != nil {
 		t.Logf("close storx log: %v", err)
-	}
-}
-
-func closeBrokerStorxMetadata(t *testing.T, metaStore *store.StorxMetadataStore) {
-	t.Helper()
-	if err := metaStore.Close(); err != nil {
-		t.Logf("close storx metadata: %v", err)
 	}
 }

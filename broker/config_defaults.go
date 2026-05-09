@@ -35,7 +35,7 @@ func DefaultConfig() Config {
 		},
 		Storage: StorageConfig{
 			SegmentsDir:                   "segments",
-			MetadataPath:                  "meta/metadata.bbolt",
+			SegmentReadMode:               "pread",
 			RetentionCleanupEnabled:       true,
 			RetentionCleanupIntervalSecs:  30,
 			CompactionCleanupEnabled:      true,
@@ -52,7 +52,6 @@ func DefaultConfig() Config {
 			ANSI:         true,
 		},
 		Raft: RaftConfig{
-			Enabled:              false,
 			BindAddr:             "127.0.0.1:3210",
 			ReadPolicy:           RaftReadLocal,
 			HeartbeatIntervalMS:  150,
@@ -169,8 +168,8 @@ func normalizeStorageConfig(cfg *StorageConfig) {
 	if cfg.SegmentsDir == "" {
 		cfg.SegmentsDir = "segments"
 	}
-	if cfg.MetadataPath == "" {
-		cfg.MetadataPath = "meta/metadata.bbolt"
+	if cfg.SegmentReadMode == "" {
+		cfg.SegmentReadMode = "pread"
 	}
 	if cfg.RetentionCleanupIntervalSecs == 0 {
 		cfg.RetentionCleanupIntervalSecs = 30

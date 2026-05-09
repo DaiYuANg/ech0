@@ -87,12 +87,8 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	b.shards = newBrokerShardResolver(metaStore, cfg.Broker.DataShardCount)
 	b.shardSpecs = buildDataShardSpecs(cfg)
 	fallbackCommands := newSingleGroupCommandRouter(b)
-	b.dataShards = newCompatibilityDataShardRegistry(b.shardSpecs, newSingleGroupDataShardRuntime(fallbackCommands))
-	b.commands = fallbackCommands
-	if cfg.Raft.Enabled {
-		b.dataShards = newRaftDataShardRegistry(b, b.shardSpecs)
-		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
-	}
+	b.dataShards = newRaftDataShardRegistry(b, b.shardSpecs)
+	b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
 	for _, opt := range opts {
 		opt(b)
 	}
@@ -110,6 +106,7 @@ func (b *Broker) applyRuntimeDefaults() {
 	if b.logger == nil {
 		b.logger = slog.Default()
 	}
+	configureDragonboatLogger(b.logger)
 	if b.metrics == nil {
 		b.metrics = NewNoopMetricsRuntime(b.logger)
 	}
@@ -164,15 +161,13 @@ func (b *Broker) Start(ctx context.Context) error {
 	}); err != nil {
 		return wrapBrokerStore(err, "save broker state")
 	}
-	if b.cfg.Raft.Enabled {
-		node, err := startRaft(ctx, b)
-		if err != nil {
-			return err
-		}
-		b.raftMu.Lock()
-		b.raft = node
-		b.raftMu.Unlock()
+	node, err := startRaft(ctx, b)
+	if err != nil {
+		return err
 	}
+	b.raftMu.Lock()
+	b.raft = node
+	b.raftMu.Unlock()
 	return nil
 }
 
@@ -198,23 +193,20 @@ func (b *Broker) Stop(ctx context.Context) error {
 func (b *Broker) RuntimeHealth() RuntimeHealth {
 	health := RuntimeHealth{
 		Status:      "ok",
-		RuntimeMode: "standalone",
+		RuntimeMode: "raft",
 		DataShards:  dataShardHealth(b.shardSpecs, b.dataShards),
 	}
 	b.raftMu.RLock()
 	node := b.raft
 	b.raftMu.RUnlock()
-	if b.cfg.Raft.Enabled {
-		health.RuntimeMode = "raft"
-		if node == nil {
-			health.Status = "degraded"
-			health.Raft = &RaftHealth{NodeID: b.cfg.Broker.NodeID, KnownNodes: len(b.cfg.Raft.Cluster), Engine: "dragonboat"}
-			return health
-		}
-		health.Raft = node.Health()
-		if health.Raft.LeaderID == 0 {
-			health.Status = "degraded"
-		}
+	if node == nil {
+		health.Status = "degraded"
+		health.Raft = &RaftHealth{NodeID: b.cfg.Broker.NodeID, KnownNodes: len(b.cfg.Raft.Cluster), Engine: "dragonboat"}
+		return health
+	}
+	health.Raft = node.Health()
+	if health.Raft.LeaderID == 0 {
+		health.Status = "degraded"
 	}
 	return health
 }

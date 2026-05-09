@@ -8,7 +8,7 @@ This directory documents the current Go design of ech0. The docs describe the co
 - [Wire Protocol](wire-protocol.md): TCP frame layout, binary body encoding, command registry, and compatibility rules.
 - [Storage](storage.md): metadata store, segment log, segment index, retention, compaction, and snapshots.
 - [Request Reply](request-reply.md): request/reply semantics for address-agnostic services and instance-pinned replies.
-- [Operations](operations.md): binary configuration, Raft mode, scheduled jobs, Admin UI, metrics, Docker, and release packaging.
+- [Operations](operations.md): binary configuration, single-replica and multi-replica Dragonboat modes, scheduled jobs, Admin UI, metrics, Docker, and release packaging.
 - [Benchmarks](benchmarks.md): repeatable Go benchmarks and the end-to-end stress tool.
 
 ## Design Goals

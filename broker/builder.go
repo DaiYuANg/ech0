@@ -51,11 +51,6 @@ func (b *Builder) AdminBindAddr(value string) *Builder {
 	return b
 }
 
-func (b *Builder) RaftEnabled(enabled bool) *Builder {
-	b.cfg.Raft.Enabled = enabled
-	return b
-}
-
 func (b *Builder) Config() Config {
 	return b.cfg
 }

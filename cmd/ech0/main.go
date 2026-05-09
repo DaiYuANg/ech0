@@ -43,7 +43,6 @@ func newRootCommand() *cobra.Command {
 	flags.String("broker-addr", "", "tcp broker bind address")
 	flags.String("admin-addr", "", "admin http bind address")
 	flags.String("data-dir", "", "broker data directory")
-	flags.Bool("raft", false, "enable raft mode")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	root.SetContext(ctx)

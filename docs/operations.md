@@ -1,6 +1,6 @@
 # Operations
 
-The `ech0` binary packages the broker runtime, TCP protocol server, Admin UI, metrics, configuration loading, scheduling, and optional Raft cluster mode into one executable.
+The `ech0` binary packages the broker runtime, TCP protocol server, Admin UI, metrics, configuration loading, scheduling, and Dragonboat Raft runtime into one executable.
 
 ## Configuration
 
@@ -18,24 +18,24 @@ Environment variables use `__` as the nesting separator. For example:
 ```text
 ECH0_BROKER__BIND_ADDR=0.0.0.0:9092
 ECH0_ADMIN__BIND_ADDR=0.0.0.0:8080
-ECH0_RAFT__ENABLED=true
+ECH0_RAFT__BIND_ADDR=0.0.0.0:3210
 ```
 
 The embedded root package does not expose this full config surface. Embedded users should use `ech0.Options`.
 
-## Standalone Mode
+## Single-Replica Cluster
 
-Standalone mode runs one broker process with local stores:
+Single-replica cluster mode runs one broker process with Dragonboat metadata and data groups. This is the default when `raft.cluster` contains one peer:
 
 ```sh
-ech0 --config config/ech0.toml.example --raft=false
+ech0 --config config/ech0.toml.example
 ```
 
-Writes apply directly to the local broker service. Scheduled jobs run in the local process.
+Writes still go through Dragonboat, so the runtime layout is consistent with multi-node clusters. Scheduled jobs are gated by the local Dragonboat leader state.
 
-## Raft Mode
+## Cluster Mode
 
-Raft mode coordinates mutating broker commands through Dragonboat multi-group Raft:
+Cluster mode coordinates mutating broker commands through Dragonboat multi-group Raft:
 
 - Topic creation.
 - Produces and batch produces on the owning data shard group.
@@ -43,7 +43,7 @@ Raft mode coordinates mutating broker commands through Dragonboat multi-group Ra
 - Direct sends and direct acks.
 - Consumer group membership, heartbeats, and rebalances.
 
-Dragonboat owns raft-side logs, snapshots, membership state, and recovery files under `data/dragonboat/<node_id>`. Broker state machines expose `store.Snapshotter` so Dragonboat can capture and restore business state; raft mode does not open a separate broker metadata database.
+Dragonboat owns raft-side logs, snapshots, membership state, and recovery files under `data/dragonboat/<node_id>`. Broker state machines expose `store.Snapshotter` so Dragonboat can capture and restore business state; the broker does not open a separate metadata database in binary or embedded runtime.
 
 `raft.bind_addr` is the local listen address and may use `0.0.0.0` in containers. The current node's matching entry in `raft.cluster` is used as the Raft advertised address, so cluster entries should use routable peer addresses such as Docker service names.
 
@@ -58,7 +58,7 @@ The scheduled runtime is built on `go-co-op/gocron` and includes:
 - Retention cleanup.
 - Compaction cleanup.
 
-All jobs use singleton mode. In standalone mode, the local process is allowed to run them. In Raft mode, `raftElector` permits execution only when the node is the current leader.
+All jobs use singleton mode. `raftElector` permits execution only when the node is the current Dragonboat leader.
 
 ## Admin UI and API
 

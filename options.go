@@ -218,7 +218,6 @@ func configFromOptions(opts Options) internalbroker.Config {
 	cfg.Admin.Enabled = false
 	cfg.Broker.RetryWorkerEnabled = !opts.DisableRetry
 	cfg.Broker.DelaySchedulerEnabled = !opts.DisableDelay
-	cfg.Raft.Enabled = opts.Raft != nil
 	if opts.Raft != nil {
 		applyRaftOptions(&cfg, opts)
 	}

@@ -19,6 +19,7 @@ type StorxLogStore struct {
 	rootDir          string
 	segmentsDir      string
 	compression      segmentFrameCompression
+	readMode         SegmentReadMode
 	topics           *collectionmapping.Map[string, TopicConfig]
 	records          *collectionmapping.Map[TopicPartition, []segmentRecordPointer]
 	nextOffsets      *collectionmapping.Map[TopicPartition, uint64]
@@ -71,6 +72,7 @@ func OpenStorxLogStoreWithOptions(path string, options StorxLogOptions) (*StorxL
 		rootDir:        rootDir,
 		segmentsDir:    segmentsDir,
 		compression:    compression,
+		readMode:       options.ReadMode,
 		topics:         collectionmapping.NewMap[string, TopicConfig](),
 		records:        collectionmapping.NewMap[TopicPartition, []segmentRecordPointer](),
 		nextOffsets:    collectionmapping.NewMap[TopicPartition, uint64](),

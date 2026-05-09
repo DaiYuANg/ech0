@@ -1,6 +1,6 @@
 # ech0
 
-`ech0` is a Go embedded message broker that can be used as a small library first, while still shipping as a single executable for standalone or Raft-backed clustered deployments.
+`ech0` is a Go embedded message broker that can be used as a small library first, while still shipping as a single executable backed by Dragonboat Raft for single-replica or multi-replica deployments.
 
 The public root package keeps the mental model intentionally small: configure a data directory and a few broker options, open a broker, then create topics, publish, fetch, ack, nack, or schedule delayed messages. Operational wiring such as `configx`, `logstore`, storage internals, Admin UI, OpenAPI, and cluster setup stays behind the binary and advanced packages.
 
@@ -11,8 +11,8 @@ The public root package keeps the mental model intentionally small: configure a 
 - Persistent segment-log storage with shard-local binary indexes.
 - Dependency injection, logging, events, and helpers using `arcgolabs/dix`, `logx`, `eventx`, and `collectionx`.
 - Admin and OpenAPI HTTP surface built with `arcgolabs/httpx` on Fiber.
-- Raft mode for clustered broker coordination.
-- Retry, delay, nack, and scheduled workers using `go-co-op/gocron`, gated by Raft leadership in cluster mode.
+- Dragonboat multi-group Raft for broker coordination; one configured peer is a single-replica cluster, multiple peers are a replicated cluster.
+- Retry, delay, nack, and scheduled workers using `go-co-op/gocron`, gated by Raft leadership.
 
 ## Library Usage
 
@@ -83,10 +83,10 @@ Use the `broker` and `store` packages only when you need lower-level control ove
 
 ## Binary Usage
 
-Run a standalone broker:
+Run a single-replica broker:
 
 ```sh
-go run ./cmd/ech0 --config config/ech0.toml.example --raft=false
+go run ./cmd/ech0 --config config/ech0.toml.example
 ```
 
 Common flags:
@@ -96,10 +96,9 @@ Common flags:
 --broker-addr 127.0.0.1:9092
 --admin-addr 127.0.0.1:8080
 --data-dir ./data
---raft=false
 ```
 
-Configuration is loaded with `arcgolabs/configx`. Environment variables use the `ECH0` prefix and `__` as the nesting separator, for example `ECH0_BROKER__BIND_ADDR` or `ECH0_RAFT__ENABLED`.
+Configuration is loaded with `arcgolabs/configx`. Environment variables use the `ECH0` prefix and `__` as the nesting separator, for example `ECH0_BROKER__BIND_ADDR` or `ECH0_RAFT__BIND_ADDR`.
 
 ## Admin Endpoints
 

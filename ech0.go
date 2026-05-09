@@ -30,17 +30,13 @@ func Open(ctx context.Context, opts Options) (*Broker, error) {
 	opts = normalizeOptions(opts)
 	cfg := configFromOptions(opts)
 
-	logStore, err := store.OpenStorxLogStore(cfg.SegmentLogPath())
+	logStore, err := store.OpenStorxLogStoreWithOptions(cfg.SegmentLogPath(), store.StorxLogOptions{
+		ReadMode: store.SegmentReadMode(cfg.Storage.SegmentReadMode),
+	})
 	if err != nil {
 		return nil, oops.In("embedded").Code("open_log_store_failed").Wrapf(err, "open log store")
 	}
-	metaStore, err := openEmbeddedMetadataStore(ctx, cfg)
-	if err != nil {
-		return nil, errors.Join(
-			err,
-			closeLogStore(logStore),
-		)
-	}
+	metaStore := openEmbeddedMetadataStore()
 	b, err := internalbroker.NewWithStores(cfg, logStore, metaStore)
 	if err != nil {
 		return nil, errors.Join(
@@ -76,15 +72,8 @@ func Open(ctx context.Context, opts Options) (*Broker, error) {
 	return &Broker{broker: b, scheduled: scheduled, logStore: logStore, metaStore: metaStore}, nil
 }
 
-func openEmbeddedMetadataStore(ctx context.Context, cfg internalbroker.Config) (metadataStore, error) {
-	if cfg.Raft.Enabled {
-		return store.NewMemoryStore(), nil
-	}
-	metaStore, err := store.OpenStorxMetadataStoreWithOptionsContext(ctx, cfg.MetadataPath(), store.StorxMetadataOptions{})
-	if err != nil {
-		return nil, oops.In("embedded").Code("open_metadata_store_failed").Wrapf(err, "open bboltx metadata store")
-	}
-	return metaStore, nil
+func openEmbeddedMetadataStore() metadataStore {
+	return store.NewMemoryStore()
 }
 
 func Run(ctx context.Context, opts Options) (err error) {

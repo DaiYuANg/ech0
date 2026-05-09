@@ -106,7 +106,49 @@ When `--producer-inflight` is greater than 1, each producer keeps multiple produ
 
 ## Architecture Change Note
 
-The Dragonboat cluster run below is the current clustered runtime baseline. Older cluster numbers are kept as the baseline that motivated the raft architecture change; they were captured before raft log storage, leader distribution, and per-shard proposal paths moved from the legacy single-group implementation to Dragonboat groups.
+The Dragonboat cluster run below is the current clustered runtime baseline. Older cluster numbers are kept as the baseline that motivated the raft architecture change; they were captured before raft log storage, leader distribution, and per-shard proposal paths moved from the legacy single-group implementation to Dragonboat groups. Rows labeled legacy local single node predate the Dragonboat-only runtime and should be rerun as single-replica Dragonboat before release comparisons.
+
+## Docker Desktop Kafka Comparison: 2026-05-09
+
+Environment:
+
+- Host: Windows amd64, Docker Desktop 4.72.0, Docker Engine 29.4.2.
+- Workload: producer-only writes, 1 KiB payloads, 4 partitions, 4 producers, batch size 32, producer in-flight 4.
+- ech0: current workspace Docker image, TCP broker target, `ech0bench --consumers 0`.
+- Kafka: `apache/kafka:4.2.0`, official `kafka-producer-perf-test.sh`, `acks=all`, `linger.ms=5`, `batch.size=32768`, `compression.type=none`.
+- Single-node Kafka used replication factor 1. Cluster Kafka used 3 brokers, replication factor 3, `min.insync.replicas=2`.
+- Each row is the average of 3 runs.
+
+| Mode | Runs | Avg Produce Rate | Avg Throughput | Avg Publish p50 | Avg Publish p95 | Avg Publish p99 | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ech0 legacy local single node | 3 | 16,298.09 msg/s | 15.92 MiB/s | 29.529ms | 37.225ms | 48.966ms | 0 |
+| Kafka single node | 3 | 92,854.90 msg/s | 90.68 MiB/s | 303.333ms | 409.000ms | 425.000ms | 0 |
+| ech0 Dragonboat Raft, 3 nodes, 4 shards | 3 | 12,677.00 msg/s | 12.38 MiB/s | 40.763ms | 51.806ms | 84.946ms | 8 |
+| Kafka KRaft, 3 nodes, RF=3, min ISR=2 | 3 | 28,037.51 msg/s | 27.38 MiB/s | 893.667ms | 1.701s | 1.857s | 0 |
+
+Relative write throughput:
+
+| Comparison | Ratio | ech0 Share |
+| --- | ---: | ---: |
+| Kafka single node / ech0 legacy local single node | 5.70x | 17.55% |
+| Kafka 3-node RF=3 / ech0 3-node Raft | 2.21x | 45.21% |
+
+Run details:
+
+| Mode | Run 1 | Run 2 | Run 3 |
+| --- | ---: | ---: | ---: |
+| ech0 legacy local single node | 17,270.71 msg/s | 15,916.31 msg/s | 15,707.26 msg/s |
+| Kafka single node | 81,059.17 msg/s | 92,279.30 msg/s | 105,226.24 msg/s |
+| ech0 Dragonboat Raft | 13,051.01 msg/s | 13,059.14 msg/s | 11,920.86 msg/s |
+| Kafka KRaft RF=3 | 28,549.68 msg/s | 23,607.18 msg/s | 31,955.69 msg/s |
+
+Readout:
+
+- Single-node ech0 is far behind Kafka on producer-only throughput. The main gap is not consensus; it is the local TCP + broker + segment append path.
+- In replicated mode, the gap narrows materially: ech0 Raft reaches about 45% of Kafka RF=3 write throughput in this Docker Desktop run.
+- ech0 latency is much lower than Kafka in this producer-only setup because `ech0bench` keeps only 16 batch requests in flight total, while Kafka's producer perf tool saturates a deeper async pipeline and reports higher queueing latency.
+- The third ech0 Raft run reported 8 publish errors. Container logs showed no broker panic/fatal/error beyond Dragonboat's benign filesystem error-injection status line, so treat that run as mild transient client/proposal instability rather than a storage crash.
+- The next comparison should add a balanced produce+consume run and a Kafka consumer perf run. Producer-only isolates write throughput but does not measure consumer lag or end-to-end queue behavior.
 
 ## Dragonboat Cluster Run: 2026-05-09
 

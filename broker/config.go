@@ -53,7 +53,7 @@ type AdminConfig struct {
 
 type StorageConfig struct {
 	SegmentsDir                   string `json:"segments_dir"                     koanf:"segments_dir"                     mapstructure:"segments_dir"                     toml:"segments_dir"`
-	MetadataPath                  string `json:"metadata_path"                    koanf:"metadata_path"                    mapstructure:"metadata_path"                    toml:"metadata_path"`
+	SegmentReadMode               string `json:"segment_read_mode"                koanf:"segment_read_mode"                mapstructure:"segment_read_mode"                toml:"segment_read_mode"`
 	RetentionCleanupEnabled       bool   `json:"retention_cleanup_enabled"        koanf:"retention_cleanup_enabled"        mapstructure:"retention_cleanup_enabled"        toml:"retention_cleanup_enabled"`
 	RetentionCleanupIntervalSecs  uint64 `json:"retention_cleanup_interval_secs"  koanf:"retention_cleanup_interval_secs"  mapstructure:"retention_cleanup_interval_secs"  toml:"retention_cleanup_interval_secs"`
 	CompactionCleanupEnabled      bool   `json:"compaction_cleanup_enabled"       koanf:"compaction_cleanup_enabled"       mapstructure:"compaction_cleanup_enabled"       toml:"compaction_cleanup_enabled"`
@@ -80,7 +80,6 @@ const (
 )
 
 type RaftConfig struct {
-	Enabled              bool             `json:"enabled"                 koanf:"enabled"                 mapstructure:"enabled"                 toml:"enabled"`
 	BindAddr             string           `json:"bind_addr"               koanf:"bind_addr"               mapstructure:"bind_addr"               toml:"bind_addr"`
 	ReadPolicy           RaftReadPolicy   `json:"read_policy"             koanf:"read_policy"             mapstructure:"read_policy"             toml:"read_policy"`
 	HeartbeatIntervalMS  uint64           `json:"heartbeat_interval_ms"   koanf:"heartbeat_interval_ms"   mapstructure:"heartbeat_interval_ms"   toml:"heartbeat_interval_ms"`

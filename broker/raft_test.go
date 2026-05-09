@@ -17,7 +17,6 @@ func TestBrokerSingleNodeRaftProduceFetch(t *testing.T) {
 	addr := freeTCPAddr(t)
 	cfg := broker.DefaultConfig()
 	cfg.Broker.DataDir = t.TempDir()
-	cfg.Raft.Enabled = true
 	cfg.Raft.BindAddr = addr
 	cfg.Raft.HeartbeatIntervalMS = 50
 	cfg.Raft.ElectionTimeoutMaxMS = 100
@@ -41,7 +40,6 @@ func TestBrokerSingleNodeRaftBatchProduceCommit(t *testing.T) {
 	addr := freeTCPAddr(t)
 	cfg := broker.DefaultConfig()
 	cfg.Broker.DataDir = t.TempDir()
-	cfg.Raft.Enabled = true
 	cfg.Raft.BindAddr = addr
 	cfg.Raft.HeartbeatIntervalMS = 50
 	cfg.Raft.ElectionTimeoutMaxMS = 100
@@ -82,7 +80,6 @@ func TestBrokerSingleNodeRaftClusterRouterResolvesShardPlacement(t *testing.T) {
 	cfg := broker.DefaultConfig()
 	cfg.Broker.DataDir = t.TempDir()
 	cfg.Broker.DataShardCount = 3
-	cfg.Raft.Enabled = true
 	cfg.Raft.BindAddr = addr
 	cfg.Raft.HeartbeatIntervalMS = 50
 	cfg.Raft.ElectionTimeoutMaxMS = 100
@@ -127,7 +124,6 @@ func TestBrokerSingleNodeRaftCoalescedMultiShardProduceCommit(t *testing.T) {
 	cfg := broker.DefaultConfig()
 	cfg.Broker.DataDir = t.TempDir()
 	cfg.Broker.DataShardCount = 3
-	cfg.Raft.Enabled = true
 	cfg.Raft.BindAddr = addr
 	cfg.Raft.HeartbeatIntervalMS = 50
 	cfg.Raft.ElectionTimeoutMaxMS = 100
@@ -158,7 +154,6 @@ func TestBrokerRaftBindsUnspecifiedAndAdvertisesClusterAddress(t *testing.T) {
 
 	cfg := broker.DefaultConfig()
 	cfg.Broker.DataDir = t.TempDir()
-	cfg.Raft.Enabled = true
 	cfg.Raft.BindAddr = net.JoinHostPort("0.0.0.0", port)
 	cfg.Raft.HeartbeatIntervalMS = 50
 	cfg.Raft.ElectionTimeoutMaxMS = 100

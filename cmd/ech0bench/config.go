@@ -34,7 +34,7 @@ func parseFlags() benchConfig {
 	flag.StringVar(&cfg.topic, "topic", "ech0-bench", "benchmark topic name")
 	uint32Var(&cfg.partitions, "partitions", 4, "topic partition count")
 	uint32Var(&cfg.producers, "producers", 4, "producer goroutines")
-	uint32Var(&cfg.consumers, "consumers", 4, "consumer goroutines, capped to partition count")
+	uint32Var(&cfg.consumers, "consumers", 4, "consumer goroutines, capped to partition count; set to 0 for producer-only runs")
 	flag.DurationVar(&cfg.duration, "duration", 30*time.Second, "stress test duration")
 	flag.IntVar(&cfg.payloadBytes, "payload-bytes", 1024, "message payload size")
 	flag.IntVar(&cfg.batchSize, "batch-size", 1, "records per produce request")
@@ -61,7 +61,6 @@ func validateBenchConfig(cfg benchConfig) error {
 	}{
 		{cfg.partitions == 0, "partitions must be greater than zero"},
 		{cfg.producers == 0, "producers must be greater than zero"},
-		{cfg.consumers == 0, "consumers must be greater than zero"},
 		{cfg.duration <= 0, "duration must be greater than zero"},
 		{cfg.payloadBytes <= 0, "payload-bytes must be greater than zero"},
 		{cfg.batchSize <= 0, "batch-size must be greater than zero"},

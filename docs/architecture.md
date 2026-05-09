@@ -1,6 +1,6 @@
 # Architecture
 
-ech0 is a Go embedded message broker with a library-first public API and a standalone binary for operational deployments. The root package is intentionally small; it exposes the mental model needed to run an embedded broker without forcing callers to understand configuration loading, logging, Admin UI, OpenAPI, or Raft wiring.
+ech0 is a Go embedded message broker with a library-first public API and a single binary for operational deployments. The root package is intentionally small; it exposes the mental model needed to run an embedded broker without forcing callers to understand configuration loading, logging, Admin UI, OpenAPI, or Raft wiring.
 
 ## Package Boundaries
 
@@ -21,14 +21,14 @@ The binary path builds a full broker runtime:
 
 1. Load config with `configx` from defaults, files, env, and flags.
 2. Initialize logging and runtime dependencies through the broker package.
-3. Open the segment log store and metadata store.
+3. Open the segment log store and in-memory state machine metadata store.
 4. Construct the broker service and TCP server.
-5. Optionally start Raft, Admin UI, metrics, and scheduled jobs.
+5. Start Dragonboat, Admin UI, metrics, and scheduled jobs.
 
 The embedded path in the root package does less:
 
 1. Normalize `ech0.Options`.
-2. Open segment-log and bboltx metadata stores under `Options.DataDir`.
+2. Open segment-log storage under `Options.DataDir` and create the Dragonboat-backed state machine store.
 3. Construct and start the internal broker.
 4. Start the scheduled runtime if retry or delay is enabled.
 5. Return a small `*ech0.Broker` API to the caller.
@@ -45,21 +45,20 @@ The root `ech0` package exposes:
 - Pull consumption through `Fetch`, `Ack`, and `Commit`.
 - Failure and delayed delivery through `Nack` and `Schedule`.
 
-The root API deliberately does not expose the full broker `Config`. Embedded users configure only required runtime choices such as data directory, node ID, payload limits, and optional Raft settings.
+The root API deliberately does not expose the full broker `Config`. Embedded users configure only required runtime choices such as data directory, node ID, payload limits, and optional peer settings.
 
 ## Internal Service Model
 
 `broker.Broker` is the main service boundary. Mutating operations are routed through command routers:
 
-- In standalone mode, commands apply directly to the local store-backed runtime.
-- In Raft mode, commands are proposed through Dragonboat. Metadata commands target the metadata group; partition-owned commands target the owning data shard group.
+- Commands are proposed through Dragonboat. Metadata commands target the metadata group; partition-owned commands target the owning data shard group.
 - Coalesced produce and offset commit commands are split by shard before they enter Raft, so one client batch can become several independent group proposals.
 
 Read operations use the local runtime today, with `RaftReadPolicy` reserved in configuration for stricter clustered read behavior.
 
 ## Target Cluster Architecture
 
-Raft mode now uses Dragonboat as the only clustered consensus runtime. The previous single-group Raft runtime has been removed. The broker starts one Dragonboat NodeHost per process, one metadata group, and one data group per configured data shard.
+The broker uses Dragonboat as the consensus runtime in both single-node and multi-node deployments. One configured peer is a single-replica cluster; multiple peers are a replicated cluster. The broker starts one Dragonboat NodeHost per process, one metadata group, and one data group per configured data shard.
 
 The target clustered architecture splits the system into a control plane and a data plane:
 
@@ -81,7 +80,7 @@ The current clustered implementation has these properties:
 - Cluster mode installs a cluster router that resolves known `topic/partition` targets to shard IDs and proposes data commands to the matching Dragonboat data group.
 - Coalesced `produce_batches` and `commit_offsets` are split by resolved shard target before dispatch. Result merging preserves original request order across group proposals.
 - Non-explicit produce partitioning is resolved before dispatch and rewritten to an explicit partition command. That makes the data-plane command target stable for future per-shard Raft groups.
-- The cluster router depends on a `dataShardRuntime` boundary. In Raft mode, each configured shard points at a Dragonboat group runtime.
+- The cluster router depends on a `dataShardRuntime` boundary. Each configured shard points at a Dragonboat group runtime.
 - Each configured shard also has a runtime spec with a target directory for its shard-local segment log. Runtime health exposes the configured shard IDs and their current runtime mode.
 - The broker message runtime is now an internal interface. The default adapter preserves the existing single log behavior.
 - When sharded segment storage is used with `broker.data_shard_count > 1`, broker message reads and writes use a sharded message runtime. Each shard opens its own segment log under `data/shards/shard-NNNN`.
@@ -89,12 +88,12 @@ The current clustered implementation has these properties:
 - `Publish`, `Fetch`, `Ack`, admin topic message snapshots, and direct `ReadFrom` helpers route by the resolved `topic/partition -> shard` placement.
 - Retention and compaction maintenance run through the message runtime, so sharded segment mode applies cleanup across all local shard logs.
 - Raft FSM snapshots now read and restore message data through the message runtime, so sharded segment snapshots merge shard log records and restore them by recorded placement.
-- Raft clustered writes no longer use the single global data path. The remaining cluster work is leader-aware client routing/forwarding, per-group scheduler ownership, and narrower per-group snapshots.
+- Clustered writes no longer use the single global data path. The remaining cluster work is leader-aware client routing/forwarding, per-group scheduler ownership, and narrower per-group snapshots.
 
 The public API remains library-first:
 
 - Embedded users still call `Open`, `CreateTopic`, `Publish`, `Fetch`, `Ack`, `Nack`, `Schedule`, and request/reply helpers.
-- Standalone binary users still run one `ech0` process per node.
+- Binary users run one `ech0` process per node; a single node is represented as a single-replica Dragonboat cluster.
 - The root package does not expose Raft group topology. It only exposes minimal cluster options.
 
 ## Target Write Routing
@@ -114,10 +113,10 @@ This creates two router implementations:
 
 | Router | Use |
 | --- | --- |
-| Local router | Embedded and non-Raft mode. Applies directly to local queue/store. |
-| Cluster router | Raft mode. Resolves metadata commands to the metadata group and data commands to the owning data shard group. |
+| Local fallback router | Used before Dragonboat startup and in narrow unit-test paths. Applies directly to local queue/store. |
+| Cluster router | Resolves metadata commands to the metadata group and data commands to the owning data shard group. |
 
-The clustered implementation has already cut over to the Dragonboat group router. The old single global clustered data path is no longer part of Raft mode.
+The implementation has cut over to the Dragonboat group router. The old single global clustered data path is no longer part of the runtime.
 
 ## Target Read Routing
 
@@ -134,7 +133,7 @@ This keeps correctness simple during the first architecture change. Faster follo
 
 ## Target Storage Layout
 
-The target storage layout keeps Dragonboat state, metadata, and shard-local segment logs separate:
+The target storage layout keeps Dragonboat state and shard-local segment logs separate:
 
 ```text
 data/
@@ -142,8 +141,6 @@ data/
     1/
       wal/
       ...
-  metadata/
-    metadata.bbolt  # standalone/non-Raft only
   shards/
     shard-0000/
       segments/
@@ -151,7 +148,7 @@ data/
       segments/
 ```
 
-Within a shard, the segment log remains the message storage backend and maintains its own `*.idx` files for offset-to-frame pointers. Dragonboat owns the replication and ordering log for the metadata and data groups under the NodeHost directory. This still writes through Raft and the segment log, but the work is spread across independent groups and independent stores instead of one global queue.
+Within a shard, the segment log remains the message storage backend and maintains its own `*.idx` files for offset-to-frame pointers. Experimental `segment_read_mode = "mmap"` maps sealed segment files for reads, while active segments continue to use positional reads. Dragonboat owns the replication and ordering log for the metadata and data groups under the NodeHost directory. This still writes through Raft and the segment log, but the work is spread across independent groups and independent stores instead of one global queue.
 
 A later, more invasive storage optimization can make the Raft log and message segment log share a batch format or reduce duplicated payload writes. That should be a second-stage optimization after sharding proves out.
 
@@ -190,7 +187,7 @@ A later, more invasive storage optimization can make the Raft log and message se
 7. Add leader-aware client routing:
    - Return leader hints on not-leader errors.
    - Forward internal broker requests to the owning group leader when direct client routing is not available.
-   - Keep standalone and embedded mode address-free.
+   - Keep embedded mode usable with minimal peer configuration.
 
 ## Expected Performance Shape
 
@@ -226,6 +223,6 @@ These dependencies are allowed inside implementation and binary-facing packages,
 
 ## Background Work
 
-Retry, delay, retention cleanup, and compaction run through `go-co-op/gocron`. In standalone mode, jobs run locally. In Raft mode, the scheduler uses a distributed elector so only the current leader runs jobs.
+Retry, delay, retention cleanup, and compaction run through `go-co-op/gocron`. The scheduler uses a Dragonboat-backed distributed elector so only the current leader runs jobs.
 
 This avoids duplicate background processing across cluster members while keeping the job logic independent from Raft internals.

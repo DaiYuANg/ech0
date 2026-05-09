@@ -44,14 +44,12 @@ func NewApp(cfg Config) (*dix.App, error) {
 			dix.Provider2(NewMetricsRuntime),
 			dix.ProviderErr3(func(cfg Config, logger *slog.Logger, metrics *MetricsRuntime) (*store.StorxLogStore, error) {
 				return store.OpenStorxLogStoreWithOptions(cfg.SegmentLogPath(), store.StorxLogOptions{
-					Metrics: metrics,
+					Metrics:  metrics,
+					ReadMode: store.SegmentReadMode(cfg.Storage.SegmentReadMode),
 				})
 			}),
-			dix.ProviderErr1(func(cfg Config) (metadataStore, error) {
-				if cfg.Raft.Enabled {
-					return store.NewMemoryStore(), nil
-				}
-				return store.OpenStorxMetadataStoreWithOptions(cfg.MetadataPath(), store.StorxMetadataOptions{})
+			dix.Provider0(func() metadataStore {
+				return store.NewMemoryStore()
 			}),
 			dix.ProviderErr6(func(cfg Config, logger *slog.Logger, bus eventx.BusRuntime, metrics *MetricsRuntime, logStore *store.StorxLogStore, metaStore metadataStore) (*Broker, error) {
 				return NewWithStores(cfg, logStore, metaStore, WithLogger(logger), WithEventBus(bus), WithMetrics(metrics))

@@ -41,7 +41,7 @@ func newShardedMessageRuntime(
 		shards:   collectionmapping.NewMapWithCapacity[store.ShardID, *messageShard](len(specs)),
 	}
 	for _, spec := range specs {
-		shard, err := openMessageShard(spec, meta, logger, metrics)
+		shard, err := openMessageShard(spec, cfg.Storage.SegmentReadMode, meta, logger, metrics)
 		if err != nil {
 			return nil, errors.Join(err, runtime.Close())
 		}
@@ -50,9 +50,10 @@ func newShardedMessageRuntime(
 	return runtime, nil
 }
 
-func openMessageShard(spec dataShardSpec, meta metadataStore, _ *slog.Logger, metrics *MetricsRuntime) (*messageShard, error) {
+func openMessageShard(spec dataShardSpec, readMode string, meta metadataStore, _ *slog.Logger, metrics *MetricsRuntime) (*messageShard, error) {
 	logStore, err := store.OpenStorxLogStoreWithOptions(spec.SegmentLogPath, store.StorxLogOptions{
-		Metrics: metrics,
+		Metrics:  metrics,
+		ReadMode: store.SegmentReadMode(readMode),
 	})
 	if err != nil {
 		return nil, wrapBroker("message_shard_open_failed", err, "open message shard %d", spec.ShardID)

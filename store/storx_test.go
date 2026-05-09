@@ -157,6 +157,36 @@ func TestStorxLogAppendRecordsBatchPersistsAcrossSegmentRoll(t *testing.T) {
 	}
 }
 
+func TestStorxLogMmapReadModeReadsSealedSegments(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "segments")
+	st, err := store.OpenStorxLogStoreWithOptions(logPath, store.StorxLogOptions{ReadMode: store.SegmentReadModeMmap})
+	requireNoError(t, err)
+	topic := store.NewTopicConfig("orders")
+	topic.SegmentMaxBytes = 1
+	requireNoError(t, st.CreateTopic(topic))
+	tp := store.NewTopicPartition("orders", 0)
+	_, err = st.Append(tp, []byte("m1"))
+	requireNoError(t, err)
+	_, err = st.Append(tp, []byte("m2"))
+	requireNoError(t, err)
+
+	records, err := st.ReadFrom(tp, 0, 10)
+	requireNoError(t, err)
+	if len(records) != 2 || string(records[0].Payload) != "m1" || string(records[1].Payload) != "m2" {
+		t.Fatalf("unexpected records from mmap read mode: %#v", records)
+	}
+	requireNoError(t, st.Close())
+
+	st, err = store.OpenStorxLogStoreWithOptions(logPath, store.StorxLogOptions{ReadMode: store.SegmentReadModeMmap})
+	requireNoError(t, err)
+	defer closeLogStore(t, st)
+	records, err = st.ReadFrom(tp, 0, 10)
+	requireNoError(t, err)
+	if len(records) != 2 || string(records[0].Payload) != "m1" || string(records[1].Payload) != "m2" {
+		t.Fatalf("unexpected records from reopened mmap read mode: %#v", records)
+	}
+}
+
 func TestStorxMetadataGroupMembersUseSecondaryIndexAfterReopen(t *testing.T) {
 	metaPath := filepath.Join(t.TempDir(), "meta", "metadata.bbolt")
 	metaStore := openMetadataStore(t, metaPath)
