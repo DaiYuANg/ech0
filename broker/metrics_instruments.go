@@ -1,9 +1,6 @@
 package broker
 
-import (
-	"github.com/DaiYuANg/ech0/store"
-	"github.com/arcgolabs/observabilityx"
-)
+import "github.com/arcgolabs/observabilityx"
 
 func (m *MetricsRuntime) initInstruments() {
 	obs := observabilityx.Normalize(m.obs, nil)
@@ -259,12 +256,4 @@ func lagRecords(committedNextOffset uint64, highWatermark *uint64) uint64 {
 		return 0
 	}
 	return backlog - committedNextOffset
-}
-
-func topicPartitionHighWatermark(log store.MessageLogStore, tp store.TopicPartition) (*uint64, error) {
-	highWatermark, err := log.LastOffset(tp)
-	if err != nil {
-		return nil, wrapBrokerStore(err, "load partition high watermark")
-	}
-	return highWatermark, nil
 }

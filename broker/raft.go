@@ -52,8 +52,8 @@ func validateRaftStores(b *Broker) error {
 	if _, ok := b.meta.(store.Snapshotter); !ok {
 		return brokerStoreError(store.CodeInvalidArgument, "raft mode requires metadata store to implement store.Snapshotter")
 	}
-	if _, ok := b.log.(store.Snapshotter); !ok {
-		return brokerStoreError(store.CodeInvalidArgument, "raft mode requires log store to implement store.Snapshotter")
+	if b.queue == nil {
+		return brokerStoreError(store.CodeInvalidArgument, "raft mode requires message runtime to implement store.Snapshotter")
 	}
 	return nil
 }

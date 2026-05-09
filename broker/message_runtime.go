@@ -6,6 +6,7 @@ import (
 )
 
 type messageRuntime interface {
+	store.Snapshotter
 	CreateTopic(store.TopicConfig) error
 	TopicExists(string) (bool, error)
 	PublishRecord(string, uint32, store.RecordAppend) (store.Record, error)
@@ -58,6 +59,26 @@ func (b *Broker) closeMessageRuntime() error {
 
 func (r singleMessageRuntime) CreateTopic(topic store.TopicConfig) error {
 	return wrapBroker("message_topic_create_failed", r.queue.CreateTopic(topic), "create message topic %s", topic.Name)
+}
+
+func (r singleMessageRuntime) Snapshot() (store.Snapshot, error) {
+	snapshotter, ok := r.log.(store.Snapshotter)
+	if !ok {
+		return store.Snapshot{}, brokerStoreError(store.CodeInvalidArgument, "message log does not support snapshots")
+	}
+	out, err := snapshotter.Snapshot()
+	if err != nil {
+		return store.Snapshot{}, wrapBroker("message_snapshot_failed", err, "snapshot messages")
+	}
+	return out, nil
+}
+
+func (r singleMessageRuntime) Restore(snapshot store.Snapshot) error {
+	snapshotter, ok := r.log.(store.Snapshotter)
+	if !ok {
+		return brokerStoreError(store.CodeInvalidArgument, "message log does not support snapshots")
+	}
+	return wrapBroker("message_restore_failed", snapshotter.Restore(snapshot), "restore messages")
 }
 
 func (r singleMessageRuntime) TopicExists(topic string) (bool, error) {

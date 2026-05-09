@@ -65,7 +65,7 @@ func (b *Broker) processRetryTopic(ctx context.Context, topic store.TopicConfig,
 	if isInternalTopicName(topic.Name) {
 		return 0, nil
 	}
-	exists, err := b.log.TopicExists(retryTopicName(topic.Name))
+	exists, err := b.queue.TopicExists(retryTopicName(topic.Name))
 	if err != nil {
 		return 0, wrapBrokerStore(err, "check retry topic")
 	}

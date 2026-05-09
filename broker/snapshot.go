@@ -10,15 +10,14 @@ func (b *Broker) snapshot() (store.Snapshot, error) {
 	if !ok {
 		return store.Snapshot{}, oops.In("broker").Code("metadata_snapshot_unsupported").Wrapf(store.E(store.CodeInvalidArgument, "metadata store does not support snapshots"), "create snapshot")
 	}
-	logSnapshotter, ok := b.log.(store.Snapshotter)
-	if !ok {
+	if b.queue == nil {
 		return store.Snapshot{}, oops.In("broker").Code("log_snapshot_unsupported").Wrapf(store.E(store.CodeInvalidArgument, "log store does not support snapshots"), "create snapshot")
 	}
 	metaSnapshot, err := metaSnapshotter.Snapshot()
 	if err != nil {
 		return store.Snapshot{}, oops.In("broker").Code("metadata_snapshot_failed").Wrapf(err, "snapshot metadata store")
 	}
-	logSnapshot, err := logSnapshotter.Snapshot()
+	logSnapshot, err := b.queue.Snapshot()
 	if err != nil {
 		return store.Snapshot{}, oops.In("broker").Code("log_snapshot_failed").Wrapf(err, "snapshot log store")
 	}
@@ -26,15 +25,15 @@ func (b *Broker) snapshot() (store.Snapshot, error) {
 		metaSnapshot.Topics = logSnapshot.Topics
 	}
 	metaSnapshot.Records = logSnapshot.Records
+	metaSnapshot.LogOffsets = logSnapshot.LogOffsets
 	return metaSnapshot, nil
 }
 
 func (b *Broker) restore(snapshot store.Snapshot) error {
-	logSnapshotter, ok := b.log.(store.Snapshotter)
-	if !ok {
+	if b.queue == nil {
 		return oops.In("broker").Code("log_restore_unsupported").Wrapf(store.E(store.CodeInvalidArgument, "log store does not support snapshots"), "restore snapshot")
 	}
-	if err := logSnapshotter.Restore(snapshot); err != nil {
+	if err := b.queue.Restore(snapshot); err != nil {
 		return oops.In("broker").Code("log_restore_failed").Wrapf(err, "restore log store")
 	}
 	metaSnapshotter, ok := b.meta.(store.Snapshotter)

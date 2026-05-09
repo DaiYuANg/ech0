@@ -89,6 +89,7 @@ The current first step has landed the placement model without changing runtime r
 - Topic metadata remains global. `CreateTopic` writes one global topic config, while each message shard initializes its own local log state for that topic.
 - `Publish`, `Fetch`, `Ack`, admin topic message snapshots, and direct `ReadFrom` helpers route by the resolved `topic/partition -> shard` placement.
 - Retention and compaction maintenance run through the message runtime, so storx sharded mode applies cleanup across all local shard logs.
+- Raft FSM snapshots now read and restore message data through the message runtime, so sharded storx snapshots merge shard log records and restore them by recorded placement.
 - Raft clustered writes still use the compatibility single-group router. The current sharded message runtime is a local storage boundary, not yet a separate Raft group per shard.
 
 The public API remains library-first:

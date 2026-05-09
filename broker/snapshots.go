@@ -129,9 +129,9 @@ func (b *Broker) topicSummary(topic store.TopicConfig) (TopicSummary, error) {
 	}
 	for partition := range topic.Partitions {
 		tp := store.NewTopicPartition(topic.Name, partition)
-		highWatermark, err := topicPartitionHighWatermark(b.log, tp)
+		highWatermark, err := b.queue.LastOffset(tp)
 		if err != nil {
-			return TopicSummary{}, err
+			return TopicSummary{}, wrapBroker("topic_summary_high_watermark_failed", err, "load topic partition high watermark")
 		}
 		backlog := highWatermarkBacklog(highWatermark)
 		summary.ProducedRecordsTotal += backlog
@@ -154,9 +154,9 @@ func (b *Broker) groupLagFromAssignment(assignment store.ConsumerGroupAssignment
 	partitions := collectionlist.NewList[GroupPartitionLagSummary]()
 	for _, item := range assignment.Assignments {
 		tp := store.NewTopicPartition(item.Topic, item.Partition)
-		highWatermark, err := topicPartitionHighWatermark(b.log, tp)
+		highWatermark, err := b.queue.LastOffset(tp)
 		if err != nil {
-			return GroupLagSummary{}, err
+			return GroupLagSummary{}, wrapBroker("group_lag_high_watermark_failed", err, "load group partition high watermark")
 		}
 		committed := uint64(0)
 		if offset, offsetErr := b.meta.LoadConsumerOffset(groupConsumer(assignment.Group), tp); offsetErr != nil {
