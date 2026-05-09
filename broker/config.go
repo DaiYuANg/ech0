@@ -85,7 +85,6 @@ type RaftConfig struct {
 	HeartbeatIntervalMS  uint64           `json:"heartbeat_interval_ms"   koanf:"heartbeat_interval_ms"   mapstructure:"heartbeat_interval_ms"   toml:"heartbeat_interval_ms"`
 	ElectionTimeoutMinMS uint64           `json:"election_timeout_min_ms" koanf:"election_timeout_min_ms" mapstructure:"election_timeout_min_ms" toml:"election_timeout_min_ms"`
 	ElectionTimeoutMaxMS uint64           `json:"election_timeout_max_ms" koanf:"election_timeout_max_ms" mapstructure:"election_timeout_max_ms" toml:"election_timeout_max_ms"`
-	CommitTimeoutMS      uint64           `json:"commit_timeout_ms"       koanf:"commit_timeout_ms"       mapstructure:"commit_timeout_ms"       toml:"commit_timeout_ms"`
 	ApplyTimeoutMS       uint64           `json:"apply_timeout_ms"        koanf:"apply_timeout_ms"        mapstructure:"apply_timeout_ms"        toml:"apply_timeout_ms"`
 	Cluster              []RaftPeerConfig `json:"cluster"                 koanf:"cluster"                 mapstructure:"cluster"                 toml:"cluster"`
 }

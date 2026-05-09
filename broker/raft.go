@@ -3,49 +3,57 @@ package broker
 import (
 	"context"
 	"errors"
-	"io"
-	"net"
 	"os"
-	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/DaiYuANg/ech0/store"
-	collectionlist "github.com/arcgolabs/collectionx/list"
-	hashiraft "github.com/hashicorp/raft"
+	dragonboat "github.com/lni/dragonboat/v4"
+)
+
+const (
+	raftMetadataGroupID uint64 = 1
+	raftDataGroupBaseID uint64 = 10_000
+	dragonboatRTTMS     uint64 = 10
 )
 
 type raftNode struct {
-	cfg       Config
-	broker    *Broker
-	raft      *hashiraft.Raft
-	transport *hashiraft.NetworkTransport
-	store     *raftBoltStore
+	cfg      Config
+	broker   *Broker
+	nodeHost *dragonboat.NodeHost
+	groups   []uint64
 }
 
-type raftResources struct {
-	transport *hashiraft.NetworkTransport
-	snapshots hashiraft.SnapshotStore
-	store     *raftBoltStore
+type raftApplyWireResult struct {
+	Value jsonRawMessage `json:"value,omitempty"`
+	Error string         `json:"error,omitempty"`
 }
 
 func startRaft(ctx context.Context, b *Broker) (*raftNode, error) {
 	if err := validateRaftStores(b); err != nil {
 		return nil, err
 	}
-	resources, err := openRaftResources(ctx, b)
+	if err := os.MkdirAll(b.cfg.DragonboatDir(), 0o750); err != nil {
+		return nil, wrapBroker("dragonboat_directory_create_failed", err, "create dragonboat directory")
+	}
+	nh, err := dragonboat.NewNodeHost(dragonboatNodeHostConfig(b.cfg))
 	if err != nil {
-		return nil, err
+		return nil, wrapBroker("dragonboat_nodehost_create_failed", err, "create dragonboat nodehost")
 	}
-	conf := raftRuntimeConfig(b.cfg)
-	if bootstrapErr := bootstrapRaftIfNeeded(conf, resources, b.cfg.Raft.Cluster); bootstrapErr != nil {
-		return nil, bootstrapErr
+	node := &raftNode{
+		cfg:      b.cfg,
+		broker:   b,
+		nodeHost: nh,
+		groups:   raftGroupIDs(b.cfg),
 	}
-	r, err := hashiraft.NewRaft(conf, &brokerFSM{broker: b}, resources.store, resources.store, resources.snapshots, resources.transport)
-	if err != nil {
-		return nil, resources.closeWith(wrapBroker("raft_create_failed", err, "create raft runtime"))
+	if err := node.startGroups(ctx); err != nil {
+		return nil, node.closeWith(err)
 	}
-	return &raftNode{cfg: b.cfg, broker: b, raft: r, transport: resources.transport, store: resources.store}, nil
+	if singleReplicaRaftCluster(b.cfg) {
+		if err := node.waitForLocalLeaders(ctx); err != nil {
+			return nil, node.closeWith(err)
+		}
+	}
+	return node, nil
 }
 
 func validateRaftStores(b *Broker) error {
@@ -58,109 +66,63 @@ func validateRaftStores(b *Broker) error {
 	return nil
 }
 
-func openRaftResources(ctx context.Context, b *Broker) (*raftResources, error) {
-	raftDir := b.cfg.RaftDir()
-	if err := os.MkdirAll(raftDir, 0o750); err != nil {
-		return nil, wrapBroker("raft_directory_create_failed", err, "create raft directory")
-	}
-	advertise, err := raftAdvertiseAddress(b.cfg)
-	if err != nil {
-		return nil, err
-	}
-	transport, err := hashiraft.NewTCPTransport(b.cfg.Raft.BindAddr, advertise, 3, 10*time.Second, io.Discard)
-	if err != nil {
-		return nil, wrapBroker("raft_transport_create_failed", err, "create raft transport")
-	}
-	resources := &raftResources{transport: transport}
-	if err := resources.openStores(ctx, raftDir, b.metrics); err != nil {
-		return nil, err
-	}
-	return resources, nil
-}
-
-func raftAdvertiseAddress(cfg Config) (net.Addr, error) {
-	addr := cfg.Raft.BindAddr
-	for _, peer := range cfg.Raft.Cluster {
-		if peer.NodeID == cfg.Broker.NodeID && peer.Addr != "" {
-			addr = peer.Addr
-			break
+func (n *raftNode) startGroups(ctx context.Context) error {
+	for _, groupID := range n.groups {
+		if err := ctx.Err(); err != nil {
+			return wrapBroker("dragonboat_start_context_done", err, "start dragonboat raft groups")
+		}
+		if err := n.startGroup(groupID); err != nil {
+			return err
 		}
 	}
-	advertise, err := net.ResolveTCPAddr("tcp", addr)
-	if err != nil {
-		return nil, wrapBroker("raft_advertise_resolve_failed", err, "resolve raft advertise address %s", addr)
-	}
-	return advertise, nil
-}
-
-func (r *raftResources) openStores(ctx context.Context, raftDir string, metrics *MetricsRuntime) error {
-	snapshots, err := hashiraft.NewFileSnapshotStore(filepath.Join(raftDir, "snapshots"), 2, io.Discard)
-	if err != nil {
-		return r.closeWith(wrapBroker("raft_snapshot_store_create_failed", err, "create raft snapshot store"))
-	}
-	r.snapshots = snapshots
-	bolt, err := openRaftBoltStore(ctx, filepath.Join(raftDir, "raft.db"), metrics)
-	if err != nil {
-		return r.closeWith(wrapBroker("raft_bolt_store_create_failed", err, "create raft bolt store"))
-	}
-	r.store = bolt
 	return nil
 }
 
-func raftRuntimeConfig(cfg Config) *hashiraft.Config {
-	conf := hashiraft.DefaultConfig()
-	conf.LocalID = hashiraft.ServerID(strconv.FormatUint(cfg.Broker.NodeID, 10))
-	conf.HeartbeatTimeout = durationFromMillis(cfg.Raft.HeartbeatIntervalMS)
-	conf.ElectionTimeout = durationFromMillis(cfg.Raft.ElectionTimeoutMaxMS)
-	conf.LeaderLeaseTimeout = conf.HeartbeatTimeout
-	conf.CommitTimeout = durationFromMillis(cfg.Raft.CommitTimeoutMS)
-	return conf
-}
-
-func bootstrapRaftIfNeeded(conf *hashiraft.Config, resources *raftResources, peers []RaftPeerConfig) error {
-	hasState, err := hashiraft.HasExistingState(resources.store, resources.store, resources.snapshots)
-	if err != nil {
-		return resources.closeWith(wrapBroker("raft_existing_state_check_failed", err, "check raft existing state"))
+func (n *raftNode) startGroup(groupID uint64) error {
+	join := false
+	initialMembers := dragonboatInitialMembers(n.cfg)
+	if n.nodeHost.HasNodeInfo(groupID, n.cfg.Broker.NodeID) {
+		initialMembers = nil
 	}
-	if hasState {
-		return nil
-	}
-	if err := hashiraft.BootstrapCluster(conf, resources.store, resources.store, resources.snapshots, resources.transport, raftConfiguration(peers)); err != nil {
-		return resources.closeWith(wrapBroker("raft_bootstrap_failed", err, "bootstrap raft cluster"))
+	rc := dragonboatGroupConfig(n.cfg, groupID)
+	if err := n.nodeHost.StartReplica(initialMembers, join, n.newStateMachine, rc); err != nil {
+		return wrapBroker("dragonboat_replica_start_failed", err, "start dragonboat replica for group %d", groupID)
 	}
 	return nil
 }
 
-func raftConfiguration(peers []RaftPeerConfig) hashiraft.Configuration {
-	servers := collectionlist.NewListWithCapacity[hashiraft.Server](len(peers))
-	for _, peer := range peers {
-		servers.Add(hashiraft.Server{
-			ID:      hashiraft.ServerID(strconv.FormatUint(peer.NodeID, 10)),
-			Address: hashiraft.ServerAddress(peer.Addr),
-		})
+func (n *raftNode) waitForLocalLeaders(ctx context.Context) error {
+	waitCtx, cancel := contextWithRaftApplyTimeout(ctx, max(n.cfg.Raft.ApplyTimeoutMS, uint64(5_000)))
+	defer cancel()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if n.allGroupsHaveLocalLeader() {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return wrapBroker("dragonboat_local_leader_wait_failed", waitCtx.Err(), "wait for local dragonboat leaders")
+		case <-ticker.C:
+		}
 	}
-	return hashiraft.Configuration{Servers: servers.Values()}
 }
 
-func (r *raftResources) closeWith(err error) error {
-	return errors.Join(err, r.close())
-}
-
-func (r *raftResources) close() error {
-	if r == nil {
-		return nil
+func (n *raftNode) allGroupsHaveLocalLeader() bool {
+	for _, groupID := range n.groups {
+		leaderID, _, ready, err := n.nodeHost.GetLeaderID(groupID)
+		if err != nil || !ready || leaderID != n.cfg.Broker.NodeID {
+			return false
+		}
 	}
-	var err error
-	if r.store != nil {
-		err = errors.Join(err, r.store.Close())
-	}
-	if r.transport != nil {
-		err = errors.Join(err, r.transport.Close())
-	}
-	return err
+	return true
 }
 
 func (n *raftNode) Apply(ctx context.Context, commandType string, payload any) (any, error) {
+	return n.ApplyGroup(ctx, raftMetadataGroupID, commandType, payload)
+}
+
+func (n *raftNode) ApplyGroup(ctx context.Context, groupID uint64, commandType string, payload any) (any, error) {
 	if err := n.validateApply(ctx); err != nil {
 		return nil, err
 	}
@@ -176,9 +138,11 @@ func (n *raftNode) Apply(ctx context.Context, commandType string, payload any) (
 		resultErr = err
 		return nil, err
 	}
+	applyCtx, cancel := contextWithRaftApplyTimeout(ctx, n.cfg.Raft.ApplyTimeoutMS)
+	defer cancel()
 	applyStart := time.Now()
-	future := n.raft.Apply(encoded, durationFromMillis(n.cfg.Raft.ApplyTimeoutMS))
-	if err := future.Error(); err != nil {
+	result, err := n.nodeHost.SyncPropose(applyCtx, n.nodeHost.GetNoOPSession(groupID), encoded)
+	if err != nil {
 		wrapped := raftApplyError(err)
 		n.recordRaftStage(ctx, commandType, "apply_wait", applyStart, wrapped)
 		resultErr = wrapped
@@ -186,10 +150,17 @@ func (n *raftNode) Apply(ctx context.Context, commandType string, payload any) (
 	}
 	n.recordRaftStage(ctx, commandType, "apply_wait", applyStart, nil)
 	responseStart := time.Now()
-	value, responseErr := raftApplyResponse(future.Response())
+	value, responseErr := decodeRaftApplyResult(result.Data)
 	n.recordRaftStage(ctx, commandType, "response", responseStart, responseErr)
 	resultErr = responseErr
 	return value, responseErr
+}
+
+func contextWithRaftApplyTimeout(ctx context.Context, timeoutMS uint64) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, durationFromMillis(timeoutMS))
 }
 
 func (n *raftNode) recordRaftStage(ctx context.Context, commandType, stage string, start time.Time, err error) {
@@ -200,7 +171,7 @@ func (n *raftNode) recordRaftStage(ctx context.Context, commandType, stage strin
 }
 
 func (n *raftNode) validateApply(ctx context.Context) error {
-	if n == nil || n.raft == nil {
+	if n == nil || n.nodeHost == nil {
 		return brokerStoreError(store.CodeUnavailable, "raft runtime is not started")
 	}
 	if err := ctx.Err(); err != nil {
@@ -227,62 +198,90 @@ func encodeRaftCommand(commandType string, payload any) ([]byte, error) {
 	return encoded, nil
 }
 
+func encodeRaftApplyResult(value any, applyErr error) ([]byte, error) {
+	result := raftApplyWireResult{Error: errorMessage(applyErr)}
+	if applyErr != nil || value == nil {
+		return marshalJSON(result)
+	}
+	raw, err := marshalJSON(value)
+	if err != nil {
+		result.Error = errorMessage(wrapBroker("raft_result_encode_failed", err, "encode raft result"))
+		return marshalJSON(result)
+	}
+	result.Value = raw
+	return marshalJSON(result)
+}
+
+func decodeRaftApplyResult(data []byte) (any, error) {
+	var result raftApplyWireResult
+	if err := unmarshalJSON(data, &result); err != nil {
+		return nil, wrapBroker("raft_result_decode_failed", err, "decode raft result")
+	}
+	if result.Error != "" {
+		return nil, errorFromMessage(result.Error)
+	}
+	if len(result.Value) == 0 {
+		return struct{}{}, nil
+	}
+	return result.Value, nil
+}
+
 func raftApplyError(err error) error {
-	if errors.Is(err, hashiraft.ErrNotLeader) || errors.Is(err, hashiraft.ErrLeadershipLost) {
+	if errors.Is(err, dragonboat.ErrShardNotReady) || errors.Is(err, dragonboat.ErrShardNotInitialized) {
 		return brokerStoreError(store.CodeNotLeader, "node is not raft leader")
+	}
+	if errors.Is(err, dragonboat.ErrTimeout) || errors.Is(err, dragonboat.ErrSystemBusy) {
+		return brokerStoreError(store.CodeUnavailable, "raft apply unavailable: %v", err)
 	}
 	return wrapBroker("raft_apply_failed", err, "apply raft command")
 }
 
-func raftApplyResponse(response any) (any, error) {
-	if err, ok := response.(error); ok {
-		return nil, err
-	}
-	if applied, ok := response.(applyResult); ok {
-		return applied.Value, applied.Err
-	}
-	return response, nil
-}
-
 func (n *raftNode) Health() *RaftHealth {
 	if n == nil {
-		return &RaftHealth{}
+		return &RaftHealth{Engine: "dragonboat"}
 	}
-	if n.raft == nil {
-		return &RaftHealth{NodeID: n.cfg.Broker.NodeID, KnownNodes: len(n.cfg.Raft.Cluster)}
+	health := &RaftHealth{
+		NodeID:     n.cfg.Broker.NodeID,
+		KnownNodes: len(n.cfg.Raft.Cluster),
+		Engine:     "dragonboat",
+		Groups:     make([]RaftGroupHealth, 0, len(n.groups)),
 	}
-	_, leaderID := n.raft.LeaderWithID()
-	parsedLeader, err := strconv.ParseUint(string(leaderID), 10, 64)
-	if err != nil {
-		parsedLeader = 0
+	if n.nodeHost == nil {
+		return health
 	}
-	return &RaftHealth{
-		NodeID:        n.cfg.Broker.NodeID,
-		KnownNodes:    len(n.cfg.Raft.Cluster),
-		LeaderID:      parsedLeader,
-		LocalIsLeader: parsedLeader == n.cfg.Broker.NodeID,
+	for _, groupID := range n.groups {
+		leaderID, _, ready, err := n.nodeHost.GetLeaderID(groupID)
+		if err != nil {
+			continue
+		}
+		if groupID == raftMetadataGroupID {
+			health.LeaderID = leaderID
+			health.LocalIsLeader = ready && leaderID == n.cfg.Broker.NodeID
+		}
+		health.Groups = append(health.Groups, RaftGroupHealth{
+			GroupID:       groupID,
+			LeaderID:      leaderID,
+			LocalIsLeader: ready && leaderID == n.cfg.Broker.NodeID,
+			Ready:         ready,
+		})
 	}
+	return health
 }
 
-func (n *raftNode) Close() error {
-	if n == nil {
+func (n *raftNode) Close() (err error) {
+	if n == nil || n.nodeHost == nil {
 		return nil
 	}
-	var err error
-	if n.raft != nil {
-		if shutdownErr := n.raft.Shutdown().Error(); shutdownErr != nil {
-			err = shutdownErr
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = errors.Join(err, brokerStoreError(store.CodeUnavailable, "close dragonboat nodehost panic: %v", recovered))
 		}
-	}
-	if n.transport != nil {
-		if closeErr := n.transport.Close(); err == nil {
-			err = closeErr
-		}
-	}
-	if n.store != nil {
-		if closeErr := n.store.Close(); err == nil {
-			err = closeErr
-		}
-	}
+	}()
+	n.nodeHost.Close()
+	n.nodeHost = nil
 	return err
+}
+
+func (n *raftNode) closeWith(err error) error {
+	return errors.Join(err, n.Close())
 }

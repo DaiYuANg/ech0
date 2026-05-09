@@ -16,14 +16,11 @@ func TestConfigShardPathsUseTargetLayout(t *testing.T) {
 	if got, want := cfg.MetadataDir(), filepath.Join("var", "lib", "ech0", "metadata"); got != want {
 		t.Fatalf("metadata dir = %q, want %q", got, want)
 	}
-	if got, want := cfg.MetadataRaftDir(), filepath.Join("var", "lib", "ech0", "metadata", "raft", "7"); got != want {
-		t.Fatalf("metadata raft dir = %q, want %q", got, want)
+	if got, want := cfg.DragonboatDir(), filepath.Join("var", "lib", "ech0", "dragonboat", "7"); got != want {
+		t.Fatalf("dragonboat dir = %q, want %q", got, want)
 	}
 	if got, want := cfg.ShardDir(store.ShardID(12)), filepath.Join("var", "lib", "ech0", "shards", "shard-0012"); got != want {
 		t.Fatalf("shard dir = %q, want %q", got, want)
-	}
-	if got, want := cfg.ShardRaftDir(store.ShardID(12)), filepath.Join("var", "lib", "ech0", "shards", "shard-0012", "raft", "7"); got != want {
-		t.Fatalf("shard raft dir = %q, want %q", got, want)
 	}
 	if got, want := cfg.ShardSegmentLogPath(store.ShardID(12)), filepath.Join("var", "lib", "ech0", "shards", "shard-0012", "segments"); got != want {
 		t.Fatalf("shard segment path = %q, want %q", got, want)
@@ -49,7 +46,7 @@ func TestBrokerRuntimeHealthIncludesConfiguredDataShards(t *testing.T) {
 		if shard.ShardID != store.ShardID(index) {
 			t.Fatalf("data shard health[%d] shard_id = %d", index, shard.ShardID)
 		}
-		if shard.RuntimeMode != "compat_single_group" {
+		if shard.RuntimeMode != "standalone" {
 			t.Fatalf("data shard health[%d] runtime_mode = %q", index, shard.RuntimeMode)
 		}
 	}

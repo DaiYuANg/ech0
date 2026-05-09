@@ -57,11 +57,11 @@ It also implements `store.Snapshotter`, so Raft snapshots can persist and restor
 
 The storage layer standardizes bbolt and Badger access through `arcgolabs/storx` subpackages:
 
-- `bboltx.DB` and typed `bboltx.Bucket` are used for broker metadata and Raft log/stable storage.
+- `bboltx.DB` and typed `bboltx.Bucket` are used for broker metadata.
 - `badgerx.DB` and typed `badgerx.Namespace` are used for message indexes.
 - `keycodec.String`, `keycodec.Bytes`, and `keycodec.Uint64BE` provide ordered, typed keys.
 - `keycodec.Composite` stores typed topic/partition/offset index keys without hand-built Badger key strings.
-- `codec.JSON` stores metadata and segment pointers; `codec.Bytes` stores Raft raw values.
+- `codec.JSON` stores metadata and segment pointers.
 - `SetMany`, `PutMany`, and `DeleteMany` are used for snapshot restore and index cleanup paths.
 - `View`/`Update` transaction helpers are used where an operation must stay inside one storage transaction.
 - `Page` is used by the Admin UI message browser for cursor pagination over the Badger record index.
@@ -78,7 +78,7 @@ Both metadata and log stores implement snapshot/restore contracts:
 - Metadata snapshots copy topics, offsets, members, assignments, and broker state.
 - Log snapshots copy topic configs, segment pointers, next offsets, and segment file data.
 
-Raft mode requires both stores to implement `store.Snapshotter`; startup validates this before creating the Raft runtime.
+Raft mode requires both stores to implement `store.Snapshotter`; startup validates this before creating the Dragonboat runtime. Dragonboat owns the replicated Raft log under `data/dragonboat/<node_id>`.
 
 ## Retention
 
@@ -97,7 +97,7 @@ Compaction uses record keys:
 - Tombstones mark deletes.
 - `CompactionTombstoneRetentionMS` controls how long tombstones remain before cleanup.
 
-Compaction is a scheduled job and is leader-gated in Raft mode.
+Compaction is a scheduled job and is leader-gated in Raft mode. Per-shard scheduler ownership is still a follow-up now that data shards have their own Raft groups.
 
 ## Backend Decision
 

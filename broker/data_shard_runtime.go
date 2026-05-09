@@ -119,7 +119,7 @@ func (r singleGroupDataShardRuntime) ApplyDataShardCommand(ctx context.Context, 
 	target.ShardKnown = true
 	value, err := r.router.ApplyPartitionCommand(ctx, target, cmd.CommandType, cmd.Payload, cmd.Local)
 	if err != nil {
-		return nil, wrapBroker("single_group_data_shard_apply_failed", err, "apply data shard command %s to compatibility raft group", cmd.CommandType)
+		return nil, wrapBroker("single_group_data_shard_apply_failed", err, "apply data shard command %s to standalone router", cmd.CommandType)
 	}
 	return value, nil
 }
@@ -133,7 +133,43 @@ func (r singleGroupDataShardRuntime) Close() error {
 }
 
 func (r singleGroupDataShardRuntime) RuntimeMode() string {
-	return "compat_single_group"
+	return "standalone"
+}
+
+type raftDataShardRuntime struct {
+	broker  *Broker
+	shardID store.ShardID
+}
+
+func newRaftDataShardRegistry(b *Broker, specs []dataShardSpec) dataShardRuntime {
+	if len(specs) == 0 {
+		specs = []dataShardSpec{{ShardID: 0}}
+	}
+	runtimes := collectionmapping.NewMapWithCapacity[store.ShardID, dataShardRuntime](len(specs))
+	for _, spec := range specs {
+		runtimes.Set(spec.ShardID, raftDataShardRuntime{broker: b, shardID: spec.ShardID})
+	}
+	return dataShardRegistry{runtimes: runtimes}
+}
+
+func (r raftDataShardRuntime) ApplyDataShardCommand(ctx context.Context, cmd dataShardCommand) (any, error) {
+	node := r.broker.currentRaftNode()
+	if node == nil {
+		return nil, brokerStoreError(store.CodeUnavailable, "raft data shard runtime is not started")
+	}
+	return node.ApplyGroup(ctx, dataShardRaftGroupID(r.shardID), cmd.CommandType, cmd.Payload)
+}
+
+func (r raftDataShardRuntime) EnsureTopic(context.Context, store.TopicConfig) error {
+	return nil
+}
+
+func (r raftDataShardRuntime) Close() error {
+	return nil
+}
+
+func (r raftDataShardRuntime) RuntimeMode() string {
+	return "dragonboat_group"
 }
 
 func (b *Broker) ensureTopicDataShards(ctx context.Context, topic store.TopicConfig) error {

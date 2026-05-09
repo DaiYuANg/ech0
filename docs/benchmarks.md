@@ -70,7 +70,7 @@ For a clean Docker cluster run without deleting the default compose data directo
 
 ```sh
 cd deploy/docker
-ECH0_CLUSTER_DATA_ROOT=./data/bench-cluster ECH0_RAFT_COMMIT_TIMEOUT_MS=5 docker compose -f docker-compose.cluster.yml up -d --build
+ECH0_CLUSTER_DATA_ROOT=./data/bench-cluster docker compose -f docker-compose.cluster.yml up -d --build
 ```
 
 Discover the current leader from `/healthz`, then point `--broker-addr` at that node's broker port.
@@ -90,6 +90,7 @@ Useful flags:
 | `--batch-size` | `1` | Records per produce request. Values greater than 1 use the broker batch produce path. |
 | `--producer-inflight` | `1` | Max in-flight produce requests per producer. Values greater than 1 make the producer Kafka-like and async, which is useful for separating broker throughput from synchronous client wait time. |
 | `--fetch-batch` | `128` | Max records per fetch. |
+| `--commit-every` | `1` | Commit consumer offsets every N non-empty fetch batches. Raising this separates message fetch throughput from synchronous offset commit raft traffic. |
 | `--poll-idle` | `1ms` | Consumer sleep after an empty fetch. |
 | `--samples` | `200000` | Max latency samples retained for percentile output. |
 
@@ -102,6 +103,66 @@ The report includes:
 
 Publish latency is measured per produce operation. When `--batch-size` is greater than 1, throughput counts messages but publish latency counts batch requests.
 When `--producer-inflight` is greater than 1, each producer keeps multiple produce operations in flight. Latency still measures individual publish or publish-batch round trips, but throughput is no longer limited by a producer waiting synchronously for each request before issuing the next one.
+
+## Architecture Change Note
+
+The Dragonboat cluster run below is the current clustered runtime baseline. Older cluster numbers are kept as the baseline that motivated the raft architecture change; they were captured before raft log storage, leader distribution, and per-shard proposal paths moved from the legacy single-group implementation to Dragonboat groups.
+
+## Dragonboat Cluster Run: 2026-05-09
+
+Environment:
+
+- Host: Windows amd64, AMD Ryzen 7 9800X3D 8-Core Processor.
+- Cluster: 3-node Docker Dragonboat cluster, Linux containers, clean data roots.
+- Packaging path: image built from the current workspace with the default UPX-compressed binary.
+- Workload: 1 KiB payloads, 4 producers, 4 consumers, 4 partitions, 15s target duration.
+- Single-shard run: 1 data shard group, benchmark target `127.0.0.1:39190`.
+- Four-shard run: 4 data shard groups, benchmark target `127.0.0.1:19190`.
+
+End-to-end stress results:
+
+| Mode | Settings | Produced | Consumed | Produce Rate | Consume Rate | Publish p50 | Publish p95 | Publish p99 | Fetch p99 | Errors |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| TCP Dragonboat cluster, 1 shard | `batch_size=16`, `commit_every=1` | 47,936 | 47,840 | 3,188.90 msg/s, 3.11 MiB/s | 3,182.51 msg/s | 19.605ms | 22.698ms | 31.024ms | 10.856ms | 0 |
+| TCP Dragonboat cluster, 1 shard async | `batch_size=32`, `producer_inflight=4`, `commit_every=8` | 123,392 | 160,576 | 8,225.22 msg/s, 8.03 MiB/s | 10,703.88 msg/s | 59.510ms | 86.517ms | 96.710ms | 268.469ms | 0 |
+| TCP Dragonboat cluster, 4 shards | `batch_size=16`, `commit_every=1` | 60,240 | 60,080 | 4,010.92 msg/s, 3.92 MiB/s | 4,000.27 msg/s | 15.365ms | 19.307ms | 23.804ms | 23.790ms | 0 |
+| TCP Dragonboat cluster, 4 shards async | `batch_size=32`, `producer_inflight=4`, `commit_every=8` | 240,992 | 127,488 | 16,064.93 msg/s, 15.69 MiB/s | 8,498.56 msg/s | 32.738ms | 40.002ms | 46.387ms | 304.597ms | 0 |
+
+The 1-shard async consume count is higher than the produced count because consumers drained backlog at the beginning of the measurement window. The 4-shard async run is the best current write-throughput signal, but consumers did not keep up, so it should not be treated as a balanced steady-state result.
+
+Relative to the last pre-Dragonboat clustered baseline, `batch_size=16` with the binary raft hot command codec at 1,404.43 msg/s:
+
+| Current Run | Produce Rate | Multiple |
+| --- | ---: | ---: |
+| Dragonboat 1 shard sync | 3,188.90 msg/s | 2.27x |
+| Dragonboat 4 shards sync | 4,010.92 msg/s | 2.86x |
+| Dragonboat 4 shards async | 16,064.93 msg/s | 11.44x |
+
+Selected metrics from the same runs:
+
+| Run | Layer | Stage | Avg |
+| --- | --- | --- | ---: |
+| 1 shard sync | raft `produce_batches` | `total` | 22.17ms |
+| 1 shard sync | FSM `produce_batches` | `total` | 17.56ms |
+| 1 shard sync | store `append_batch` | `total` | 4.55ms |
+| 1 shard sync | store `read_from` | `total` | 35.06ms |
+| 4 shards sync/async mixed window | raft `produce_batches` | `total` | 13.68ms |
+| 4 shards sync/async mixed window | FSM `produce_batches` | `total` | 9.64ms |
+| 4 shards sync/async mixed window | store `append_batch` | `total` | 9.21ms |
+| 4 shards sync/async mixed window | store `read_from` | `total` | 37.20ms |
+
+Operational check:
+
+- Dragonboat metadata and data groups were all ready before benchmark collection.
+- The 4-shard run had data group leaders distributed across nodes.
+- Docker log scans found no `rollback`, `fail`, `error`, `panic`, or `fatal` matches; the only `error`-like line was Dragonboat's benign filesystem error-injection status log.
+
+Readout:
+
+- Dragonboat removes the old single-group raft bottleneck and makes data-shard parallelism visible: 4 sync shards improved write throughput by about 26% over 1 sync shard, and async publication reached about 16k msg/s.
+- Write throughput is no longer the only limiter. The 4-shard async run produced much faster than it consumed, and the metrics still show `read_from/read_segments` around 37ms on average.
+- Compared with the earlier same-host Kafka producer-only result of 19,969.82 msg/s, the 4-shard async Dragonboat write path is about 80% of Kafka's producer wall-clock rate in this Docker setup. That is encouraging but not parity: the Kafka run was producer-only, while ech0's consumers lagged in the simultaneous run.
+- The next high-impact targets are leader-aware routing, fetch/read parallelism, larger consumer batch handling, and reducing request/response copy pressure on the TCP path.
 
 ## Local Run: 2026-05-08
 
@@ -146,22 +207,22 @@ Readout:
 - Mapper remains useful for control-plane and maintenance conversions, but manual conversion should stay on hot fetch/produce loops.
 - The next highest-impact benchmark feature is producer batching. Kafka and NATS both rely heavily on async or batch publication for throughput, while this `ech0bench` run intentionally used one produce request per message.
 
-Follow-up runs after adding `--batch-size` and configurable `raft.commit_timeout_ms`:
+Historical follow-up runs after adding `--batch-size` and lowering the legacy raft commit flush interval:
 
 | Mode | Settings | Produce Rate | Consume Rate | Publish p50 | Publish p95 | Errors |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | Embedded library | `batch_size=16`, 15s | 984.46 msg/s | 983.07 msg/s | 64.248ms per batch | 79.024ms per batch | 0 |
 | Embedded library | `batch_size=16`, `producer_inflight=8`, 5s, library `Producer` | 57,982.49 msg/s | 57,963.51 msg/s | 8.587ms per batch | 11.317ms per batch | 0 |
-| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=1`, 15s | 73.33 msg/s | 72.93 msg/s | 50.017ms | 71.646ms | 0 |
-| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, 15s | 109.86 msg/s | 102.40 msg/s | 568.516ms per batch | 608.446ms per batch | 0 |
-| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, real store batch append, 15s | 429.83 msg/s | 248.51 msg/s | 63.611ms per batch | 93.292ms per batch | 0 |
-| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, raft proposal coalescing, 15s | 456.51 msg/s | 433.04 msg/s | 59.726ms per batch | 116.874ms per batch | 0 |
-| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, coalescing + grouped segment reads, 15s | 1,041.05 msg/s | 1,030.38 msg/s | 41.487ms per batch | 56.762ms per batch | 0 |
-| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, partition locks + grouped produce apply, 15s | 1,557.19 msg/s | 1,546.53 msg/s | 40.275ms per batch | 45.957ms per batch | 0 |
-| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, segment write coalescing + reader cache, 15s | 1,522.10 msg/s | 1,511.44 msg/s | 39.298ms per batch | 63.744ms per batch | 0 |
-| TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, binary raft hot command codec, 15s | 1,404.43 msg/s | 1,400.16 msg/s | 36.285ms per batch | 100.158ms per batch | 0 |
+| TCP raft cluster | `legacy_flush=5ms`, `batch_size=1`, 15s | 73.33 msg/s | 72.93 msg/s | 50.017ms | 71.646ms | 0 |
+| TCP raft cluster | `legacy_flush=5ms`, `batch_size=16`, 15s | 109.86 msg/s | 102.40 msg/s | 568.516ms per batch | 608.446ms per batch | 0 |
+| TCP raft cluster | `legacy_flush=5ms`, `batch_size=16`, real store batch append, 15s | 429.83 msg/s | 248.51 msg/s | 63.611ms per batch | 93.292ms per batch | 0 |
+| TCP raft cluster | `legacy_flush=5ms`, `batch_size=16`, raft proposal coalescing, 15s | 456.51 msg/s | 433.04 msg/s | 59.726ms per batch | 116.874ms per batch | 0 |
+| TCP raft cluster | `legacy_flush=5ms`, `batch_size=16`, coalescing + grouped segment reads, 15s | 1,041.05 msg/s | 1,030.38 msg/s | 41.487ms per batch | 56.762ms per batch | 0 |
+| TCP raft cluster | `legacy_flush=5ms`, `batch_size=16`, partition locks + grouped produce apply, 15s | 1,557.19 msg/s | 1,546.53 msg/s | 40.275ms per batch | 45.957ms per batch | 0 |
+| TCP raft cluster | `legacy_flush=5ms`, `batch_size=16`, segment write coalescing + reader cache, 15s | 1,522.10 msg/s | 1,511.44 msg/s | 39.298ms per batch | 63.744ms per batch | 0 |
+| TCP raft cluster | `legacy_flush=5ms`, `batch_size=16`, binary raft hot command codec, 15s | 1,404.43 msg/s | 1,400.16 msg/s | 36.285ms per batch | 100.158ms per batch | 0 |
 
-These follow-up numbers show that making `CommitTimeout` configurable is necessary but not enough by itself. The library `Producer` async path moves embedded mode above 57k msg/s in this local run, which confirms that synchronous client wait time was dominating embedded `batch_size=16` throughput. The real store batch append path improved cluster produce throughput by roughly 3.9x over the previous `batch_size=16` run and moved batch publish p50 from about 569ms to about 64ms. Raft proposal coalescing helped consume keep up by batching commit offsets. Grouped segment reads then removed the major fetch bottleneck and moved this local Docker run above 1,000 msg/s for both produce and consume.
+These follow-up numbers showed that lowering the legacy commit flush interval was necessary but not enough by itself. The library `Producer` async path moves embedded mode above 57k msg/s in this local run, which confirms that synchronous client wait time was dominating embedded `batch_size=16` throughput. The real store batch append path improved cluster produce throughput by roughly 3.9x over the previous `batch_size=16` run and moved batch publish p50 from about 569ms to about 64ms. Raft proposal coalescing helped consume keep up by batching commit offsets. Grouped segment reads then removed the major fetch bottleneck and moved this local Docker run above 1,000 msg/s for both produce and consume.
 
 ## Cluster Metrics Drilldown
 
@@ -169,7 +230,6 @@ The broker exports hot-path histograms for raft, FSM, and append stages:
 
 - `ech0_broker_command_duration_seconds`
 - `ech0_broker_raft_stage_duration_seconds`
-- `ech0_broker_raft_store_stage_duration_seconds`
 - `ech0_broker_fsm_stage_duration_seconds`
 - `ech0_broker_fetch_stage_duration_seconds`
 - `ech0_store_append_stage_duration_seconds`
@@ -179,10 +239,12 @@ The broker exports hot-path histograms for raft, FSM, and append stages:
 - `ech0_store_read_requests_total`
 - `ech0_store_read_records_total`
 
+Older drilldowns below include legacy raft store metrics. Dragonboat owns its internal raft log storage, so current cluster runs should use proposal, FSM, and broker/store-stage metrics instead.
+
 Pre-optimization sample run, 2026-05-08:
 
 - 3-node Docker raft cluster.
-- `ECH0_RAFT_COMMIT_TIMEOUT_MS=5`.
+- Legacy raft commit flush interval: 5ms.
 - `--batch-size 16`, 4 producers, 4 consumers, 4 partitions, 1 KiB payload, 15s.
 - Leader target: `127.0.0.1:19090`.
 - Result: 1,584 produced, 1,472 consumed, 105.59 msg/s produce rate, 0 errors.
@@ -217,7 +279,7 @@ This pre-optimization data narrowed the cluster bottleneck:
 After real store batch append, 2026-05-08:
 
 - 3-node Docker raft cluster.
-- `ECH0_RAFT_COMMIT_TIMEOUT_MS=5`.
+- Legacy raft commit flush interval: 5ms.
 - `--batch-size 16`, 4 producers, 4 consumers, 4 partitions, 1 KiB payload, 15s.
 - Leader target: `127.0.0.1:39090`.
 - Result: 6,448 produced, 3,728 consumed, 429.83 msg/s produce rate, 0 errors.
@@ -250,7 +312,7 @@ The batch append refactor removed the per-record append loop from the batch path
 After raft coalescing, persistent segment writers, and grouped segment reads, 2026-05-08:
 
 - 3-node Docker raft cluster.
-- `ECH0_RAFT_COMMIT_TIMEOUT_MS=5`.
+- Legacy raft commit flush interval: 5ms.
 - `--batch-size 16`, 4 producers, 4 consumers, 4 partitions, 1 KiB payload, 15s.
 - Leader target: `127.0.0.1:39090`.
 - Result: 15,616 produced, 15,456 consumed, 1,041.05 msg/s produce rate, 1,030.38 msg/s consume rate, 0 errors.
@@ -282,7 +344,7 @@ This run changes the bottleneck picture again:
 After partition-scoped locks and grouped produce apply, 2026-05-08:
 
 - 3-node Docker raft cluster.
-- `ECH0_RAFT_COMMIT_TIMEOUT_MS=5`.
+- Legacy raft commit flush interval: 5ms.
 - `--batch-size 16`, 4 producers, 4 consumers, 4 partitions, 1 KiB payload, 15s.
 - Leader target: `127.0.0.1:19090`.
 - Result: 23,360 produced, 23,200 consumed, 1,557.19 msg/s produce rate, 1,546.53 msg/s consume rate, 0 errors.
@@ -315,7 +377,7 @@ This run keeps writes deterministic inside the Raft FSM while reducing local sto
 After segment write coalescing and reader cache, 2026-05-08:
 
 - 3-node Docker raft cluster.
-- `ECH0_RAFT_COMMIT_TIMEOUT_MS=5`.
+- Legacy raft commit flush interval: 5ms.
 - `--batch-size 16`, 4 producers, 4 consumers, 4 partitions, 1 KiB payload, 15s.
 - Leader target: `127.0.0.1:39090`.
 - Result: 22,832 produced, 22,672 consumed, 1,522.10 msg/s produce rate, 1,511.44 msg/s consume rate, 0 errors.
@@ -347,7 +409,7 @@ This run shows local segment improvements but also exposes raft log variance:
 After binary raft hot command codec, 2026-05-08:
 
 - 3-node Docker raft cluster.
-- `ECH0_RAFT_COMMIT_TIMEOUT_MS=5`.
+- Legacy raft commit flush interval: 5ms.
 - `--batch-size 16`, 4 producers, 4 consumers, 4 partitions, 1 KiB payload, 15s.
 - Leader target: `127.0.0.1:39090`.
 - Result: 21,072 produced, 21,008 consumed, 1,404.43 msg/s produce rate, 1,400.16 msg/s consume rate, 0 errors.
@@ -385,7 +447,9 @@ Readout:
 - Raft log bytes per entry are now about 28.5 KiB in this workload. The previous local sample was roughly 32 MiB across about 740 log entries, so the hot command codec materially reduces log byte volume.
 - End-to-end throughput did not exceed the previous best in this particular Docker run because p95 publish and fetch latency regressed. The remaining dominant costs are still raft log persistence (`put_many`) and local read/fetch IO variance, not command encoding.
 
-## Local Kafka Comparison: 2026-05-09
+## Pre-Dragonboat Local Kafka Comparison: 2026-05-09
+
+This Kafka comparison was captured before the Dragonboat replacement. Keep it as a same-host external reference point, not as the current ech0 cluster result.
 
 This run compares ech0 and Kafka on the same Windows Docker Desktop host. It is still not a perfectly identical workload because `ech0bench` runs simultaneous produce and consume through ech0's TCP API, while Kafka's built-in perf tools report producer and consumer paths separately.
 
@@ -414,10 +478,11 @@ Results:
 
 Readout:
 
-- On this host, Kafka producer-only wall-clock throughput is about 9.8x the current ech0 clustered produce rate.
-- Kafka's consumer drain is about 34x ech0 by full command wall clock, or about 82x by Kafka's own fetch-window metric.
+- On this host, Kafka producer-only wall-clock throughput was about 9.8x the pre-Dragonboat ech0 clustered produce rate.
+- Compared with the current 4-shard Dragonboat async result above, Kafka's producer-only wall-clock rate is about 1.24x ech0's produce rate, but that is not a balanced comparison because the Kafka measurement did not run simultaneous consumers and ech0 consumers lagged in the async run.
+- Kafka's consumer drain was about 34x the pre-Dragonboat ech0 run by full command wall clock, or about 82x by Kafka's own fetch-window metric.
 - The Kafka producer comparison is throughput-oriented, not latency-equivalent. Kafka's perf producer keeps many requests in flight; the observed record latency was seconds, while ech0's TCP benchmark measured synchronous batch request latency.
-- The core architectural difference remains the same: Kafka distributes partition leaders across brokers and has a mature async batch log path; ech0 currently serializes mutating commands through one Raft group leader.
+- The pre-Dragonboat core architectural difference was single-group raft serialization. The current Dragonboat runtime now distributes data shard leaders, so the remaining gap is mostly in mature async batch log behavior, fetch/read throughput, and client/server copy overhead.
 
 ## Kafka and NATS Comparison Notes
 
@@ -434,7 +499,7 @@ Current ech0 positioning from this run:
 
 | System Shape | Expected Difference |
 | --- | --- |
-| Kafka | Kafka should still be materially faster for high-throughput logs because it has mature page-cache/zero-copy paths, async producer batching, and partition leaders distributed across brokers. ech0 now batches raft proposals locally, but does not yet distribute partition leadership. |
+| Kafka | Kafka should still be ahead for high-throughput logs because it has mature page-cache/zero-copy paths, async producer batching, and partition leaders distributed across brokers. ech0 now uses Dragonboat data shard groups and leader distribution, but its read/fetch and TCP copy paths are still early. |
 | NATS Core | NATS Core should be much faster for ephemeral pub/sub and request/reply because it does not pay durable stream replication cost on every message. ech0 is a durable MQ path in these tests. |
 | NATS JetStream R3 file storage | This is the closest external comparison shape, but JetStream has mature async/batch publication and tuned storage/replication. ech0 now has producer batching and local raft proposal coalescing, but its storage and raft paths are still early. |
 

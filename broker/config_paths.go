@@ -15,16 +15,12 @@ func (c Config) DataDir() string {
 	return c.Broker.DataDir
 }
 
-func (c Config) RaftDir() string {
-	return filepath.Join(c.DataDir(), "raft", strconv.FormatUint(c.Broker.NodeID, 10))
+func (c Config) DragonboatDir() string {
+	return filepath.Join(c.DataDir(), "dragonboat", strconv.FormatUint(c.Broker.NodeID, 10))
 }
 
 func (c Config) MetadataDir() string {
 	return filepath.Join(c.DataDir(), "metadata")
-}
-
-func (c Config) MetadataRaftDir() string {
-	return filepath.Join(c.MetadataDir(), "raft", strconv.FormatUint(c.Broker.NodeID, 10))
 }
 
 func (c Config) ShardsDir() string {
@@ -33,10 +29,6 @@ func (c Config) ShardsDir() string {
 
 func (c Config) ShardDir(shardID store.ShardID) string {
 	return filepath.Join(c.ShardsDir(), shardDirectoryName(shardID))
-}
-
-func (c Config) ShardRaftDir(shardID store.ShardID) string {
-	return filepath.Join(c.ShardDir(shardID), "raft", strconv.FormatUint(c.Broker.NodeID, 10))
 }
 
 func (c Config) ShardSegmentLogPath(shardID store.ShardID) string {

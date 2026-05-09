@@ -18,7 +18,6 @@ type Options struct {
 
 type RaftOptions struct {
 	BindAddr         string
-	CommitTimeout    time.Duration
 	ApplyTimeout     time.Duration
 	HeartbeatTimeout time.Duration
 	Peers            []RaftPeer
@@ -229,9 +228,6 @@ func configFromOptions(opts Options) internalbroker.Config {
 func applyRaftOptions(cfg *internalbroker.Config, opts Options) {
 	if opts.Raft.BindAddr != "" {
 		cfg.Raft.BindAddr = opts.Raft.BindAddr
-	}
-	if opts.Raft.CommitTimeout > 0 {
-		cfg.Raft.CommitTimeoutMS = durationMillis(opts.Raft.CommitTimeout)
 	}
 	if opts.Raft.ApplyTimeout > 0 {
 		cfg.Raft.ApplyTimeoutMS = durationMillis(opts.Raft.ApplyTimeout)

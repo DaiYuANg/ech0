@@ -58,7 +58,6 @@ func DefaultConfig() Config {
 			HeartbeatIntervalMS:  150,
 			ElectionTimeoutMinMS: 300,
 			ElectionTimeoutMaxMS: 600,
-			CommitTimeoutMS:      50,
 			ApplyTimeoutMS:       5000,
 			Cluster: []RaftPeerConfig{
 				{NodeID: 1, Addr: "127.0.0.1:3210"},
@@ -211,9 +210,6 @@ func normalizeRaftConfig(cfg *RaftConfig, broker BrokerConfig) {
 	}
 	if cfg.ElectionTimeoutMaxMS == 0 {
 		cfg.ElectionTimeoutMaxMS = 600
-	}
-	if cfg.CommitTimeoutMS == 0 {
-		cfg.CommitTimeoutMS = 50
 	}
 	if cfg.ApplyTimeoutMS == 0 {
 		cfg.ApplyTimeoutMS = 5000

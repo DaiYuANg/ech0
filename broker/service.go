@@ -90,6 +90,7 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	b.dataShards = newCompatibilityDataShardRegistry(b.shardSpecs, newSingleGroupDataShardRuntime(fallbackCommands))
 	b.commands = fallbackCommands
 	if cfg.Raft.Enabled {
+		b.dataShards = newRaftDataShardRegistry(b, b.shardSpecs)
 		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
 	}
 	for _, opt := range opts {
@@ -207,7 +208,7 @@ func (b *Broker) RuntimeHealth() RuntimeHealth {
 		health.RuntimeMode = "raft"
 		if node == nil {
 			health.Status = "degraded"
-			health.Raft = &RaftHealth{NodeID: b.cfg.Broker.NodeID, KnownNodes: len(b.cfg.Raft.Cluster)}
+			health.Raft = &RaftHealth{NodeID: b.cfg.Broker.NodeID, KnownNodes: len(b.cfg.Raft.Cluster), Engine: "dragonboat"}
 			return health
 		}
 		health.Raft = node.Health()
@@ -226,10 +227,19 @@ type RuntimeHealth struct {
 }
 
 type RaftHealth struct {
-	NodeID        uint64 `json:"node_id"`
-	KnownNodes    int    `json:"known_nodes"`
+	NodeID        uint64            `json:"node_id"`
+	KnownNodes    int               `json:"known_nodes"`
+	Engine        string            `json:"engine,omitempty"`
+	LeaderID      uint64            `json:"leader_id,omitempty"`
+	LocalIsLeader bool              `json:"local_is_leader"`
+	Groups        []RaftGroupHealth `json:"groups,omitempty"`
+}
+
+type RaftGroupHealth struct {
+	GroupID       uint64 `json:"group_id"`
 	LeaderID      uint64 `json:"leader_id,omitempty"`
 	LocalIsLeader bool   `json:"local_is_leader"`
+	Ready         bool   `json:"ready"`
 }
 
 type DataShardHealth struct {

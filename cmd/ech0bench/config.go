@@ -22,6 +22,7 @@ type benchConfig struct {
 	batchSize        int
 	producerInflight uint32
 	fetchBatch       int
+	commitEvery      int
 	pollIdle         time.Duration
 	samples          int
 }
@@ -39,6 +40,7 @@ func parseFlags() benchConfig {
 	flag.IntVar(&cfg.batchSize, "batch-size", 1, "records per produce request")
 	uint32Var(&cfg.producerInflight, "producer-inflight", 1, "max in-flight produce requests per producer")
 	flag.IntVar(&cfg.fetchBatch, "fetch-batch", 128, "max records per fetch")
+	flag.IntVar(&cfg.commitEvery, "commit-every", 1, "commit consumer offsets every N non-empty fetch batches")
 	flag.DurationVar(&cfg.pollIdle, "poll-idle", time.Millisecond, "sleep duration after an empty fetch")
 	flag.IntVar(&cfg.samples, "samples", 200000, "max latency samples kept in memory")
 	flag.Parse()
@@ -53,32 +55,25 @@ func (cfg benchConfig) mode() string {
 }
 
 func validateBenchConfig(cfg benchConfig) error {
-	if cfg.partitions == 0 {
-		return errors.New("partitions must be greater than zero")
+	checks := []struct {
+		invalid bool
+		message string
+	}{
+		{cfg.partitions == 0, "partitions must be greater than zero"},
+		{cfg.producers == 0, "producers must be greater than zero"},
+		{cfg.consumers == 0, "consumers must be greater than zero"},
+		{cfg.duration <= 0, "duration must be greater than zero"},
+		{cfg.payloadBytes <= 0, "payload-bytes must be greater than zero"},
+		{cfg.batchSize <= 0, "batch-size must be greater than zero"},
+		{cfg.producerInflight == 0, "producer-inflight must be greater than zero"},
+		{cfg.fetchBatch <= 0, "fetch-batch must be greater than zero"},
+		{cfg.commitEvery <= 0, "commit-every must be greater than zero"},
+		{cfg.samples <= 0, "samples must be greater than zero"},
 	}
-	if cfg.producers == 0 {
-		return errors.New("producers must be greater than zero")
-	}
-	if cfg.consumers == 0 {
-		return errors.New("consumers must be greater than zero")
-	}
-	if cfg.duration <= 0 {
-		return errors.New("duration must be greater than zero")
-	}
-	if cfg.payloadBytes <= 0 {
-		return errors.New("payload-bytes must be greater than zero")
-	}
-	if cfg.batchSize <= 0 {
-		return errors.New("batch-size must be greater than zero")
-	}
-	if cfg.producerInflight == 0 {
-		return errors.New("producer-inflight must be greater than zero")
-	}
-	if cfg.fetchBatch <= 0 {
-		return errors.New("fetch-batch must be greater than zero")
-	}
-	if cfg.samples <= 0 {
-		return errors.New("samples must be greater than zero")
+	for _, check := range checks {
+		if check.invalid {
+			return errors.New(check.message)
+		}
 	}
 	return nil
 }

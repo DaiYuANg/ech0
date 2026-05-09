@@ -8,7 +8,6 @@ import (
 type dataShardSpec struct {
 	ShardID        store.ShardID
 	Dir            string
-	RaftDir        string
 	SegmentLogPath string
 	BadgerPath     string
 }
@@ -24,7 +23,6 @@ func buildDataShardSpecs(cfg Config) []dataShardSpec {
 		specs.Add(dataShardSpec{
 			ShardID:        shardID,
 			Dir:            cfg.ShardDir(shardID),
-			RaftDir:        cfg.ShardRaftDir(shardID),
 			SegmentLogPath: cfg.ShardSegmentLogPath(shardID),
 			BadgerPath:     cfg.ShardBadgerPath(shardID),
 		})

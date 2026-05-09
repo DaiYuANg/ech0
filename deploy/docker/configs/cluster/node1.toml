@@ -9,7 +9,7 @@ max_batch_payload_bytes = 8388608
 max_fetch_records = 1000
 group_assignment_strategy = "round_robin"
 group_sticky_assignments = true
-data_shard_count = 1
+data_shard_count = 4
 retry_worker_enabled = true
 retry_worker_interval_secs = 5
 retry_worker_max_records = 256
@@ -50,7 +50,6 @@ metrics_interval_ms = 1000
 heartbeat_interval_ms = 150
 election_timeout_min_ms = 300
 election_timeout_max_ms = 600
-commit_timeout_ms = 50
 apply_timeout_ms = 5000
 snapshot_max_chunk_size = 3145728
 

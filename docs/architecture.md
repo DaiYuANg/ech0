@@ -52,14 +52,14 @@ The root API deliberately does not expose the full broker `Config`. Embedded use
 `broker.Broker` is the main service boundary. Mutating operations are routed through command routers:
 
 - In standalone mode, commands apply directly to the local store-backed runtime.
-- In Raft mode, commands are proposed to the Raft leader and applied by the FSM.
-- Metadata commands and partition-owned commands are separated before they enter the compatibility Raft path.
+- In Raft mode, commands are proposed through Dragonboat. Metadata commands target the metadata group; partition-owned commands target the owning data shard group.
+- Coalesced produce and offset commit commands are split by shard before they enter Raft, so one client batch can become several independent group proposals.
 
 Read operations use the local runtime today, with `RaftReadPolicy` reserved in configuration for stricter clustered read behavior.
 
 ## Target Cluster Architecture
 
-The current Raft mode uses one Raft group for all mutating commands. This is simple, but it puts every topic, partition, direct inbox, retry, delay, consumer offset, and group update behind one leader and one ordered FSM. That design is the main reason the clustered TCP benchmark is far below Kafka-like throughput.
+Raft mode now uses Dragonboat as the only clustered consensus runtime. The previous single-group Raft runtime has been removed. The broker starts one Dragonboat NodeHost per process, one metadata group, and one data group per configured data shard.
 
 The target clustered architecture splits the system into a control plane and a data plane:
 
@@ -70,7 +70,7 @@ The target clustered architecture splits the system into a control plane and a d
 
 Data shards are the scalability unit. A shard owns one or more topic partitions. For Kafka-like scaling, operators can configure shard count at or above the hot partition count so leaders distribute across nodes. A first production implementation can map `topic/partition` to a stable shard ID, then later support explicit placement and rebalancing.
 
-The current first step has landed the placement model without changing runtime routing behavior:
+The current clustered implementation has these properties:
 
 - `broker.data_shard_count` configures the deterministic shard plan.
 - Topic creation persists one `ShardPlacement` per `topic/partition`.
@@ -78,19 +78,18 @@ The current first step has landed the placement model without changing runtime r
 - Memory and storx metadata stores both persist shard placements.
 - Snapshots include `shard_placements`, so future Raft metadata snapshots carry the placement map.
 - Command routing now carries partition command targets.
-- Cluster mode installs a cluster router skeleton that resolves known `topic/partition` targets to shard IDs and then delegates to the current single Raft group.
-- Coalesced `produce_batches` and `commit_offsets` are split by resolved shard target before dispatch. The current runtime still delegates each shard group to the compatibility single Raft group, but result merging already preserves original request order.
+- Cluster mode installs a cluster router that resolves known `topic/partition` targets to shard IDs and proposes data commands to the matching Dragonboat data group.
+- Coalesced `produce_batches` and `commit_offsets` are split by resolved shard target before dispatch. Result merging preserves original request order across group proposals.
 - Non-explicit produce partitioning is resolved before dispatch and rewritten to an explicit partition command. That makes the data-plane command target stable for future per-shard Raft groups.
-- The cluster router now depends on a `dataShardRuntime` boundary. The default implementation is still a single-group adapter, but data commands now enter the codebase through an explicit shard runtime seam.
-- Data shard runtimes are registered behind a shard registry. Today each configured shard points at the compatibility single-group runtime; the next implementation can swap individual shard entries to local or Raft-backed runtimes.
-- Each configured shard also has a runtime spec with target directories for shard-local Raft, segment log, and Badger state. Runtime health exposes the configured shard IDs and their current compatibility runtime mode.
+- The cluster router depends on a `dataShardRuntime` boundary. In Raft mode, each configured shard points at a Dragonboat group runtime.
+- Each configured shard also has a runtime spec with target directories for shard-local segment log and Badger state. Runtime health exposes the configured shard IDs and their current runtime mode.
 - The broker message runtime is now an internal interface. The default adapter preserves the existing single log behavior.
 - When storx storage is used with `broker.data_shard_count > 1`, broker message reads and writes use a sharded message runtime. Each shard opens its own segment log and Badger index under `data/shards/shard-NNNN`.
 - Topic metadata remains global. `CreateTopic` writes one global topic config, while each message shard initializes its own local log state for that topic.
 - `Publish`, `Fetch`, `Ack`, admin topic message snapshots, and direct `ReadFrom` helpers route by the resolved `topic/partition -> shard` placement.
 - Retention and compaction maintenance run through the message runtime, so storx sharded mode applies cleanup across all local shard logs.
 - Raft FSM snapshots now read and restore message data through the message runtime, so sharded storx snapshots merge shard log records and restore them by recorded placement.
-- Raft clustered writes still use the compatibility single-group router. The current sharded message runtime is a local storage boundary, not yet a separate Raft group per shard.
+- Raft clustered writes no longer use the single global data path. The remaining cluster work is leader-aware client routing/forwarding, per-group scheduler ownership, and narrower per-group snapshots.
 
 The public API remains library-first:
 
@@ -118,7 +117,7 @@ This creates two router implementations:
 | Local router | Embedded and non-Raft mode. Applies directly to local queue/store. |
 | Cluster router | Raft mode. Resolves metadata commands to the metadata group and data commands to the owning data shard group. |
 
-The current single Raft path should be kept temporarily behind a compatibility router while the command split lands. Once data shard groups are functional, the single-group command path can be removed from clustered mode.
+The clustered implementation has already cut over to the Dragonboat group router. The old single global clustered data path is no longer part of Raft mode.
 
 ## Target Read Routing
 
@@ -139,21 +138,22 @@ The target storage layout keeps badger plus segment log, but scopes it by owners
 
 ```text
 data/
+  dragonboat/
+    1/
+      wal/
+      ...
   metadata/
-    raft/
-    bbolt-or-badger/
+    bbolt/
   shards/
     shard-0000/
-      raft/
       segments/
       badger/
     shard-0001/
-      raft/
       segments/
       badger/
 ```
 
-Within a shard, the segment log remains the message storage backend. The Raft log is the replication and ordering log for that shard. This still writes through Raft and the segment log, but the work is spread across independent leaders and independent stores instead of one global queue.
+Within a shard, the segment log remains the message storage backend. Dragonboat owns the replication and ordering log for the metadata and data groups under the NodeHost directory. This still writes through Raft and the segment log, but the work is spread across independent groups and independent stores instead of one global queue.
 
 A later, more invasive storage optimization can make the Raft log and message segment log share a batch format or reduce duplicated payload writes. That should be a second-stage optimization after sharding proves out.
 
@@ -168,7 +168,6 @@ A later, more invasive storage optimization can make the Raft log and message se
 2. Split command ownership:
    - Move topic and group membership commands to metadata ownership.
    - Move produce, fetch, offset commits, retry/delay records, and direct inbox records to partition ownership.
-   - Keep the current single Raft router as an adapter during the transition.
 
 3. Add shard placement metadata:
    - Stable `ShardID`.
@@ -178,27 +177,22 @@ A later, more invasive storage optimization can make the Raft log and message se
 
 4. Add data shard runtimes:
    - One local queue/store runtime per shard.
-   - One Raft FSM per shard in clustered mode.
-   - Separate raft stores and snapshots per shard.
+   - One Dragonboat Raft group per shard in clustered mode.
+   - Separate shard-local segment and Badger stores.
 
-5. Add raft transport multiplexing:
-   - Prefer one node-to-node transport listener with a group ID prefix.
-   - Avoid requiring one TCP port per shard in the final design.
-   - A temporary dev implementation may use derived ports, but the production design should use a mux.
-
-6. Cut over hot paths:
+5. Cut over hot paths:
    - Route produce batches to data shard leaders.
    - Route commit offsets to the same data shard as the topic partition.
    - Route fetches to the data shard owner.
 
-7. Rework scheduler ownership:
+6. Rework scheduler ownership:
    - Retry and delay workers should run on the leader of the internal topic shard, not only on the global cluster leader.
    - Retention and compaction should run per shard leader.
 
-8. Remove the single global clustered data path:
-   - Keep metadata Raft.
-   - Keep local non-Raft mode.
-   - Remove clustered message writes from the metadata/global group.
+7. Add leader-aware client routing:
+   - Return leader hints on not-leader errors.
+   - Forward internal broker requests to the owning group leader when direct client routing is not available.
+   - Keep standalone and embedded mode address-free.
 
 ## Expected Performance Shape
 
@@ -226,6 +220,8 @@ The implementation favors arcgolabs libraries where they match the responsibilit
 - `httpx` on Fiber for Admin/OpenAPI surfaces.
 - `observabilityx` for metrics wiring.
 - `storx` adapters for Badger and bbolt-backed stores.
+- `dragonboat` for clustered multi-group Raft.
+- `ants` for bounded background and shard fan-out work.
 
 These dependencies are allowed inside implementation and binary-facing packages, but the public embedded API should stay smaller than the operational runtime.
 

@@ -22,10 +22,14 @@ Use a separate cluster data root for clean benchmark or test runs:
 ECH0_CLUSTER_DATA_ROOT=./data/bench-cluster docker compose -f docker-compose.cluster.yml up -d --build
 ```
 
-Override the raft commit timeout for latency experiments:
+Use `-p` plus explicit ports when you need to run a benchmark cluster beside another local ech0 cluster:
 
 ```sh
-ECH0_CLUSTER_DATA_ROOT=./data/bench-cluster ECH0_RAFT_COMMIT_TIMEOUT_MS=5 docker compose -f docker-compose.cluster.yml up -d --build
+ECH0_NODE1_BROKER_PORT=19190 ECH0_NODE1_ADMIN_PORT=19191 ECH0_NODE1_RAFT_PORT=14210 \
+ECH0_NODE2_BROKER_PORT=29190 ECH0_NODE2_ADMIN_PORT=29191 ECH0_NODE2_RAFT_PORT=24210 \
+ECH0_NODE3_BROKER_PORT=39190 ECH0_NODE3_ADMIN_PORT=39191 ECH0_NODE3_RAFT_PORT=34210 \
+ECH0_CLUSTER_DATA_ROOT=./data/bench-cluster \
+docker compose -p ech0-bench -f docker-compose.cluster.yml up -d --build
 ```
 
 ## Release Image

@@ -97,6 +97,7 @@ func runConsumer(
 	latencies *latencyRecorder,
 ) {
 	consumer := "ech0bench-" + strconv.FormatUint(uint64(partition), 10)
+	commits := consumerCommitBuffer{}
 	for ctx.Err() == nil {
 		start := time.Now()
 		batch, err := mq.Fetch(ctx, consumer, cfg.topic, partition, cfg.fetchBatch)
@@ -114,30 +115,64 @@ func runConsumer(
 			sleepIdle(ctx, cfg.pollIdle)
 			continue
 		}
-		commitBatch(ctx, mq, cfg, consumer, partition, batch, counters)
+		commits.add(batch)
+		if commits.ready(cfg.commitEvery) {
+			flushConsumerCommit(ctx, mq, cfg, consumer, partition, &commits, counters)
+		}
+	}
+	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	flushConsumerCommit(flushCtx, mq, cfg, consumer, partition, &commits, counters)
+}
+
+type consumerCommitBuffer struct {
+	batches    int
+	count      uint64
+	bytes      uint64
+	nextOffset uint64
+	hasOffset  bool
+}
+
+func (b *consumerCommitBuffer) add(batch benchFetchResult) {
+	b.batches++
+	b.count += uint64(len(batch.Messages))
+	b.nextOffset = batch.NextOffset
+	b.hasOffset = true
+	for _, msg := range batch.Messages {
+		b.bytes += uint64(len(msg.Payload))
 	}
 }
 
-func commitBatch(
+func (b consumerCommitBuffer) ready(commitEvery int) bool {
+	return b.hasOffset && b.batches >= commitEvery
+}
+
+func (b *consumerCommitBuffer) reset() {
+	*b = consumerCommitBuffer{}
+}
+
+func flushConsumerCommit(
 	ctx context.Context,
 	mq benchBroker,
 	cfg benchConfig,
 	consumer string,
 	partition uint32,
-	batch benchFetchResult,
+	commits *consumerCommitBuffer,
 	counters *benchCounters,
 ) {
-	if err := mq.Commit(ctx, consumer, cfg.topic, partition, batch.NextOffset); err != nil {
+	if commits == nil || !commits.hasOffset {
+		return
+	}
+	if err := mq.Commit(ctx, consumer, cfg.topic, partition, commits.nextOffset); err != nil {
 		if ctx.Err() != nil {
 			return
 		}
 		counters.consumeErrors.Add(1)
 		return
 	}
-	for _, msg := range batch.Messages {
-		counters.consumedBytes.Add(uint64(len(msg.Payload)))
-	}
-	counters.consumed.Add(uint64(len(batch.Messages)))
+	counters.consumedBytes.Add(commits.bytes)
+	counters.consumed.Add(commits.count)
+	commits.reset()
 }
 
 func sleepIdle(ctx context.Context, duration time.Duration) {
