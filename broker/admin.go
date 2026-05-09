@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arcgolabs/dix"
 	"github.com/arcgolabs/httpx"
 	"github.com/arcgolabs/httpx/adapter"
 	httpxfiber "github.com/arcgolabs/httpx/adapter/fiber"
@@ -25,15 +26,20 @@ type AdminServer struct {
 	broker  *Broker
 	logger  *slog.Logger
 	metrics *MetricsRuntime
+	events  *dix.EventRecorder
 	app     *fiber.App
 	once    sync.Once
 }
 
-func NewAdminServer(cfg Config, broker *Broker, logger *slog.Logger, metrics *MetricsRuntime) *AdminServer {
+func NewAdminServer(cfg Config, broker *Broker, logger *slog.Logger, metrics *MetricsRuntime, events ...*dix.EventRecorder) *AdminServer {
 	if metrics == nil {
 		metrics = NewNoopMetricsRuntime(logger)
 	}
-	return &AdminServer{cfg: cfg, broker: broker, logger: logger, metrics: metrics}
+	var recorder *dix.EventRecorder
+	if len(events) > 0 {
+		recorder = events[0]
+	}
+	return &AdminServer{cfg: cfg, broker: broker, logger: logger, metrics: metrics, events: recorder}
 }
 
 func (s *AdminServer) Start(ctx context.Context) error {
@@ -96,6 +102,9 @@ func (s *AdminServer) registerRoutes() {
 	httpx.MustGet(server, "/healthz", s.apiHealth)
 	httpx.MustGet(server, "/topics", s.apiTopics)
 	httpx.MustGet(server, "/metrics", s.apiMetrics)
+	if s.cfg.Admin.DebugEnabled {
+		httpx.MustGet(server, "/runtime/events", s.apiRuntimeEvents)
+	}
 
 	s.app.Get("/", s.redirectRoot)
 	s.app.Get("/ui", s.uiDashboard)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	broker "github.com/DaiYuANg/ech0/broker"
+	"github.com/arcgolabs/dix"
 )
 
 func TestAdminUILoadsEmbeddedTailwindTemplates(t *testing.T) {
@@ -25,6 +26,26 @@ func TestAdminUILoadsEmbeddedTailwindTemplates(t *testing.T) {
 	body := getAdminPage(t, cfg.Admin.BindAddr, "/ui")
 	if !strings.Contains(body, "Broker Dashboard") || !strings.Contains(body, "https://cdn.tailwindcss.com") {
 		t.Fatalf("admin ui did not render embedded Tailwind template: %s", body)
+	}
+}
+
+func TestAdminRuntimeEventsDebugEndpoint(t *testing.T) {
+	ctx := context.Background()
+	cfg := broker.DefaultConfig()
+	cfg.Admin.Enabled = true
+	cfg.Admin.DebugEnabled = true
+	cfg.Admin.BindAddr = freeTCPAddr(t)
+	recorder := dix.NewEventRecorder(4)
+	recorder.LogEvent(ctx, dix.StartEvent{})
+	b := newTestBroker(t)
+	server := broker.NewAdminServer(cfg, b, nil, nil, recorder)
+
+	requireNoError(t, server.Start(ctx))
+	defer stopAdminServer(t, server)
+
+	body := getAdminPage(t, cfg.Admin.BindAddr, "/api/runtime/events")
+	if !strings.Contains(body, "StartEvent") {
+		t.Fatalf("admin runtime events endpoint did not return recorder events: %s", body)
 	}
 }
 

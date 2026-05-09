@@ -72,7 +72,7 @@ Admin is served from the broker package on Fiber. It provides:
 
 Admin and OpenAPI use `arcgolabs/httpx` for the HTTP surface while the default server is Fiber.
 
-`admin.debug_enabled` defaults to `false`. When enabled, the admin server also exposes `GET /debug/fgprof` for wall-clock profiling with `fgprof`; keep it disabled on public admin surfaces.
+`admin.debug_enabled` defaults to `false`. When enabled, the admin server also exposes `GET /debug/fgprof` for wall-clock profiling with `fgprof` and `GET /api/runtime/events` for recent `dix` build/lifecycle/debug events; keep it disabled on public admin surfaces.
 
 ## Metrics
 
