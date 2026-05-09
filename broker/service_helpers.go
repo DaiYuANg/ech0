@@ -55,9 +55,10 @@ func firstRecordKey(records []store.RecordAppend) []byte {
 
 func cloneAppend(record store.RecordAppend) store.RecordAppend {
 	out := store.RecordAppend{
-		Attributes: record.Attributes,
-		Payload:    append([]byte(nil), record.Payload...),
-		Key:        append([]byte(nil), record.Key...),
+		Attributes:  record.Attributes,
+		Payload:     append([]byte(nil), record.Payload...),
+		Key:         append([]byte(nil), record.Key...),
+		Transaction: cloneTransactionRecordMetadata(record.Transaction),
 	}
 	if record.TimestampMS != nil {
 		v := *record.TimestampMS
@@ -82,10 +83,32 @@ func fetchRecordsFromStore(records []store.Record) []protocol.FetchRecord {
 			Key:         append([]byte(nil), record.Key...),
 			Headers:     protocolHeadersFromStore(record.Headers),
 			Tombstone:   record.IsTombstone(),
+			Transaction: transactionRecordMetadataToProtocol(record.Transaction),
 			Payload:     append([]byte(nil), record.Payload...),
 		})
 	}
 	return out.Values()
+}
+
+func cloneTransactionRecordMetadata(metadata *store.TransactionRecordMetadata) *store.TransactionRecordMetadata {
+	if metadata == nil {
+		return nil
+	}
+	cp := *metadata
+	return &cp
+}
+
+func transactionRecordMetadataToProtocol(metadata *store.TransactionRecordMetadata) *protocol.TransactionRecordMetadata {
+	if metadata == nil {
+		return nil
+	}
+	return &protocol.TransactionRecordMetadata{
+		TxID:          metadata.TxID,
+		ProducerID:    metadata.ProducerID,
+		ProducerEpoch: metadata.ProducerEpoch,
+		Sequence:      metadata.Sequence,
+		ControlType:   protocol.TransactionControlType(metadata.ControlType),
+	}
 }
 
 func (b *Broker) publishEvent(ctx context.Context, event eventx.Event) {

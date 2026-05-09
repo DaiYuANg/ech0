@@ -22,6 +22,7 @@ func writeFetchRequest(writer *binaryWriter, req FetchRequest) error {
 		return err
 	}
 	writer.writeOptionalU64(req.MaxWaitMS)
+	writeFetchIsolation(writer, req.Isolation)
 	return nil
 }
 
@@ -56,6 +57,9 @@ func readFetchRequest(reader *binaryReader) (FetchRequest, error) {
 		return FetchRequest{}, err
 	}
 	if req.MaxWaitMS, err = reader.readOptionalU64(); err != nil {
+		return FetchRequest{}, err
+	}
+	if req.Isolation, err = readFetchIsolation(reader); err != nil {
 		return FetchRequest{}, err
 	}
 	return req, nil
@@ -145,6 +149,7 @@ func writeFetchRecord(writer *binaryWriter, record FetchRecord) error {
 		return err
 	}
 	writer.writeBool(record.Tombstone)
+	writeOptionalTransactionRecordMetadata(writer, record.Transaction)
 	return writer.writeBytes(record.Payload)
 }
 
@@ -166,8 +171,48 @@ func readFetchRecord(reader *binaryReader) (FetchRecord, error) {
 	if record.Tombstone, err = reader.readBool(); err != nil {
 		return FetchRecord{}, err
 	}
+	if record.Transaction, err = readOptionalTransactionRecordMetadata(reader); err != nil {
+		return FetchRecord{}, err
+	}
 	if record.Payload, err = reader.readBytes(); err != nil {
 		return FetchRecord{}, err
 	}
 	return record, nil
+}
+
+func writeOptionalTransactionRecordMetadata(writer *binaryWriter, tx *TransactionRecordMetadata) {
+	if tx == nil {
+		writer.writeBool(false)
+		return
+	}
+	writer.writeBool(true)
+	writer.writeU64(tx.TxID)
+	writer.writeU64(tx.ProducerID)
+	writer.writeU64(tx.ProducerEpoch)
+	writer.writeU64(tx.Sequence)
+	writeTransactionControlType(writer, tx.ControlType)
+}
+
+func readOptionalTransactionRecordMetadata(reader *binaryReader) (*TransactionRecordMetadata, error) {
+	ok, err := reader.readBool()
+	if err != nil || !ok {
+		return nil, err
+	}
+	tx := TransactionRecordMetadata{}
+	if tx.TxID, err = reader.readU64(); err != nil {
+		return nil, err
+	}
+	if tx.ProducerID, err = reader.readU64(); err != nil {
+		return nil, err
+	}
+	if tx.ProducerEpoch, err = reader.readU64(); err != nil {
+		return nil, err
+	}
+	if tx.Sequence, err = reader.readU64(); err != nil {
+		return nil, err
+	}
+	if tx.ControlType, err = readTransactionControlType(reader); err != nil {
+		return nil, err
+	}
+	return &tx, nil
 }

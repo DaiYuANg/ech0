@@ -145,9 +145,23 @@ func (b *Broker) GetConsumerGroupAssignment(group string) (*store.ConsumerGroupA
 }
 
 func (b *Broker) FetchConsumerGroup(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
+	return b.FetchConsumerGroupWithIsolation(ctx, group, memberID, generation, topic, partition, offset, maxRecords, FetchIsolationReadUncommitted)
+}
+
+func (b *Broker) FetchConsumerGroupWithIsolation(
+	ctx context.Context,
+	group string,
+	memberID string,
+	generation uint64,
+	topic string,
+	partition uint32,
+	offset *uint64,
+	maxRecords int,
+	isolation FetchIsolation,
+) (store.PollResult, error) {
 	_ = memberID
 	_ = generation
-	return b.Fetch(ctx, groupConsumer(group), topic, partition, offset, maxRecords)
+	return b.FetchWithIsolation(ctx, groupConsumer(group), topic, partition, offset, maxRecords, isolation)
 }
 
 func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, nextOffset uint64) error {

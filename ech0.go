@@ -24,6 +24,7 @@ type metadataStore interface {
 	store.TopicCatalogStore
 	store.ConsumerGroupStore
 	store.BrokerStateStore
+	store.TransactionStore
 }
 
 func Open(ctx context.Context, opts Options) (*Broker, error) {
@@ -139,12 +140,7 @@ func (b *Broker) Publish(ctx context.Context, topic string, payload []byte, opts
 			opt(&publishOpts)
 		}
 	}
-	partitioning := internalbroker.PublishPartitioning{Mode: internalbroker.PartitionRoundRobin}
-	if publishOpts.partition != nil {
-		partitioning = internalbroker.PublishPartitioning{Mode: internalbroker.PartitionExplicit, Partition: *publishOpts.partition}
-	} else if len(publishOpts.key) > 0 {
-		partitioning = internalbroker.PublishPartitioning{Mode: internalbroker.PartitionKeyHash}
-	}
+	partitioning := publishPartitioning(publishOpts)
 	result, err := b.broker.Publish(ctx, topic, partitioning, publishOpts.key, publishOpts.tombstone, payload)
 	if err != nil {
 		return Message{}, oops.In("embedded").Code("publish_failed").With("topic", topic).Wrapf(err, "publish message")
@@ -159,12 +155,7 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, payloads [][]by
 			opt(&publishOpts)
 		}
 	}
-	partitioning := internalbroker.PublishPartitioning{Mode: internalbroker.PartitionRoundRobin}
-	if publishOpts.partition != nil {
-		partitioning = internalbroker.PublishPartitioning{Mode: internalbroker.PartitionExplicit, Partition: *publishOpts.partition}
-	} else if len(publishOpts.key) > 0 {
-		partitioning = internalbroker.PublishPartitioning{Mode: internalbroker.PartitionKeyHash}
-	}
+	partitioning := publishPartitioning(publishOpts)
 	records := make([]store.RecordAppend, 0, len(payloads))
 	for _, payload := range payloads {
 		record := store.NewRecordAppend(payload)
@@ -192,7 +183,7 @@ func (b *Broker) Fetch(ctx context.Context, consumer, topic string, opts ...Fetc
 			opt(&fetchOpts)
 		}
 	}
-	poll, err := b.broker.Fetch(ctx, consumer, topic, fetchOpts.partition, fetchOpts.offset, fetchOpts.maxRecords)
+	poll, err := b.broker.FetchWithIsolation(ctx, consumer, topic, fetchOpts.partition, fetchOpts.offset, fetchOpts.maxRecords, fetchOpts.isolation)
 	if err != nil {
 		return FetchResult{}, oops.In("embedded").Code("fetch_failed").With("consumer", consumer, "topic", topic).Wrapf(err, "fetch messages")
 	}
@@ -201,6 +192,16 @@ func (b *Broker) Fetch(ctx context.Context, consumer, topic string, opts ...Fetc
 		messages = append(messages, messageFromRecord(topic, fetchOpts.partition, record))
 	}
 	return FetchResult{Messages: messages, NextOffset: poll.NextOffset, HighWatermark: poll.HighWatermark}, nil
+}
+
+func publishPartitioning(opts publishOptions) internalbroker.PublishPartitioning {
+	if opts.partition != nil {
+		return internalbroker.PublishPartitioning{Mode: internalbroker.PartitionExplicit, Partition: *opts.partition}
+	}
+	if len(opts.key) > 0 {
+		return internalbroker.PublishPartitioning{Mode: internalbroker.PartitionKeyHash}
+	}
+	return internalbroker.PublishPartitioning{Mode: internalbroker.PartitionRoundRobin}
 }
 
 func (b *Broker) Ack(ctx context.Context, consumer string, msg Message) error {

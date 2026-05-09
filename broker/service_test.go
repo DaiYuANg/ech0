@@ -144,7 +144,7 @@ func TestBrokerScheduleDelayAndProcessDue(t *testing.T) {
 	ctx := context.Background()
 	createTopic(ctx, t, b, store.NewTopicConfig("orders"))
 
-	deliverAt := store.NowMS() + 1
+	deliverAt := store.NowMS() + 50
 	scheduled, err := b.ScheduleDelay(ctx, "orders", 0, []byte("m1"), deliverAt)
 	requireNoError(t, err)
 	if scheduled.DelayTopic != "__delay.orders" || scheduled.DeliverAtMS != deliverAt {
@@ -155,7 +155,7 @@ func TestBrokerScheduleDelayAndProcessDue(t *testing.T) {
 	if moved != 0 {
 		t.Fatalf("expected delayed record to stay before deliver_at, moved %d", moved)
 	}
-	time.Sleep(2 * time.Millisecond)
+	time.Sleep(60 * time.Millisecond)
 	moved = processDueDelayed(ctx, t, b)
 	if moved != 1 {
 		t.Fatalf("expected one delayed record to move, moved %d", moved)

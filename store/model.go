@@ -4,6 +4,22 @@ import "time"
 
 const RecordAttributeTombstone uint16 = 1 << 1
 
+type TransactionStatus string
+
+const (
+	TransactionStatusOpen      TransactionStatus = "open"
+	TransactionStatusCommitted TransactionStatus = "committed"
+	TransactionStatusAborted   TransactionStatus = "aborted"
+)
+
+type TransactionControlType string
+
+const (
+	TransactionControlNone   TransactionControlType = ""
+	TransactionControlCommit TransactionControlType = "commit"
+	TransactionControlAbort  TransactionControlType = "abort"
+)
+
 type TopicPartition struct {
 	Topic     string `json:"topic"`
 	Partition uint32 `json:"partition"`
@@ -88,11 +104,12 @@ type RecordHeader struct {
 }
 
 type RecordAppend struct {
-	TimestampMS *uint64        `json:"timestamp_ms,omitempty"`
-	Key         []byte         `json:"key,omitempty"`
-	Headers     []RecordHeader `json:"headers,omitempty"`
-	Attributes  uint16         `json:"attributes,omitempty"`
-	Payload     []byte         `json:"payload"`
+	TimestampMS *uint64                    `json:"timestamp_ms,omitempty"`
+	Key         []byte                     `json:"key,omitempty"`
+	Headers     []RecordHeader             `json:"headers,omitempty"`
+	Attributes  uint16                     `json:"attributes,omitempty"`
+	Transaction *TransactionRecordMetadata `json:"transaction,omitempty"`
+	Payload     []byte                     `json:"payload"`
 }
 
 func NewRecordAppend(payload []byte) RecordAppend {
@@ -104,12 +121,13 @@ func (r RecordAppend) IsTombstone() bool {
 }
 
 type Record struct {
-	Offset      uint64         `json:"offset"`
-	TimestampMS uint64         `json:"timestamp_ms"`
-	Key         []byte         `json:"key,omitempty"`
-	Headers     []RecordHeader `json:"headers,omitempty"`
-	Attributes  uint16         `json:"attributes,omitempty"`
-	Payload     []byte         `json:"payload"`
+	Offset      uint64                     `json:"offset"`
+	TimestampMS uint64                     `json:"timestamp_ms"`
+	Key         []byte                     `json:"key,omitempty"`
+	Headers     []RecordHeader             `json:"headers,omitempty"`
+	Attributes  uint16                     `json:"attributes,omitempty"`
+	Transaction *TransactionRecordMetadata `json:"transaction,omitempty"`
+	Payload     []byte                     `json:"payload"`
 }
 
 func (r Record) IsTombstone() bool {
@@ -120,6 +138,50 @@ type PollResult struct {
 	Records       []Record
 	NextOffset    uint64
 	HighWatermark *uint64
+}
+
+type TransactionRecordMetadata struct {
+	TxID          uint64                 `json:"tx_id"`
+	ProducerID    uint64                 `json:"producer_id"`
+	ProducerEpoch uint64                 `json:"producer_epoch"`
+	Sequence      uint64                 `json:"sequence"`
+	ControlType   TransactionControlType `json:"control_type,omitempty"`
+}
+
+type TransactionOffsetCommit struct {
+	Consumer   string `json:"consumer,omitempty"`
+	Group      string `json:"group,omitempty"`
+	MemberID   string `json:"member_id,omitempty"`
+	Generation uint64 `json:"generation,omitempty"`
+	Topic      string `json:"topic"`
+	Partition  uint32 `json:"partition"`
+	NextOffset uint64 `json:"next_offset"`
+}
+
+type TransactionPublishedBatch struct {
+	Topic        string `json:"topic"`
+	Partition    uint32 `json:"partition"`
+	BaseSequence uint64 `json:"base_sequence"`
+	RecordCount  uint64 `json:"record_count"`
+	BaseOffset   uint64 `json:"base_offset"`
+	LastOffset   uint64 `json:"last_offset"`
+	NextOffset   uint64 `json:"next_offset"`
+}
+
+type TransactionState struct {
+	TxID             uint64                      `json:"tx_id"`
+	TransactionalID  string                      `json:"transactional_id"`
+	ProducerID       uint64                      `json:"producer_id"`
+	ProducerEpoch    uint64                      `json:"producer_epoch"`
+	Status           TransactionStatus           `json:"status"`
+	TimeoutMS        uint64                      `json:"timeout_ms"`
+	CreatedAtMS      uint64                      `json:"created_at_ms"`
+	UpdatedAtMS      uint64                      `json:"updated_at_ms"`
+	ExpiresAtMS      uint64                      `json:"expires_at_ms"`
+	NextSequence     uint64                      `json:"next_sequence"`
+	Partitions       []TopicPartition            `json:"partitions,omitempty"`
+	PublishedBatches []TransactionPublishedBatch `json:"published_batches,omitempty"`
+	OffsetCommits    []TransactionOffsetCommit   `json:"offset_commits,omitempty"`
 }
 
 type RecordPage struct {

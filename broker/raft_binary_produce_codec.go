@@ -114,6 +114,7 @@ func writeBinaryRecordAppend(writer *raftBinaryWriter, record store.RecordAppend
 		return err
 	}
 	writer.writeU16(record.Attributes)
+	writeBinaryTransactionRecordMetadata(writer, record.Transaction)
 	return writer.writeBytes(record.Payload)
 }
 
@@ -171,17 +172,25 @@ func readBinaryRecordAppend(reader *raftBinaryReader) (store.RecordAppend, error
 	if err != nil {
 		return store.RecordAppend{}, err
 	}
+	transaction, hasTransaction, err := readBinaryTransactionRecordMetadata(reader)
+	if err != nil {
+		return store.RecordAppend{}, err
+	}
 	payload, err := reader.readBytes()
 	if err != nil {
 		return store.RecordAppend{}, err
 	}
-	return store.RecordAppend{
+	record := store.RecordAppend{
 		TimestampMS: timestampMS,
 		Key:         key,
 		Headers:     headers,
 		Attributes:  attributes,
 		Payload:     payload,
-	}, nil
+	}
+	if hasTransaction {
+		record.Transaction = &transaction
+	}
+	return record, nil
 }
 
 func readBinaryRecordHeaders(reader *raftBinaryReader) ([]store.RecordHeader, error) {

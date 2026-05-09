@@ -68,6 +68,7 @@ func setRaftHandler[R any, T any](
 func (b *Broker) raftCommandHandlers() *collectionmapping.Map[string, raftCommandHandler] {
 	handlers := collectionmapping.NewMap[string, raftCommandHandler]()
 	b.registerTopicRaftHandlers(handlers)
+	b.registerTransactionRaftHandlers(handlers)
 	b.registerDirectRaftHandlers(handlers)
 	b.registerGroupRaftHandlers(handlers)
 	b.registerRetryDelayRaftHandlers(handlers)
@@ -81,6 +82,15 @@ func (b *Broker) registerTopicRaftHandlers(handlers *collectionmapping.Map[strin
 	setRaftHandler(handlers, raftCommandProduceBatches, b.applyProduceBatches, "decode produce batches command")
 	setRaftHandler(handlers, raftCommandCommitOffset, b.applyCommitOffset, "decode commit offset command")
 	setRaftHandler(handlers, raftCommandCommitOffsets, b.applyCommitOffsets, "decode commit offsets command")
+}
+
+func (b *Broker) registerTransactionRaftHandlers(handlers *collectionmapping.Map[string, raftCommandHandler]) {
+	setRaftHandler(handlers, raftCommandTxBegin, b.applyTxBegin, "decode transaction begin command")
+	setRaftHandler(handlers, raftCommandTxPublish, b.applyTxPublish, "decode transaction publish command")
+	setRaftHandler(handlers, raftCommandTxPublishBatch, b.applyTxPublishBatch, "decode transaction publish batch command")
+	setRaftHandler(handlers, raftCommandTxCommitOffset, b.applyTxCommitOffset, "decode transaction commit offset command")
+	setRaftHandler(handlers, raftCommandTxCommit, b.applyTxCommit, "decode transaction commit command")
+	setRaftHandler(handlers, raftCommandTxAbort, b.applyTxAbort, "decode transaction abort command")
 }
 
 func (b *Broker) registerDirectRaftHandlers(handlers *collectionmapping.Map[string, raftCommandHandler]) {

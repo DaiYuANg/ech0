@@ -210,6 +210,7 @@ func newStoredRecord(offset uint64, appendRecord RecordAppend) Record {
 		Key:         cloneBytes(appendRecord.Key),
 		Headers:     cloneHeaders(appendRecord.Headers),
 		Attributes:  appendRecord.Attributes,
+		Transaction: cloneTransactionRecordMetadata(appendRecord.Transaction),
 		Payload:     cloneBytes(appendRecord.Payload),
 	}
 }

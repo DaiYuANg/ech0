@@ -11,27 +11,31 @@ import (
 )
 
 type Snapshot struct {
-	Topics      collectionlist.List[TopicConfig]             `json:"topics"`
-	Records     collectionmapping.Map[string, []Record]      `json:"records"`
-	LogOffsets  collectionmapping.Map[string, uint64]        `json:"log_offsets"`
-	Offsets     collectionmapping.Map[string, uint64]        `json:"offsets"`
-	Placements  collectionlist.List[ShardPlacement]          `json:"shard_placements"`
-	Members     collectionlist.List[ConsumerGroupMember]     `json:"members"`
-	Assignments collectionlist.List[ConsumerGroupAssignment] `json:"assignments"`
-	BrokerState *BrokerState                                 `json:"broker_state,omitempty"`
+	Topics            collectionlist.List[TopicConfig]             `json:"topics"`
+	Records           collectionmapping.Map[string, []Record]      `json:"records"`
+	LogOffsets        collectionmapping.Map[string, uint64]        `json:"log_offsets"`
+	Offsets           collectionmapping.Map[string, uint64]        `json:"offsets"`
+	Placements        collectionlist.List[ShardPlacement]          `json:"shard_placements"`
+	Members           collectionlist.List[ConsumerGroupMember]     `json:"members"`
+	Assignments       collectionlist.List[ConsumerGroupAssignment] `json:"assignments"`
+	Transactions      collectionlist.List[TransactionState]        `json:"transactions"`
+	NextTransactionID uint64                                       `json:"next_transaction_id,omitempty"`
+	BrokerState       *BrokerState                                 `json:"broker_state,omitempty"`
 }
 
 func (s *MemoryStore) Snapshot() (Snapshot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	snap := Snapshot{
-		Topics:      *collectionlist.NewListWithCapacity[TopicConfig](s.topics.Len()),
-		Records:     *collectionmapping.NewMapWithCapacity[string, []Record](s.records.Len()),
-		LogOffsets:  *collectionmapping.NewMapWithCapacity[string, uint64](s.nextOffsets.Len()),
-		Offsets:     *collectionmapping.NewMapWithCapacity[string, uint64](s.offsets.Len()),
-		Placements:  *collectionlist.NewListWithCapacity[ShardPlacement](s.placements.Len()),
-		Members:     *collectionlist.NewListWithCapacity[ConsumerGroupMember](s.members.Len()),
-		Assignments: *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](s.assignments.Len()),
+		Topics:            *collectionlist.NewListWithCapacity[TopicConfig](s.topics.Len()),
+		Records:           *collectionmapping.NewMapWithCapacity[string, []Record](s.records.Len()),
+		LogOffsets:        *collectionmapping.NewMapWithCapacity[string, uint64](s.nextOffsets.Len()),
+		Offsets:           *collectionmapping.NewMapWithCapacity[string, uint64](s.offsets.Len()),
+		Placements:        *collectionlist.NewListWithCapacity[ShardPlacement](s.placements.Len()),
+		Members:           *collectionlist.NewListWithCapacity[ConsumerGroupMember](s.members.Len()),
+		Assignments:       *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](s.assignments.Len()),
+		Transactions:      *collectionlist.NewListWithCapacity[TransactionState](s.transactions.Len()),
+		NextTransactionID: s.nextTxID,
 	}
 	topics := s.topics.Values()
 	for i := range topics {
@@ -68,6 +72,10 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		snap.Assignments.Add(assignment)
 		return true
 	})
+	s.transactions.Range(func(_ uint64, state TransactionState) bool {
+		snap.Transactions.Add(cloneTransactionState(state))
+		return true
+	})
 	if s.brokerState != nil {
 		cp := *s.brokerState
 		snap.BrokerState = &cp
@@ -90,20 +98,24 @@ func (s *MemoryStore) Restore(snapshot Snapshot) error {
 	s.placements = state.placements
 	s.members = state.members
 	s.assignments = state.assignments
+	s.transactions = state.transactions
+	s.nextTxID = state.nextTxID
 	s.brokerState = state.brokerState
 	return nil
 }
 
 type memoryRestoreState struct {
-	topics      *collectionmapping.OrderedMap[string, TopicConfig]
-	topicNames  *collectionset.Set[string]
-	records     *collectionmapping.Map[TopicPartition, []Record]
-	nextOffsets *collectionmapping.Map[TopicPartition, uint64]
-	offsets     *collectionmapping.Map[string, uint64]
-	placements  *collectionmapping.Map[TopicPartition, ShardPlacement]
-	members     *collectionmapping.Map[string, ConsumerGroupMember]
-	assignments *collectionmapping.Map[string, ConsumerGroupAssignment]
-	brokerState *BrokerState
+	topics       *collectionmapping.OrderedMap[string, TopicConfig]
+	topicNames   *collectionset.Set[string]
+	records      *collectionmapping.Map[TopicPartition, []Record]
+	nextOffsets  *collectionmapping.Map[TopicPartition, uint64]
+	offsets      *collectionmapping.Map[string, uint64]
+	placements   *collectionmapping.Map[TopicPartition, ShardPlacement]
+	members      *collectionmapping.Map[string, ConsumerGroupMember]
+	assignments  *collectionmapping.Map[string, ConsumerGroupAssignment]
+	transactions *collectionmapping.Map[uint64, TransactionState]
+	nextTxID     uint64
+	brokerState  *BrokerState
 }
 
 func buildMemoryRestoreState(snapshot Snapshot) (memoryRestoreState, error) {
@@ -115,15 +127,17 @@ func buildMemoryRestoreState(snapshot Snapshot) (memoryRestoreState, error) {
 		return memoryRestoreState{}, err
 	}
 	return memoryRestoreState{
-		topics:      topics,
-		topicNames:  topicNames,
-		records:     records,
-		nextOffsets: restoreMemoryLogOffsets(snapshot.LogOffsets, records),
-		offsets:     restoreMemoryOffsets(snapshot.Offsets),
-		placements:  restoreMemoryShardPlacements(snapshot.Placements),
-		members:     restoreMemoryMembers(snapshot.Members),
-		assignments: restoreMemoryAssignments(snapshot.Assignments),
-		brokerState: cloneBrokerState(snapshot.BrokerState),
+		topics:       topics,
+		topicNames:   topicNames,
+		records:      records,
+		nextOffsets:  restoreMemoryLogOffsets(snapshot.LogOffsets, records),
+		offsets:      restoreMemoryOffsets(snapshot.Offsets),
+		placements:   restoreMemoryShardPlacements(snapshot.Placements),
+		members:      restoreMemoryMembers(snapshot.Members),
+		assignments:  restoreMemoryAssignments(snapshot.Assignments),
+		transactions: restoreMemoryTransactions(snapshot.Transactions),
+		nextTxID:     restoreMemoryNextTransactionID(snapshot),
+		brokerState:  cloneBrokerState(snapshot.BrokerState),
 	}, nil
 }
 
@@ -207,6 +221,31 @@ func restoreMemoryAssignments(snapshotAssignments collectionlist.List[ConsumerGr
 		return true
 	})
 	return assignments
+}
+
+func restoreMemoryTransactions(snapshotTransactions collectionlist.List[TransactionState]) *collectionmapping.Map[uint64, TransactionState] {
+	transactions := collectionmapping.NewMapWithCapacity[uint64, TransactionState](snapshotTransactions.Len())
+	snapshotTransactions.Range(func(_ int, state TransactionState) bool {
+		if state.TxID != 0 {
+			transactions.Set(state.TxID, cloneTransactionState(state))
+		}
+		return true
+	})
+	return transactions
+}
+
+func restoreMemoryNextTransactionID(snapshot Snapshot) uint64 {
+	next := snapshot.NextTransactionID
+	if next == 0 {
+		next = 1
+	}
+	snapshot.Transactions.Range(func(_ int, state TransactionState) bool {
+		if state.TxID >= next {
+			next = state.TxID + 1
+		}
+		return true
+	})
+	return next
 }
 
 func cloneRecords(records []Record) []Record {

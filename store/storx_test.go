@@ -29,6 +29,27 @@ func TestStorxStoresPersistLogAndMetadata(t *testing.T) {
 	requirePersistedTopic(t, metaStore)
 }
 
+func TestStorxLogStorePersistsTransactionMetadata(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "segments")
+	logStore := openLogStore(t, logPath)
+	topic := store.NewTopicConfig("orders")
+	requireNoError(t, logStore.CreateTopic(topic))
+	_, err := logStore.AppendRecord(store.NewTopicPartition("orders", 0), store.RecordAppend{
+		Transaction: &store.TransactionRecordMetadata{TxID: 7, ProducerID: 7, Sequence: 3},
+		Payload:     []byte("m1"),
+	})
+	requireNoError(t, err)
+	closeLogStore(t, logStore)
+
+	logStore = openLogStore(t, logPath)
+	defer closeLogStore(t, logStore)
+	records, err := logStore.ReadFrom(store.NewTopicPartition("orders", 0), 0, 1)
+	requireNoError(t, err)
+	if len(records) != 1 || records[0].Transaction == nil || records[0].Transaction.TxID != 7 || records[0].Transaction.Sequence != 3 {
+		t.Fatalf("unexpected transaction metadata after reopen: %#v", records)
+	}
+}
+
 func TestStorxLogStorePersistsSegmentIndexesNextToSegments(t *testing.T) {
 	root := t.TempDir()
 	logPath := filepath.Join(root, "segments")

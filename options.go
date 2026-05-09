@@ -57,6 +57,7 @@ type fetchOptions struct {
 	partition  uint32
 	offset     *uint64
 	maxRecords int
+	isolation  internalbroker.FetchIsolation
 }
 
 type ProducerOption func(*producerOptions)
@@ -138,6 +139,12 @@ func FetchLimit(maxRecords int) FetchOption {
 		if maxRecords > 0 {
 			opts.maxRecords = maxRecords
 		}
+	}
+}
+
+func ReadCommitted() FetchOption {
+	return func(opts *fetchOptions) {
+		opts.isolation = internalbroker.FetchIsolationReadCommitted
 	}
 }
 

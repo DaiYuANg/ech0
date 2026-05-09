@@ -26,6 +26,12 @@ var tcpFrameHandlers = map[uint16]frameHandler{
 	protocol.CmdNackRequest:                       (*TCPServer).handleNackFrame,
 	protocol.CmdProcessRetryRequest:               (*TCPServer).handleProcessRetryFrame,
 	protocol.CmdScheduleDelayRequest:              (*TCPServer).handleScheduleDelayFrame,
+	protocol.CmdTxBeginRequest:                    (*TCPServer).handleTxBeginFrame,
+	protocol.CmdTxPublishRequest:                  (*TCPServer).handleTxPublishFrame,
+	protocol.CmdTxPublishBatchRequest:             (*TCPServer).handleTxPublishBatchFrame,
+	protocol.CmdTxCommitOffsetRequest:             (*TCPServer).handleTxCommitOffsetFrame,
+	protocol.CmdTxCommitRequest:                   (*TCPServer).handleTxCommitFrame,
+	protocol.CmdTxAbortRequest:                    (*TCPServer).handleTxAbortFrame,
 	protocol.CmdSendDirectRequest:                 (*TCPServer).handleSendDirectFrame,
 	protocol.CmdFetchInboxRequest:                 (*TCPServer).handleFetchInboxFrame,
 	protocol.CmdAckDirectRequest:                  (*TCPServer).handleAckDirectFrame,
@@ -173,7 +179,7 @@ func (s *TCPServer) handleFetchFrame(ctx context.Context, frame transport.Frame)
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	poll, err := s.broker.Fetch(ctx, req.Consumer, req.Topic, req.Partition, req.Offset, req.MaxRecords)
+	poll, err := s.broker.FetchWithIsolation(ctx, req.Consumer, req.Topic, req.Partition, req.Offset, req.MaxRecords, isolationFromProtocol(req.Isolation))
 	if err != nil {
 		return errorFromErr(err), nil
 	}
@@ -193,7 +199,7 @@ func (s *TCPServer) handleFetchBatchFrame(ctx context.Context, frame transport.F
 	}
 	items := collectionlist.NewListWithCapacity[protocol.FetchBatchItemResponse](len(req.Items))
 	for _, item := range req.Items {
-		poll, err := s.broker.Fetch(ctx, req.Consumer, item.Topic, item.Partition, item.Offset, item.MaxRecords)
+		poll, err := s.broker.FetchWithIsolation(ctx, req.Consumer, item.Topic, item.Partition, item.Offset, item.MaxRecords, isolationFromProtocol(req.Isolation))
 		if err != nil {
 			return errorFromErr(err), nil
 		}

@@ -27,3 +27,18 @@ func protocolHeadersFromStore(headers []store.RecordHeader) []protocol.MessageHe
 	}
 	return out.Values()
 }
+
+func isolationFromProtocol(value protocol.FetchIsolation) FetchIsolation {
+	if value == protocol.FetchIsolationReadCommitted {
+		return FetchIsolationReadCommitted
+	}
+	return FetchIsolationReadUncommitted
+}
+
+func transactionIdentityFromProtocol(identity protocol.TransactionIdentity) TransactionIdentity {
+	return TransactionIdentity{
+		TxID:          identity.TxID,
+		ProducerID:    identity.ProducerID,
+		ProducerEpoch: identity.ProducerEpoch,
+	}
+}

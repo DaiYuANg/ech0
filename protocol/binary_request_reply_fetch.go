@@ -19,6 +19,7 @@ func encodeFetchRequestsRequest(value any) ([]byte, error) {
 			return err
 		}
 		writer.writeOptionalU64(req.MaxWaitMS)
+		writeFetchIsolation(writer, req.Isolation)
 		return nil
 	})
 }
@@ -29,6 +30,7 @@ func decodeFetchRequestsRequest(data []byte, target any) error {
 		return FetchRequestsRequest{
 			Consumer: fetch.Consumer, Subject: fetch.Topic, Partition: fetch.Partition, Offset: fetch.Offset,
 			MaxRecords: fetch.MaxRecords, MinRecords: fetch.MinRecords, MaxWaitMS: fetch.MaxWaitMS,
+			Isolation: fetch.Isolation,
 		}, err
 	})
 }

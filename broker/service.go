@@ -53,6 +53,7 @@ type metadataStore interface {
 	store.TopicCatalogStore
 	store.ConsumerGroupStore
 	store.BrokerStateStore
+	store.TransactionStore
 }
 
 func New(cfg Config, opts ...Option) (*Broker, error) {

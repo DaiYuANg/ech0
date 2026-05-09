@@ -66,6 +66,58 @@ func TestTCPRequestReplyProtocolRoutesToOriginInstance(t *testing.T) {
 	}
 }
 
+func TestTCPTransactionProtocolCommitsReadCommittedRecords(t *testing.T) {
+	ctx := context.Background()
+	b := newTestBroker(t)
+	server := broker.NewTCPServer(broker.DefaultConfig(), b, nil, nil)
+	createTopic(ctx, t, b, store.NewTopicConfig("orders"))
+	partition := uint32(0)
+
+	begin := handleProtocolFrame[protocol.TxBeginResponse](ctx, t, server, protocol.CmdTxBeginRequest, protocol.CmdTxBeginResponse, protocol.TxBeginRequest{
+		TransactionalID: "worker-1",
+		TimeoutMS:       30_000,
+	})
+	if begin.Identity.TxID == 0 || begin.Status != protocol.TransactionStatusOpen {
+		t.Fatalf("unexpected begin response: %#v", begin)
+	}
+	handleProtocolFrame[protocol.TxPublishResponse](ctx, t, server, protocol.CmdTxPublishRequest, protocol.CmdTxPublishResponse, protocol.TxPublishRequest{
+		Identity:     begin.Identity,
+		Sequence:     0,
+		Topic:        "orders",
+		Partition:    &partition,
+		Partitioning: protocol.ProducePartitioningExplicit,
+		Payload:      []byte("m1"),
+	})
+
+	beforeCommit := handleProtocolFrame[protocol.FetchResponse](ctx, t, server, protocol.CmdFetchRequest, protocol.CmdFetchResponse, protocol.FetchRequest{
+		Consumer:   "c1",
+		Topic:      "orders",
+		Partition:  0,
+		MaxRecords: 1,
+		Isolation:  protocol.FetchIsolationReadCommitted,
+	})
+	if len(beforeCommit.Records) != 0 || beforeCommit.NextOffset != 0 {
+		t.Fatalf("expected transactional record to be hidden before commit, got %#v", beforeCommit)
+	}
+
+	committed := handleProtocolFrame[protocol.TxCommitResponse](ctx, t, server, protocol.CmdTxCommitRequest, protocol.CmdTxCommitResponse, protocol.TxCommitRequest{
+		Identity: begin.Identity,
+	})
+	if committed.Status != protocol.TransactionStatusCommitted {
+		t.Fatalf("unexpected commit response: %#v", committed)
+	}
+	afterCommit := handleProtocolFrame[protocol.FetchResponse](ctx, t, server, protocol.CmdFetchRequest, protocol.CmdFetchResponse, protocol.FetchRequest{
+		Consumer:   "c1",
+		Topic:      "orders",
+		Partition:  0,
+		MaxRecords: 1,
+		Isolation:  protocol.FetchIsolationReadCommitted,
+	})
+	if len(afterCommit.Records) != 1 || string(afterCommit.Records[0].Payload) != "m1" {
+		t.Fatalf("expected committed transactional record, got %#v", afterCommit)
+	}
+}
+
 func startRequestViaProtocol(ctx context.Context, t *testing.T, server *broker.TCPServer) protocol.StartRequestResponse {
 	t.Helper()
 	timeoutMS := uint64(1000)

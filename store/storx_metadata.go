@@ -3,6 +3,7 @@ package store
 import (
 	"cmp"
 	"context"
+	"sync"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
@@ -10,27 +11,33 @@ import (
 )
 
 const (
-	bucketTopics       = "topics"
-	bucketOffsets      = "offsets"
-	bucketMembers      = "group_members"
-	bucketMembersGroup = "group_members_by_group"
-	bucketAssignments  = "group_assignments"
-	bucketBrokerState  = "broker_state"
-	bucketPlacements   = "shard_placements"
-	brokerStateKey     = "current"
+	bucketTopics              = "topics"
+	bucketOffsets             = "offsets"
+	bucketMembers             = "group_members"
+	bucketMembersGroup        = "group_members_by_group"
+	bucketAssignments         = "group_assignments"
+	bucketBrokerState         = "broker_state"
+	bucketPlacements          = "shard_placements"
+	bucketTransactions        = "transactions"
+	bucketTransactionCounters = "transaction_counters"
+	brokerStateKey            = "current"
+	transactionCounterNext    = "next"
 )
 
 type StorxMetadataOptions struct{}
 
 type StorxMetadataStore struct {
-	db             *bboltx.DB
-	topics         *bboltx.Bucket[string, TopicConfig]
-	offsets        *bboltx.Bucket[string, uint64]
-	members        *bboltx.ModelStore[string, ConsumerGroupMember]
-	membersByGroup *bboltx.SecondaryIndexMany[string, ConsumerGroupMember, string]
-	assignments    *bboltx.Bucket[string, ConsumerGroupAssignment]
-	brokerState    *bboltx.Bucket[string, BrokerState]
-	placements     *bboltx.Bucket[string, ShardPlacement]
+	db                  *bboltx.DB
+	topics              *bboltx.Bucket[string, TopicConfig]
+	offsets             *bboltx.Bucket[string, uint64]
+	members             *bboltx.ModelStore[string, ConsumerGroupMember]
+	membersByGroup      *bboltx.SecondaryIndexMany[string, ConsumerGroupMember, string]
+	assignments         *bboltx.Bucket[string, ConsumerGroupAssignment]
+	brokerState         *bboltx.Bucket[string, BrokerState]
+	placements          *bboltx.Bucket[string, ShardPlacement]
+	transactions        *bboltx.Bucket[string, TransactionState]
+	transactionCounters *bboltx.Bucket[string, uint64]
+	txMu                sync.Mutex
 }
 
 func (s *StorxMetadataStore) Close() error {
@@ -233,13 +240,23 @@ func (s *StorxMetadataStore) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	transactions, err := s.ListTransactions()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	nextTransactionID, err := s.loadNextTransactionID()
+	if err != nil {
+		return Snapshot{}, err
+	}
 	return Snapshot{
-		Topics:      *collectionlist.NewListWithCapacity[TopicConfig](len(topics), topics...),
-		Offsets:     *offsets,
-		Placements:  *collectionlist.NewListWithCapacity[ShardPlacement](len(placements), placements...),
-		Members:     *collectionlist.NewListWithCapacity[ConsumerGroupMember](len(members), members...),
-		Assignments: *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](len(assignments), assignments...),
-		BrokerState: state,
+		Topics:            *collectionlist.NewListWithCapacity[TopicConfig](len(topics), topics...),
+		Offsets:           *offsets,
+		Placements:        *collectionlist.NewListWithCapacity[ShardPlacement](len(placements), placements...),
+		Members:           *collectionlist.NewListWithCapacity[ConsumerGroupMember](len(members), members...),
+		Assignments:       *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](len(assignments), assignments...),
+		Transactions:      *collectionlist.NewListWithCapacity[TransactionState](len(transactions), transactions...),
+		NextTransactionID: nextTransactionID,
+		BrokerState:       state,
 	}, nil
 }
 

@@ -107,15 +107,16 @@ type GetConsumerGroupAssignmentResponse struct {
 }
 
 type FetchConsumerGroupRequest struct {
-	Group      string  `json:"group"`
-	MemberID   string  `json:"member_id"`
-	Generation uint64  `json:"generation"`
-	Topic      string  `json:"topic"`
-	Partition  uint32  `json:"partition"`
-	Offset     *uint64 `json:"offset,omitempty"`
-	MaxRecords int     `json:"max_records"`
-	MinRecords *int    `json:"min_records,omitempty"`
-	MaxWaitMS  *uint64 `json:"max_wait_ms,omitempty"`
+	Group      string         `json:"group"`
+	MemberID   string         `json:"member_id"`
+	Generation uint64         `json:"generation"`
+	Topic      string         `json:"topic"`
+	Partition  uint32         `json:"partition"`
+	Offset     *uint64        `json:"offset,omitempty"`
+	MaxRecords int            `json:"max_records"`
+	MinRecords *int           `json:"min_records,omitempty"`
+	MaxWaitMS  *uint64        `json:"max_wait_ms,omitempty"`
+	Isolation  FetchIsolation `json:"isolation,omitempty"`
 }
 
 type FetchConsumerGroupResponse struct {
@@ -154,6 +155,7 @@ type FetchConsumerGroupBatchRequest struct {
 	Items      []FetchBatchItemRequest `json:"items"`
 	MinRecords *int                    `json:"min_records,omitempty"`
 	MaxWaitMS  *uint64                 `json:"max_wait_ms,omitempty"`
+	Isolation  FetchIsolation          `json:"isolation,omitempty"`
 }
 
 type FetchConsumerGroupBatchItemResponse struct {

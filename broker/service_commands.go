@@ -46,6 +46,48 @@ type commitOffsetsResult struct {
 	Items []commitOffsetItemResult
 }
 
+type TransactionIdentity struct {
+	TxID          uint64
+	ProducerID    uint64
+	ProducerEpoch uint64
+}
+
+type txBeginCommand struct {
+	TransactionalID string
+	TimeoutMS       uint64
+}
+
+type txPublishCommand struct {
+	Identity  TransactionIdentity
+	Sequence  uint64
+	Topic     string
+	Partition uint32
+	Record    store.RecordAppend
+}
+
+type txPublishBatchCommand struct {
+	Identity     TransactionIdentity
+	BaseSequence uint64
+	Topic        string
+	Partition    uint32
+	Records      []store.RecordAppend
+}
+
+type txCommitOffsetCommand struct {
+	Identity   TransactionIdentity
+	Consumer   string
+	Group      string
+	MemberID   string
+	Generation uint64
+	Topic      string
+	Partition  uint32
+	NextOffset uint64
+}
+
+type txBoundaryCommand struct {
+	Identity TransactionIdentity
+}
+
 type directCommand struct {
 	Sender         string
 	Recipient      string

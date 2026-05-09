@@ -33,7 +33,7 @@ func (s *TCPServer) handleFetchRequestsFrame(ctx context.Context, frame transpor
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	result, err := s.broker.FetchRequests(ctx, req.Consumer, req.Subject, req.Partition, req.Offset, req.MaxRecords)
+	result, err := s.broker.FetchRequestsWithIsolation(ctx, req.Consumer, req.Subject, req.Partition, req.Offset, req.MaxRecords, isolationFromProtocol(req.Isolation))
 	if err != nil {
 		return errorFromErr(err), nil
 	}

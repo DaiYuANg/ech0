@@ -61,7 +61,23 @@ func cloneRecord(record Record) Record {
 	record.Key = cloneBytes(record.Key)
 	record.Payload = cloneBytes(record.Payload)
 	record.Headers = cloneHeaders(record.Headers)
+	record.Transaction = cloneTransactionRecordMetadata(record.Transaction)
 	return record
+}
+
+func cloneTransactionRecordMetadata(metadata *TransactionRecordMetadata) *TransactionRecordMetadata {
+	if metadata == nil {
+		return nil
+	}
+	cp := *metadata
+	return &cp
+}
+
+func cloneTransactionState(state TransactionState) TransactionState {
+	state.Partitions = collectionlist.NewList(state.Partitions...).Values()
+	state.PublishedBatches = collectionlist.NewList(state.PublishedBatches...).Values()
+	state.OffsetCommits = collectionlist.NewList(state.OffsetCommits...).Values()
+	return state
 }
 
 func cloneHeaders(headers []RecordHeader) []RecordHeader {

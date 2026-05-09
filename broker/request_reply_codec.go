@@ -130,6 +130,7 @@ func cloneRecord(record store.Record) store.Record {
 		Key:         append([]byte(nil), record.Key...),
 		Headers:     cloneHeaders(record.Headers),
 		Attributes:  record.Attributes,
+		Transaction: cloneTransactionRecordMetadata(record.Transaction),
 		Payload:     append([]byte(nil), record.Payload...),
 	}
 }

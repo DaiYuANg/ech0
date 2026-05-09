@@ -47,6 +47,8 @@ The root `ech0` package exposes:
 
 The root API deliberately does not expose the full broker `Config`. Embedded users configure only required runtime choices such as data directory, node ID, payload limits, and optional peer settings.
 
+The wire protocol includes transaction commands and record metadata in protocol version `1`. The broker now has a core transaction engine: transaction state is stored in metadata snapshots, transactional records carry metadata in the segment log, `read_committed` fetches hide open or aborted transactions, and `TxCommitOffset` lets consume-process-produce flows commit offsets with the transaction.
+
 ## Internal Service Model
 
 `broker.Broker` is the main service boundary. Mutating operations are routed through command routers:

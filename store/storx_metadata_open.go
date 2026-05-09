@@ -60,13 +60,15 @@ func newStorxMetadataStore(db *bboltx.DB) *StorxMetadataStore {
 		bboltx.WithModelIndex[string, ConsumerGroupMember](membersByGroup),
 	)
 	return &StorxMetadataStore{
-		db:             db,
-		topics:         bboltx.NewBucketWithDB(db, bucketTopics, keyCodec, codec.JSON[TopicConfig]()),
-		offsets:        bboltx.NewBucketWithDB(db, bucketOffsets, keyCodec, codec.JSON[uint64]()),
-		members:        members,
-		membersByGroup: membersByGroup,
-		assignments:    bboltx.NewBucketWithDB(db, bucketAssignments, keyCodec, codec.JSON[ConsumerGroupAssignment]()),
-		brokerState:    bboltx.NewBucketWithDB(db, bucketBrokerState, keyCodec, codec.JSON[BrokerState]()),
-		placements:     bboltx.NewBucketWithDB(db, bucketPlacements, keyCodec, codec.JSON[ShardPlacement]()),
+		db:                  db,
+		topics:              bboltx.NewBucketWithDB(db, bucketTopics, keyCodec, codec.JSON[TopicConfig]()),
+		offsets:             bboltx.NewBucketWithDB(db, bucketOffsets, keyCodec, codec.JSON[uint64]()),
+		members:             members,
+		membersByGroup:      membersByGroup,
+		assignments:         bboltx.NewBucketWithDB(db, bucketAssignments, keyCodec, codec.JSON[ConsumerGroupAssignment]()),
+		brokerState:         bboltx.NewBucketWithDB(db, bucketBrokerState, keyCodec, codec.JSON[BrokerState]()),
+		placements:          bboltx.NewBucketWithDB(db, bucketPlacements, keyCodec, codec.JSON[ShardPlacement]()),
+		transactions:        bboltx.NewBucketWithDB(db, bucketTransactions, keyCodec, codec.JSON[TransactionState]()),
+		transactionCounters: bboltx.NewBucketWithDB(db, bucketTransactionCounters, keyCodec, codec.JSON[uint64]()),
 	}
 }

@@ -2,7 +2,7 @@
 package protocol
 
 // Version is the current ech0 wire protocol version.
-const Version uint8 = 2
+const Version uint8 = 1
 
 const (
 	CmdHandshakeRequest uint16 = 1
@@ -19,6 +19,13 @@ const (
 	CmdNackRequest           uint16 = 30
 	CmdProcessRetryRequest   uint16 = 31
 	CmdScheduleDelayRequest  uint16 = 32
+
+	CmdTxBeginRequest        uint16 = 70
+	CmdTxPublishRequest      uint16 = 71
+	CmdTxPublishBatchRequest uint16 = 72
+	CmdTxCommitOffsetRequest uint16 = 73
+	CmdTxCommitRequest       uint16 = 74
+	CmdTxAbortRequest        uint16 = 75
 
 	CmdSendDirectRequest uint16 = 40
 	CmdFetchInboxRequest uint16 = 41
@@ -53,6 +60,13 @@ const (
 	CmdNackResponse           uint16 = 1030
 	CmdProcessRetryResponse   uint16 = 1031
 	CmdScheduleDelayResponse  uint16 = 1032
+
+	CmdTxBeginResponse        uint16 = 1070
+	CmdTxPublishResponse      uint16 = 1071
+	CmdTxPublishBatchResponse uint16 = 1072
+	CmdTxCommitOffsetResponse uint16 = 1073
+	CmdTxCommitResponse       uint16 = 1074
+	CmdTxAbortResponse        uint16 = 1075
 
 	CmdSendDirectResponse uint16 = 1040
 	CmdFetchInboxResponse uint16 = 1041
@@ -93,4 +107,27 @@ const (
 	ProducePartitioningExplicit   ProducePartitioning = "explicit"
 	ProducePartitioningRoundRobin ProducePartitioning = "round_robin"
 	ProducePartitioningKeyHash    ProducePartitioning = "key_hash"
+)
+
+type FetchIsolation string
+
+const (
+	FetchIsolationReadUncommitted FetchIsolation = "read_uncommitted"
+	FetchIsolationReadCommitted   FetchIsolation = "read_committed"
+)
+
+type TransactionStatus string
+
+const (
+	TransactionStatusOpen      TransactionStatus = "open"
+	TransactionStatusCommitted TransactionStatus = "committed"
+	TransactionStatusAborted   TransactionStatus = "aborted"
+)
+
+type TransactionControlType string
+
+const (
+	TransactionControlNone   TransactionControlType = ""
+	TransactionControlCommit TransactionControlType = "commit"
+	TransactionControlAbort  TransactionControlType = "abort"
 )

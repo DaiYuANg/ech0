@@ -96,6 +96,10 @@ func decodeSegmentRecordBody(body []byte) (Record, error) {
 	if err := decoder.readRecordFields(&record); err != nil {
 		return Record{}, err
 	}
+	transaction, hasTransaction, err := decoder.readTransaction()
+	if err != nil {
+		return Record{}, err
+	}
 	headers, err := decoder.readHeaders()
 	if err != nil {
 		return Record{}, err
@@ -103,6 +107,9 @@ func decodeSegmentRecordBody(body []byte) (Record, error) {
 	payload, err := decoder.readBytes()
 	if err != nil {
 		return Record{}, err
+	}
+	if hasTransaction {
+		record.Transaction = &transaction
 	}
 	record.Headers = headers
 	record.Payload = payload
@@ -266,29 +273,4 @@ func (d *segmentRecordDecoder) readByte() (byte, error) {
 
 func (d *segmentRecordDecoder) remaining() int {
 	return len(d.body) - d.cursor
-}
-
-func finishSegmentInt(length, digits int) (int, error) {
-	if digits == 0 {
-		return 0, E(CodeCodec, "empty segment length")
-	}
-	return length, nil
-}
-
-func segmentLengthDigit(digit byte) (int, bool) {
-	if digit < '0' || digit > '9' {
-		return 0, false
-	}
-	return int(digit - '0'), true
-}
-
-func appendSegmentLengthDigit(length, digit int) (int, error) {
-	if length > (maxSegmentInt()-digit)/10 {
-		return 0, E(CodeCodec, "segment length overflows int")
-	}
-	return length*10 + digit, nil
-}
-
-func maxSegmentInt() int {
-	return int(^uint(0) >> 1)
 }

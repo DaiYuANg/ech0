@@ -26,6 +26,9 @@ func (s *StorxMetadataStore) Restore(snapshot Snapshot) error {
 	if err := s.restoreMetadataAssignments(snapshot.Assignments); err != nil {
 		return err
 	}
+	if err := s.restoreMetadataTransactions(snapshot); err != nil {
+		return err
+	}
 	return s.restoreMetadataBrokerState(snapshot.BrokerState)
 }
 
@@ -37,6 +40,8 @@ func (s *StorxMetadataStore) clearMetadataBuckets() error {
 		bucketClearer[string, ConsumerGroupAssignment]{s.assignments},
 		bucketClearer[string, BrokerState]{s.brokerState},
 		bucketClearer[string, ShardPlacement]{s.placements},
+		bucketClearer[string, TransactionState]{s.transactions},
+		bucketClearer[string, uint64]{s.transactionCounters},
 	} {
 		if err := bucket.Clear(context.Background()); err != nil {
 			return wrapExternal(err, "clear metadata bucket")

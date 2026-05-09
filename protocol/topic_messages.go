@@ -71,6 +71,14 @@ type ProduceBatchRecord struct {
 	Payload   []byte          `json:"payload"`
 }
 
+type TransactionRecordMetadata struct {
+	TxID          uint64                 `json:"tx_id"`
+	ProducerID    uint64                 `json:"producer_id"`
+	ProducerEpoch uint64                 `json:"producer_epoch"`
+	Sequence      uint64                 `json:"sequence"`
+	ControlType   TransactionControlType `json:"control_type,omitempty"`
+}
+
 type ProduceBatchRequest struct {
 	Topic        string               `json:"topic"`
 	Partition    *uint32              `json:"partition,omitempty"`
@@ -114,22 +122,24 @@ type ProduceBatchesResponse struct {
 }
 
 type FetchRequest struct {
-	Consumer   string  `json:"consumer"`
-	Topic      string  `json:"topic"`
-	Partition  uint32  `json:"partition"`
-	Offset     *uint64 `json:"offset,omitempty"`
-	MaxRecords int     `json:"max_records"`
-	MinRecords *int    `json:"min_records,omitempty"`
-	MaxWaitMS  *uint64 `json:"max_wait_ms,omitempty"`
+	Consumer   string         `json:"consumer"`
+	Topic      string         `json:"topic"`
+	Partition  uint32         `json:"partition"`
+	Offset     *uint64        `json:"offset,omitempty"`
+	MaxRecords int            `json:"max_records"`
+	MinRecords *int           `json:"min_records,omitempty"`
+	MaxWaitMS  *uint64        `json:"max_wait_ms,omitempty"`
+	Isolation  FetchIsolation `json:"isolation,omitempty"`
 }
 
 type FetchRecord struct {
-	Offset      uint64          `json:"offset"`
-	TimestampMS uint64          `json:"timestamp_ms"`
-	Key         []byte          `json:"key,omitempty"`
-	Headers     []MessageHeader `json:"headers,omitempty"`
-	Tombstone   bool            `json:"tombstone,omitempty"`
-	Payload     []byte          `json:"payload"`
+	Offset      uint64                     `json:"offset"`
+	TimestampMS uint64                     `json:"timestamp_ms"`
+	Key         []byte                     `json:"key,omitempty"`
+	Headers     []MessageHeader            `json:"headers,omitempty"`
+	Tombstone   bool                       `json:"tombstone,omitempty"`
+	Transaction *TransactionRecordMetadata `json:"transaction,omitempty"`
+	Payload     []byte                     `json:"payload"`
 }
 
 type FetchResponse struct {
@@ -152,6 +162,7 @@ type FetchBatchRequest struct {
 	Items      []FetchBatchItemRequest `json:"items"`
 	MinRecords *int                    `json:"min_records,omitempty"`
 	MaxWaitMS  *uint64                 `json:"max_wait_ms,omitempty"`
+	Isolation  FetchIsolation          `json:"isolation,omitempty"`
 }
 
 type FetchBatchItemResponse struct {

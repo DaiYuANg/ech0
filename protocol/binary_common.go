@@ -74,6 +74,92 @@ func readPartitioning(reader *binaryReader) (ProducePartitioning, error) {
 	}
 }
 
+func writeFetchIsolation(writer *binaryWriter, value FetchIsolation) {
+	switch value {
+	case "", FetchIsolationReadUncommitted:
+		writer.writeU8(1)
+	case FetchIsolationReadCommitted:
+		writer.writeU8(2)
+	default:
+		writer.writeU8(0)
+	}
+}
+
+func readFetchIsolation(reader *binaryReader) (FetchIsolation, error) {
+	value, err := reader.readU8()
+	if err != nil {
+		return "", err
+	}
+	switch value {
+	case 1:
+		return FetchIsolationReadUncommitted, nil
+	case 2:
+		return FetchIsolationReadCommitted, nil
+	default:
+		return "", oops.In("protocol").Code("binary_unknown_fetch_isolation").With("value", value).New("unknown fetch isolation")
+	}
+}
+
+func writeTransactionStatus(writer *binaryWriter, status TransactionStatus) {
+	switch status {
+	case "", TransactionStatusOpen:
+		writer.writeU8(1)
+	case TransactionStatusCommitted:
+		writer.writeU8(2)
+	case TransactionStatusAborted:
+		writer.writeU8(3)
+	default:
+		writer.writeU8(0)
+	}
+}
+
+func readTransactionStatus(reader *binaryReader) (TransactionStatus, error) {
+	value, err := reader.readU8()
+	if err != nil {
+		return "", err
+	}
+	switch value {
+	case 1:
+		return TransactionStatusOpen, nil
+	case 2:
+		return TransactionStatusCommitted, nil
+	case 3:
+		return TransactionStatusAborted, nil
+	default:
+		return "", oops.In("protocol").Code("binary_unknown_transaction_status").With("value", value).New("unknown transaction status")
+	}
+}
+
+func writeTransactionControlType(writer *binaryWriter, controlType TransactionControlType) {
+	switch controlType {
+	case TransactionControlNone:
+		writer.writeU8(0)
+	case TransactionControlCommit:
+		writer.writeU8(1)
+	case TransactionControlAbort:
+		writer.writeU8(2)
+	default:
+		writer.writeU8(255)
+	}
+}
+
+func readTransactionControlType(reader *binaryReader) (TransactionControlType, error) {
+	value, err := reader.readU8()
+	if err != nil {
+		return "", err
+	}
+	switch value {
+	case 0:
+		return TransactionControlNone, nil
+	case 1:
+		return TransactionControlCommit, nil
+	case 2:
+		return TransactionControlAbort, nil
+	default:
+		return "", oops.In("protocol").Code("binary_unknown_transaction_control").With("value", value).New("unknown transaction control type")
+	}
+}
+
 func writeCleanupPolicy(writer *binaryWriter, value *TopicCleanupPolicy) {
 	if value == nil {
 		writer.writeBool(false)

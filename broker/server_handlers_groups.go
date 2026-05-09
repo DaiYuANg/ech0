@@ -129,7 +129,7 @@ func (s *TCPServer) handleFetchConsumerGroupFrame(ctx context.Context, frame tra
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	poll, err := s.broker.FetchConsumerGroup(ctx, req.Group, req.MemberID, req.Generation, req.Topic, req.Partition, req.Offset, req.MaxRecords)
+	poll, err := s.broker.FetchConsumerGroupWithIsolation(ctx, req.Group, req.MemberID, req.Generation, req.Topic, req.Partition, req.Offset, req.MaxRecords, isolationFromProtocol(req.Isolation))
 	if err != nil {
 		return errorFromErr(err), nil
 	}
@@ -180,7 +180,7 @@ func (s *TCPServer) fetchConsumerGroupBatchItems(
 ) ([]protocol.FetchConsumerGroupBatchItemResponse, error) {
 	items := collectionlist.NewListWithCapacity[protocol.FetchConsumerGroupBatchItemResponse](len(req.Items))
 	for _, item := range req.Items {
-		poll, err := s.broker.FetchConsumerGroup(ctx, req.Group, req.MemberID, req.Generation, item.Topic, item.Partition, item.Offset, item.MaxRecords)
+		poll, err := s.broker.FetchConsumerGroupWithIsolation(ctx, req.Group, req.MemberID, req.Generation, item.Topic, item.Partition, item.Offset, item.MaxRecords, isolationFromProtocol(req.Isolation))
 		if err != nil {
 			return nil, err
 		}

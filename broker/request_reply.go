@@ -76,7 +76,19 @@ func (b *Broker) AwaitReply(ctx context.Context, pending PendingRequest) (ReplyM
 }
 
 func (b *Broker) FetchRequests(ctx context.Context, consumer, subject string, partition uint32, offset *uint64, maxRecords int) (RequestPollResult, error) {
-	poll, err := b.Fetch(ctx, consumer, subject, partition, offset, maxRecords)
+	return b.FetchRequestsWithIsolation(ctx, consumer, subject, partition, offset, maxRecords, FetchIsolationReadUncommitted)
+}
+
+func (b *Broker) FetchRequestsWithIsolation(
+	ctx context.Context,
+	consumer string,
+	subject string,
+	partition uint32,
+	offset *uint64,
+	maxRecords int,
+	isolation FetchIsolation,
+) (RequestPollResult, error) {
+	poll, err := b.FetchWithIsolation(ctx, consumer, subject, partition, offset, maxRecords, isolation)
 	if err != nil {
 		return RequestPollResult{}, err
 	}

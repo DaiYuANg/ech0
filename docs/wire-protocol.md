@@ -9,7 +9,7 @@ Every TCP message is one frame:
 | Offset | Size | Field | Description |
 | --- | ---: | --- | --- |
 | 0 | 4 | magic | `ECH0`, encoded as `0x45434830`. |
-| 4 | 1 | version | Current protocol version. |
+| 4 | 1 | version | Current protocol version, currently `1`. |
 | 5 | 1 | header_len | Currently `28`. |
 | 6 | 2 | flags | Reserved for future frame flags. |
 | 8 | 2 | command | Command ID from `protocol`. |
@@ -60,6 +60,7 @@ Command IDs are grouped by feature:
 - `40-42`: direct inbox messaging.
 - `50-54`: request/reply.
 - `60-66`: consumer group membership, assignment, fetch, and commit.
+- `70-75`: transactions.
 - `1001+`: responses.
 - `1500`: error response.
 
@@ -78,13 +79,13 @@ Transport-level failures such as invalid magic, unsupported header length, or ov
 
 ## Compatibility Rules
 
-The current protocol is versioned by `protocol.Version`. Since compatibility with older pre-binary formats is not required, version `2` defines the custom binary contract.
+The current protocol is versioned by `protocol.Version`. The project has not shipped a stable public release yet, so the custom binary contract remains protocol version `1` and incompatible protocol changes are folded into that version.
 
 Future changes should follow these rules:
 
-- Add new commands instead of changing existing command field order.
-- Append optional fields only when older clients can safely stop reading at the old body length.
-- Bump `protocol.Version` for incompatible body changes.
+- Add new commands when that keeps the command surface clearer.
+- Field order may still change before the first stable release when it makes the client contract simpler.
+- Keep `protocol.Version` at `1` until there is a released compatibility promise.
 - Keep `HeaderLen` stable unless transport framing itself changes.
 - Update `protocol.CommandIDs()` tests when adding commands.
 
@@ -98,4 +99,3 @@ A non-Go client needs only:
 4. Error frame handling.
 
 Clients do not need to hand-write internal broker envelopes for request/reply. Request/reply is exposed as protocol commands.
-

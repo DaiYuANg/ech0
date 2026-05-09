@@ -57,6 +57,13 @@ type BrokerStateStore interface {
 	LoadBrokerState() (*BrokerState, error)
 }
 
+type TransactionStore interface {
+	AllocateTransactionID() (uint64, error)
+	SaveTransaction(state TransactionState) error
+	LoadTransaction(txID uint64) (*TransactionState, error)
+	ListTransactions() ([]TransactionState, error)
+}
+
 type Snapshotter interface {
 	Snapshot() (Snapshot, error)
 	Restore(snapshot Snapshot) error

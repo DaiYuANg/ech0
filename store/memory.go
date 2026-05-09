@@ -12,27 +12,31 @@ import (
 type MemoryStore struct {
 	mu sync.RWMutex
 
-	topics      *collectionmapping.OrderedMap[string, TopicConfig]
-	topicNames  *collectionset.Set[string]
-	records     *collectionmapping.Map[TopicPartition, []Record]
-	nextOffsets *collectionmapping.Map[TopicPartition, uint64]
-	offsets     *collectionmapping.Map[string, uint64]
-	placements  *collectionmapping.Map[TopicPartition, ShardPlacement]
-	members     *collectionmapping.Map[string, ConsumerGroupMember]
-	assignments *collectionmapping.Map[string, ConsumerGroupAssignment]
-	brokerState *BrokerState
+	topics       *collectionmapping.OrderedMap[string, TopicConfig]
+	topicNames   *collectionset.Set[string]
+	records      *collectionmapping.Map[TopicPartition, []Record]
+	nextOffsets  *collectionmapping.Map[TopicPartition, uint64]
+	offsets      *collectionmapping.Map[string, uint64]
+	placements   *collectionmapping.Map[TopicPartition, ShardPlacement]
+	members      *collectionmapping.Map[string, ConsumerGroupMember]
+	assignments  *collectionmapping.Map[string, ConsumerGroupAssignment]
+	transactions *collectionmapping.Map[uint64, TransactionState]
+	nextTxID     uint64
+	brokerState  *BrokerState
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		topics:      collectionmapping.NewOrderedMap[string, TopicConfig](),
-		topicNames:  collectionset.NewSet[string](),
-		records:     collectionmapping.NewMap[TopicPartition, []Record](),
-		nextOffsets: collectionmapping.NewMap[TopicPartition, uint64](),
-		offsets:     collectionmapping.NewMap[string, uint64](),
-		placements:  collectionmapping.NewMap[TopicPartition, ShardPlacement](),
-		members:     collectionmapping.NewMap[string, ConsumerGroupMember](),
-		assignments: collectionmapping.NewMap[string, ConsumerGroupAssignment](),
+		topics:       collectionmapping.NewOrderedMap[string, TopicConfig](),
+		topicNames:   collectionset.NewSet[string](),
+		records:      collectionmapping.NewMap[TopicPartition, []Record](),
+		nextOffsets:  collectionmapping.NewMap[TopicPartition, uint64](),
+		offsets:      collectionmapping.NewMap[string, uint64](),
+		placements:   collectionmapping.NewMap[TopicPartition, ShardPlacement](),
+		members:      collectionmapping.NewMap[string, ConsumerGroupMember](),
+		assignments:  collectionmapping.NewMap[string, ConsumerGroupAssignment](),
+		transactions: collectionmapping.NewMap[uint64, TransactionState](),
+		nextTxID:     1,
 	}
 }
 
@@ -101,6 +105,7 @@ func (s *MemoryStore) AppendRecord(topicPartition TopicPartition, appendRecord R
 		Key:         cloneBytes(appendRecord.Key),
 		Headers:     cloneHeaders(appendRecord.Headers),
 		Attributes:  appendRecord.Attributes,
+		Transaction: cloneTransactionRecordMetadata(appendRecord.Transaction),
 		Payload:     cloneBytes(appendRecord.Payload),
 	}
 	s.records.Set(topicPartition, append(existing, record))

@@ -23,6 +23,7 @@ func encodeFetchConsumerGroupRequest(value any) ([]byte, error) {
 			return err
 		}
 		writer.writeOptionalU64(req.MaxWaitMS)
+		writeFetchIsolation(writer, req.Isolation)
 		return nil
 	})
 }
@@ -69,6 +70,9 @@ func readFetchConsumerGroupTail(reader *binaryReader, req FetchConsumerGroupRequ
 		return FetchConsumerGroupRequest{}, err
 	}
 	if req.MaxWaitMS, err = reader.readOptionalU64(); err != nil {
+		return FetchConsumerGroupRequest{}, err
+	}
+	if req.Isolation, err = readFetchIsolation(reader); err != nil {
 		return FetchConsumerGroupRequest{}, err
 	}
 	return req, nil

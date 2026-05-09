@@ -111,6 +111,7 @@ func encodeFetchConsumerGroupBatchRequest(value any) ([]byte, error) {
 			return err
 		}
 		writer.writeOptionalU64(req.MaxWaitMS)
+		writeFetchIsolation(writer, req.Isolation)
 		return nil
 	})
 }
@@ -139,6 +140,9 @@ func readFetchConsumerGroupBatchRequest(reader *binaryReader) (FetchConsumerGrou
 		return FetchConsumerGroupBatchRequest{}, err
 	}
 	if req.MaxWaitMS, err = reader.readOptionalU64(); err != nil {
+		return FetchConsumerGroupBatchRequest{}, err
+	}
+	if req.Isolation, err = readFetchIsolation(reader); err != nil {
 		return FetchConsumerGroupBatchRequest{}, err
 	}
 	return req, nil

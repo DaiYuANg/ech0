@@ -12,6 +12,7 @@ func encodeFetchBatchRequest(value any) ([]byte, error) {
 			return err
 		}
 		writer.writeOptionalU64(req.MaxWaitMS)
+		writeFetchIsolation(writer, req.Isolation)
 		return nil
 	})
 }
@@ -33,6 +34,9 @@ func readFetchBatchRequest(reader *binaryReader) (FetchBatchRequest, error) {
 		return FetchBatchRequest{}, err
 	}
 	if req.MaxWaitMS, err = reader.readOptionalU64(); err != nil {
+		return FetchBatchRequest{}, err
+	}
+	if req.Isolation, err = readFetchIsolation(reader); err != nil {
 		return FetchBatchRequest{}, err
 	}
 	return req, nil

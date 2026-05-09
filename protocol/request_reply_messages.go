@@ -23,13 +23,14 @@ type StartRequestResponse struct {
 }
 
 type FetchRequestsRequest struct {
-	Consumer   string  `json:"consumer"`
-	Subject    string  `json:"subject"`
-	Partition  uint32  `json:"partition"`
-	Offset     *uint64 `json:"offset,omitempty"`
-	MaxRecords int     `json:"max_records"`
-	MinRecords *int    `json:"min_records,omitempty"`
-	MaxWaitMS  *uint64 `json:"max_wait_ms,omitempty"`
+	Consumer   string         `json:"consumer"`
+	Subject    string         `json:"subject"`
+	Partition  uint32         `json:"partition"`
+	Offset     *uint64        `json:"offset,omitempty"`
+	MaxRecords int            `json:"max_records"`
+	MinRecords *int           `json:"min_records,omitempty"`
+	MaxWaitMS  *uint64        `json:"max_wait_ms,omitempty"`
+	Isolation  FetchIsolation `json:"isolation,omitempty"`
 }
 
 type RequestRecord struct {

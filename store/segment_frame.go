@@ -62,6 +62,7 @@ func encodeSegmentBatchFrameWithCompression(records []Record, compression segmen
 
 func appendSegmentRecordBody(out []byte, record Record) []byte {
 	out = appendSegmentRecordFields(out, record)
+	out = appendSegmentTransaction(out, record.Transaction)
 	out = appendSegmentHeaders(out, record.Headers)
 	return appendSegmentBytes(out, record.Payload)
 }
@@ -69,6 +70,10 @@ func appendSegmentRecordBody(out []byte, record Record) []byte {
 func segmentRecordBodySize(record Record) int {
 	size := 8 + 8 + 2
 	size += segmentBytesEncodedLen(len(record.Key))
+	size++
+	if record.Transaction != nil {
+		size += 8 + 8 + 8 + 8 + 1
+	}
 	size += segmentIntEncodedLen(len(record.Headers))
 	for _, header := range record.Headers {
 		size += segmentStringEncodedLen(header.Key)
@@ -83,6 +88,31 @@ func appendSegmentRecordFields(out []byte, record Record) []byte {
 	out = binary.BigEndian.AppendUint64(out, record.TimestampMS)
 	out = binary.BigEndian.AppendUint16(out, record.Attributes)
 	return appendSegmentBytes(out, record.Key)
+}
+
+func appendSegmentTransaction(out []byte, metadata *TransactionRecordMetadata) []byte {
+	if metadata == nil {
+		return append(out, 0)
+	}
+	out = append(out, 1)
+	out = binary.BigEndian.AppendUint64(out, metadata.TxID)
+	out = binary.BigEndian.AppendUint64(out, metadata.ProducerID)
+	out = binary.BigEndian.AppendUint64(out, metadata.ProducerEpoch)
+	out = binary.BigEndian.AppendUint64(out, metadata.Sequence)
+	return append(out, encodeSegmentTransactionControl(metadata.ControlType))
+}
+
+func encodeSegmentTransactionControl(controlType TransactionControlType) byte {
+	switch controlType {
+	case TransactionControlNone:
+		return 0
+	case TransactionControlCommit:
+		return 1
+	case TransactionControlAbort:
+		return 2
+	default:
+		return 0
+	}
 }
 
 func appendSegmentHeaders(out []byte, headers []RecordHeader) []byte {

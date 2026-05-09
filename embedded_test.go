@@ -28,6 +28,30 @@ func TestEmbeddedBrokerMinimalFlow(t *testing.T) {
 	}
 }
 
+func TestEmbeddedTransactionFlow(t *testing.T) {
+	ctx := context.Background()
+	b := openEmbeddedBroker(ctx, t)
+	defer closeEmbeddedBroker(ctx, t, b)
+
+	requireNoError(t, b.CreateTopic(ctx, "orders"))
+	tx, err := b.BeginTransaction(ctx, "worker-1")
+	requireNoError(t, err)
+	_, err = tx.Publish(ctx, "orders", []byte("m1"))
+	requireNoError(t, err)
+
+	hidden, err := b.Fetch(ctx, "c1", "orders", ech0.FetchLimit(10), ech0.ReadCommitted())
+	requireNoError(t, err)
+	if len(hidden.Messages) != 0 {
+		t.Fatalf("expected read_committed to hide open transaction, got %#v", hidden)
+	}
+	requireNoError(t, tx.Commit(ctx))
+	visible, err := b.Fetch(ctx, "c1", "orders", ech0.FetchLimit(10), ech0.ReadCommitted())
+	requireNoError(t, err)
+	if len(visible.Messages) != 1 || string(visible.Messages[0].Payload) != "m1" {
+		t.Fatalf("unexpected committed transaction fetch: %#v", visible)
+	}
+}
+
 func openEmbeddedBroker(ctx context.Context, t *testing.T) *ech0.Broker {
 	t.Helper()
 	b, err := ech0.Open(ctx, ech0.Options{DataDir: t.TempDir()})
