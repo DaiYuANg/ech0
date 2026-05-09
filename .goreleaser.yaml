@@ -106,7 +106,7 @@ nfpms:
       preremove: packaging/scripts/preremove.sh
 
 dockers_v2:
-  - id: ech0
+  - id: ech0-alpine
     ids:
       - ech0-linux
     dockerfile: Dockerfile.release
@@ -116,6 +116,9 @@ dockers_v2:
       - "{{ .Tag }}"
       - "{{ .Version }}"
       - latest
+      - "{{ .Tag }}-alpine"
+      - "{{ .Version }}-alpine"
+      - latest-alpine
     platforms:
       - linux/amd64
       - linux/arm64
@@ -127,6 +130,29 @@ dockers_v2:
       org.opencontainers.image.source: "{{ .GitURL }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.base.name: alpine:3.22
+  - id: ech0-debian
+    ids:
+      - ech0-linux
+    dockerfile: Dockerfile.release.debian
+    images:
+      - '{{ envOrDefault "IMAGE_REPOSITORY" "ghcr.io/daiyuang/ech0" }}'
+    tags:
+      - "{{ .Tag }}-debian"
+      - "{{ .Version }}-debian"
+      - latest-debian
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    extra_files:
+      - packaging/ech0.toml
+    labels:
+      org.opencontainers.image.title: ech0
+      org.opencontainers.image.description: Embedded library-first message broker with standalone and Raft cluster modes.
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.base.name: debian:bookworm-slim
 
 checksum:
   name_template: checksums.txt

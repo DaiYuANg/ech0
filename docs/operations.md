@@ -93,7 +93,7 @@ Docker examples live in `deploy/docker`:
 - `docker-compose.single.release.yml` uses the release image.
 - `docker-compose.cluster.release.yml` uses the release image.
 
-The release Dockerfile is multi-stage. It installs UPX in the build stage, compresses the binary, and copies only the compressed executable into the runtime stage.
+The release Dockerfiles are multi-stage. They install UPX in a compressor stage, compress the GoReleaser binary when needed, and copy only the compressed executable into the runtime stage. The default release image uses Alpine; Debian slim is published with the `-debian` tag suffix.
 
 ## Release Packaging
 
@@ -102,7 +102,7 @@ GoReleaser drives release artifacts:
 - Archives for Linux, macOS, and Windows.
 - `.deb` and `.rpm` packages.
 - systemd unit and default config.
-- Multi-platform Docker images.
+- Multi-platform Docker images for Alpine and Debian runtimes.
 
 Packaging assets live under `packaging/`.
 

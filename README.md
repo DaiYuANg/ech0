@@ -145,6 +145,7 @@ Releases are driven by GoReleaser. A tag such as `v0.1.0` builds:
 - `ech0` archives for Linux, macOS, and Windows.
 - Linux `.deb` and `.rpm` packages with `/etc/ech0/ech0.toml` and a systemd unit.
 - Multi-platform Docker images for `linux/amd64` and `linux/arm64` published to GHCR.
+- Alpine and Debian runtime image variants. Plain version tags and `latest` point to Alpine; Debian uses the `-debian` suffix.
 - UPX-compressed Linux release and Docker binaries.
 
 Local checks:
@@ -157,3 +158,10 @@ goreleaser release --snapshot --clean
 Full local release verification expects `upx` and Docker to be available. Without Docker, use `goreleaser release --snapshot --clean --skip=docker` to verify archives and Linux packages.
 
 GitHub release publishing runs from `.github/workflows/release.yml` on `v*` tags.
+
+Create and push a release tag with:
+
+```sh
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```

@@ -50,5 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Build Docker image
-        run: docker build -t ech0:ci .
+      - name: Build Alpine Docker image
+        run: docker build --build-arg BASE_IMAGE=alpine -t ech0:ci-alpine .
+      - name: Build Debian Docker image
+        run: docker build --build-arg BASE_IMAGE=debian -t ech0:ci-debian .

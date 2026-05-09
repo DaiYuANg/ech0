@@ -15,9 +15,11 @@ RUN if upx -t /usr/local/bin/ech0 >/dev/null 2>&1; then \
       upx --best --lzma /usr/local/bin/ech0; \
     fi
 
-FROM alpine:3.22
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache ca-certificates
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=compressor /usr/local/bin/ech0 /usr/local/bin/ech0
 COPY packaging/ech0.toml /etc/ech0/ech0.toml
