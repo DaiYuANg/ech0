@@ -17,6 +17,11 @@ type Config struct {
 	Raft    RaftConfig    `json:"raft"    koanf:"raft"    mapstructure:"raft"    toml:"raft"`
 }
 
+type ConfigSource struct {
+	paths []string
+	flags *pflag.FlagSet
+}
+
 type BrokerConfig struct {
 	NodeID                       uint64  `json:"node_id"                         koanf:"node_id"                         mapstructure:"node_id"                         toml:"node_id"`
 	ClusterName                  string  `json:"cluster_name"                    koanf:"cluster_name"                    mapstructure:"cluster_name"                    toml:"cluster_name"`
@@ -95,17 +100,52 @@ type RaftPeerConfig struct {
 }
 
 func LoadConfig(paths ...string) (Config, error) {
-	if len(paths) == 0 {
-		paths = []string{"config/ech0.toml", "config/ech0.local.toml"}
-	}
-	return loadConfig(paths, nil)
+	return LoadConfigFromSource(NewConfigSource(paths...))
 }
 
 func LoadConfigFromFlagSet(flags *pflag.FlagSet, paths ...string) (Config, error) {
+	return LoadConfigFromSource(NewConfigSourceFromFlagSet(flags, paths...))
+}
+
+func NewConfigSource(paths ...string) ConfigSource {
+	return ConfigSource{paths: cloneConfigPaths(paths)}
+}
+
+func NewConfigSourceFromFlagSet(flags *pflag.FlagSet, paths ...string) ConfigSource {
+	source := NewConfigSource(paths...)
+	source.flags = flags
+	return source
+}
+
+func LoadConfigFromSource(source ConfigSource) (Config, error) {
+	return loadConfig(source.effectivePaths(), source.flags)
+}
+
+func (s ConfigSource) Paths() []string {
+	return cloneConfigPaths(s.paths)
+}
+
+func (s ConfigSource) effectivePaths() []string {
+	paths := s.paths
 	if len(paths) == 0 {
-		paths = []string{"config/ech0.toml", "config/ech0.local.toml"}
+		paths = defaultConfigPaths()
 	}
-	return loadConfig(paths, flags)
+	return paths
+}
+
+func defaultConfigPaths() []string {
+	return []string{"config/ech0.toml", "config/ech0.local.toml"}
+}
+
+func cloneConfigPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := collectionlist.NewListWithCapacity[string](len(paths))
+	for _, path := range paths {
+		out.Add(path)
+	}
+	return out.Values()
 }
 
 func loadConfig(paths []string, flags *pflag.FlagSet) (Config, error) {

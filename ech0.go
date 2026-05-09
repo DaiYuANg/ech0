@@ -38,7 +38,7 @@ func Open(ctx context.Context, opts Options) (*Broker, error) {
 		return nil, oops.In("embedded").Code("open_log_store_failed").Wrapf(err, "open log store")
 	}
 	metaStore := openEmbeddedMetadataStore()
-	b, err := internalbroker.NewWithStores(cfg, logStore, metaStore)
+	b, err := internalbroker.NewWithStores(cfg, logStore, metaStore, brokerOptionsFromOptions(opts)...)
 	if err != nil {
 		return nil, errors.Join(
 			oops.In("embedded").Code("broker_init_failed").Wrapf(err, "initialize broker"),
@@ -53,7 +53,7 @@ func Open(ctx context.Context, opts Options) (*Broker, error) {
 			closeLogStore(logStore),
 		)
 	}
-	scheduled, err := internalbroker.NewScheduledRuntime(cfg, b, slog.Default())
+	scheduled, err := internalbroker.NewScheduledRuntime(cfg, b, loggerFromOptions(opts))
 	if err != nil {
 		return nil, errors.Join(
 			oops.In("embedded").Code("scheduler_init_failed").Wrapf(err, "initialize scheduler"),
@@ -75,6 +75,20 @@ func Open(ctx context.Context, opts Options) (*Broker, error) {
 
 func openEmbeddedMetadataStore() metadataStore {
 	return store.NewMemoryStore()
+}
+
+func brokerOptionsFromOptions(opts Options) []internalbroker.Option {
+	if opts.Logger == nil {
+		return nil
+	}
+	return []internalbroker.Option{internalbroker.WithLogger(opts.Logger)}
+}
+
+func loggerFromOptions(opts Options) *slog.Logger {
+	if opts.Logger != nil {
+		return opts.Logger
+	}
+	return slog.Default()
 }
 
 func Run(ctx context.Context, opts Options) (err error) {

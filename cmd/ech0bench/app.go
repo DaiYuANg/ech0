@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -27,19 +26,13 @@ type benchRunner struct {
 }
 
 func newBenchmarkApp(rootCtx context.Context, cfg benchConfig) (*dix.App, error) {
-	logger, err := newBenchmarkLogger()
-	if err != nil {
-		return nil, err
-	}
-	logx.SetDefault(logger)
-
 	module := dix.NewModule("ech0bench",
 		dix.Providers(
 			dix.Value(cfg),
-			dix.Value(logger),
 			dix.Value(benchRootContext{Context: rootCtx}),
+			dix.ProviderErr0(newBenchmarkLogger, dix.Eager()),
 			dix.ProviderErr1(newBenchmarkDataDirectory),
-			dix.ProviderErr3(newBenchmarkBroker),
+			dix.ProviderErr4(newBenchmarkBroker),
 			dix.Provider3(newBenchRunner),
 		),
 		dix.Hooks(
@@ -55,13 +48,9 @@ func newBenchmarkApp(rootCtx context.Context, cfg benchConfig) (*dix.App, error)
 			}),
 		),
 	)
-	app := dix.New("ech0bench", dix.UseLogger(logger), dix.Modules(module))
+	app := dix.New("ech0bench", dix.Modules(module))
 	if err := app.Validate(); err != nil {
-		wrapped := fmt.Errorf("validate ech0bench app: %w", err)
-		if closeErr := logx.Close(logger); closeErr != nil {
-			return nil, errors.Join(wrapped, fmt.Errorf("close ech0bench logger after validation failure: %w", closeErr))
-		}
-		return nil, wrapped
+		return nil, fmt.Errorf("validate ech0bench app: %w", err)
 	}
 	return app, nil
 }
@@ -76,6 +65,7 @@ func newBenchmarkLogger() (*slog.Logger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create ech0bench logger: %w", err)
 	}
+	logx.SetDefault(logger)
 	return logger, nil
 }
 
@@ -96,7 +86,12 @@ func (d benchmarkDataDirectory) Cleanup() {
 	}
 }
 
-func newBenchmarkBroker(root benchRootContext, cfg benchConfig, dataDir benchmarkDataDirectory) (benchBroker, error) {
+func newBenchmarkBroker(
+	root benchRootContext,
+	cfg benchConfig,
+	dataDir benchmarkDataDirectory,
+	logger *slog.Logger,
+) (benchBroker, error) {
 	if cfg.brokerAddr != "" {
 		return newTCPBenchBroker(cfg), nil
 	}
@@ -104,6 +99,7 @@ func newBenchmarkBroker(root benchRootContext, cfg benchConfig, dataDir benchmar
 		DataDir:        dataDir.path,
 		MaxFetch:       cfg.fetchBatch,
 		MaxPayloadSize: cfg.payloadBytes * 2,
+		Logger:         logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open embedded broker: %w", err)

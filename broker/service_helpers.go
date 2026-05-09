@@ -115,7 +115,10 @@ func (b *Broker) publishEvent(ctx context.Context, event eventx.Event) {
 	if b.events == nil {
 		return
 	}
-	if err := b.events.Publish(ctx, event); err != nil && b.logger != nil {
+	if b.events.SubscriberCount() == 0 {
+		return
+	}
+	if err := b.events.PublishAsync(ctx, event); err != nil && b.logger != nil {
 		b.logger.Warn("publish event failed", "event", event.Name(), "error", err)
 	}
 }

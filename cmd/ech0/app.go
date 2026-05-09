@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/DaiYuANg/ech0/broker"
@@ -24,7 +23,7 @@ type cliConfigPaths struct {
 }
 
 type cliBrokerRunner struct {
-	cfg broker.Config
+	source broker.ConfigSource
 }
 
 func newCLIApp(flags *pflag.FlagSet, configPath string) (*dix.App, error) {
@@ -33,7 +32,7 @@ func newCLIApp(flags *pflag.FlagSet, configPath string) (*dix.App, error) {
 			dix.Value(cliFlagSet{flags: flags}),
 			dix.Value(cliConfigPath(configPath)),
 			dix.Provider1(newCLIConfigPaths),
-			dix.ProviderErr2(loadCLIBrokerConfig),
+			dix.Provider2(newCLIBrokerConfigSource),
 			dix.Provider1(newCLIBrokerRunner),
 		),
 	)
@@ -55,20 +54,12 @@ func newCLIConfigPaths(configPath cliConfigPath) cliConfigPaths {
 	return cliConfigPaths{values: paths.Values()}
 }
 
-func loadCLIBrokerConfig(flags cliFlagSet, paths cliConfigPaths) (broker.Config, error) {
-	cfg, err := broker.LoadConfigFromFlagSet(flags.flags, paths.values...)
-	if err != nil {
-		return broker.Config{}, oops.
-			In("cli").
-			Code("config_load_failed").
-			With("config_path", strings.Join(paths.values, ",")).
-			Wrapf(err, "load broker config")
-	}
-	return cfg, nil
+func newCLIBrokerConfigSource(flags cliFlagSet, paths cliConfigPaths) broker.ConfigSource {
+	return broker.NewConfigSourceFromFlagSet(flags.flags, paths.values...)
 }
 
-func newCLIBrokerRunner(cfg broker.Config) *cliBrokerRunner {
-	return &cliBrokerRunner{cfg: cfg}
+func newCLIBrokerRunner(source broker.ConfigSource) *cliBrokerRunner {
+	return &cliBrokerRunner{source: source}
 }
 
 func runCLIApp(ctx context.Context, app *dix.App) (err error) {
@@ -94,11 +85,11 @@ func runCLIApp(ctx context.Context, app *dix.App) (err error) {
 }
 
 func (r *cliBrokerRunner) Run(ctx context.Context) error {
-	if err := broker.RunWithConfig(ctx, r.cfg); err != nil {
+	if err := broker.RunWithConfigSource(ctx, r.source); err != nil {
 		return oops.
 			In("cli").
 			Code("broker_run_failed").
-			With("node_id", r.cfg.Broker.NodeID, "raft_engine", "dragonboat").
+			With("raft_engine", "dragonboat").
 			Wrapf(err, "run broker")
 	}
 	return nil

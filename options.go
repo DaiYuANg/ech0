@@ -1,6 +1,7 @@
 package ech0
 
 import (
+	"log/slog"
 	"time"
 
 	internalbroker "github.com/DaiYuANg/ech0/broker"
@@ -14,6 +15,7 @@ type Options struct {
 	DisableDelay   bool
 	MaxFetch       int
 	MaxPayloadSize int
+	Logger         *slog.Logger
 }
 
 type RaftOptions struct {

@@ -22,13 +22,14 @@ import (
 var adminTemplates embed.FS
 
 type AdminServer struct {
-	cfg     Config
-	broker  *Broker
-	logger  *slog.Logger
-	metrics *MetricsRuntime
-	events  *dix.EventRecorder
-	app     *fiber.App
-	once    sync.Once
+	cfg          Config
+	broker       *Broker
+	logger       *slog.Logger
+	metrics      *MetricsRuntime
+	events       *dix.EventRecorder
+	brokerEvents *BrokerEventRecorder
+	app          *fiber.App
+	once         sync.Once
 }
 
 func NewAdminServer(cfg Config, broker *Broker, logger *slog.Logger, metrics *MetricsRuntime, events ...*dix.EventRecorder) *AdminServer {
@@ -104,6 +105,9 @@ func (s *AdminServer) registerRoutes() {
 	httpx.MustGet(server, "/metrics", s.apiMetrics)
 	if s.cfg.Admin.DebugEnabled {
 		httpx.MustGet(server, "/runtime/events", s.apiRuntimeEvents)
+		httpx.MustGetSSE(server, "/runtime/events/stream", map[string]any{
+			"runtime_events": runtimeEventsStreamEvent{},
+		}, s.apiRuntimeEventsStream)
 	}
 
 	s.app.Get("/", s.redirectRoot)
@@ -122,6 +126,34 @@ func (s *AdminServer) registerRoutes() {
 	s.app.Get("/api/groups/:group/lag", s.apiGroupLag)
 	s.app.Post("/api/groups/:group/rebalance", s.apiGroupRebalance)
 	s.app.Get("/api/groups/:group/rebalance-explain", s.apiGroupRebalanceExplain)
+}
+
+func (s *AdminServer) apiRuntimeEventsStream(ctx context.Context, _ *struct{}, send httpx.SSESender) {
+	if !s.sendRuntimeEventsSnapshot(send) {
+		return
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !s.sendRuntimeEventsSnapshot(send) {
+				return
+			}
+		}
+	}
+}
+
+func (s *AdminServer) sendRuntimeEventsSnapshot(send httpx.SSESender) bool {
+	if err := send.Data(s.runtimeEventStreamSnapshot()); err != nil {
+		if s.logger != nil {
+			s.logger.Debug("send runtime event stream snapshot failed", "error", err)
+		}
+		return false
+	}
+	return true
 }
 
 func (s *AdminServer) redirectRoot(c *fiber.Ctx) error {

@@ -79,7 +79,6 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		log:            logStore,
 		meta:           metaStore,
 		router:         newPartitionRouter(),
-		events:         eventx.New(),
 		logger:         slog.Default(),
 		topicCache:     topicCache,
 		produceBatcher: newRaftProduceBatcher(),
@@ -106,15 +105,15 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 }
 
 func (b *Broker) applyRuntimeDefaults() {
-	if b.events == nil {
-		b.events = eventx.New()
-	}
 	if b.logger == nil {
 		b.logger = slog.Default()
 	}
 	configureDragonboatLogger(b.logger)
 	if b.metrics == nil {
 		b.metrics = NewNoopMetricsRuntime(b.logger)
+	}
+	if b.events == nil {
+		b.events = newBrokerEventBus(b.cfg, b.logger, b.metrics)
 	}
 }
 

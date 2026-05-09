@@ -31,6 +31,7 @@ type TCPServer struct {
 	group    *errgroup.Group
 	connSem  *semaphore.Weighted
 	limiter  *rate.Limiter
+	clients  *tcpConnectionIndex
 }
 
 func NewTCPServer(cfg Config, broker *Broker, logger *slog.Logger, metrics *MetricsRuntime) *TCPServer {
@@ -45,6 +46,7 @@ func NewTCPServer(cfg Config, broker *Broker, logger *slog.Logger, metrics *Metr
 		metrics: metrics,
 		connSem: newConnectionSemaphore(cfg.Broker.MaxConcurrentConnections),
 		limiter: newCommandRateLimiter(cfg.Broker.CommandRateLimitPerSecond, cfg.Broker.CommandRateLimitBurst),
+		clients: newTCPConnectionIndex(),
 	}
 }
 
@@ -144,6 +146,7 @@ func (s *TCPServer) startConnectionHandler(ctx context.Context, conn net.Conn) {
 
 func (s *TCPServer) handleConn(ctx context.Context, conn net.Conn) {
 	defer s.releaseConnection()
+	defer s.unregisterConnection(conn)
 	defer func() {
 		if err := conn.Close(); err != nil && s.logger != nil {
 			s.logger.Debug("close connection failed", "error", err)
@@ -168,6 +171,7 @@ func (s *TCPServer) handleConnFrame(ctx context.Context, conn net.Conn) bool {
 		s.logReadFrameError(err)
 		return false
 	}
+	s.registerConnectionHandshake(conn, frame)
 	handleStart := time.Now()
 	response, err := s.HandleFrame(ctx, frame)
 	if err != nil {

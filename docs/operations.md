@@ -4,7 +4,7 @@ The `ech0` binary packages the broker runtime, TCP protocol server, Admin UI, me
 
 ## Configuration
 
-Binary configuration is loaded with `arcgolabs/configx`.
+Binary configuration is loaded with `arcgolabs/configx` as part of the broker `dix` application. The CLI passes config paths and flags as a config source; the broker module graph resolves the final `Config`.
 
 Load order:
 
@@ -72,7 +72,7 @@ Admin is served from the broker package on Fiber. It provides:
 
 Admin and OpenAPI use `arcgolabs/httpx` for the HTTP surface while the default server is Fiber.
 
-`admin.debug_enabled` defaults to `false`. When enabled, the admin server also exposes `GET /debug/fgprof` for wall-clock profiling with `fgprof` and `GET /api/runtime/events` for recent `dix` build/lifecycle/debug events; keep it disabled on public admin surfaces.
+`admin.debug_enabled` defaults to `false`. When enabled, the admin server also exposes `GET /debug/fgprof` for wall-clock profiling with `fgprof`, `GET /api/runtime/events` for recent `dix` build/lifecycle/debug events plus broker control-plane events, and `GET /api/runtime/events/stream` as a Server-Sent Events stream for live admin diagnostics; keep it disabled on public admin surfaces.
 
 ## Metrics
 
@@ -112,7 +112,7 @@ Full local release verification expects `upx` and Docker to be available. Withou
 
 The binary owns operational concerns:
 
-- `configx` config loading.
+- `configx` config loading through `dix`.
 - file/stdout logging setup.
 - Admin UI and OpenAPI.
 - Raft networking and state.

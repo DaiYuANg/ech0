@@ -129,16 +129,15 @@ func buildRangeAssignments(active []store.ConsumerGroupMember, partitions []stor
 	assignments := collectionlist.NewList[store.GroupPartitionAssignment]()
 	topics := collectionlist.NewList(byTopic.Keys()...).Sort(cmp.Compare).Values()
 	for _, topic := range topics {
-		appendRangeAssignments(assignments, eligibleMembers(active, topic), sortedTopicPartitions(byTopic.GetOrDefault(topic, nil)))
+		appendRangeAssignments(assignments, eligibleMembers(active, topic), sortedTopicPartitions(byTopic.Get(topic)))
 	}
 	return assignments
 }
 
-func partitionsByTopic(partitions []store.TopicPartition) *collectionmapping.Map[string, []store.TopicPartition] {
-	byTopic := collectionmapping.NewMap[string, []store.TopicPartition]()
+func partitionsByTopic(partitions []store.TopicPartition) *collectionmapping.MultiMap[string, store.TopicPartition] {
+	byTopic := collectionmapping.NewMultiMapWithCapacity[string, store.TopicPartition](len(partitions))
 	for _, tp := range partitions {
-		items := byTopic.GetOrDefault(tp.Topic, nil)
-		byTopic.Set(tp.Topic, append(items, tp))
+		byTopic.Put(tp.Topic, tp)
 	}
 	return byTopic
 }
@@ -184,17 +183,14 @@ func appendRangeAssignments(assignments *collectionlist.List[store.GroupPartitio
 }
 
 func applyStickyAssignments(assignments *collectionlist.List[store.GroupPartitionAssignment], previous []store.GroupPartitionAssignment, active []store.ConsumerGroupMember) (uint64, uint64) {
-	previousOwners := collectionmapping.NewMap[string, string]()
-	for _, item := range previous {
-		previousOwners.Set(groupAssignmentKey(item.Topic, item.Partition), item.MemberID)
-	}
+	previousOwners := assignmentOwnerTable(previous)
 	activeMembers := collectionmapping.NewMap[string, store.ConsumerGroupMember]()
 	for _, member := range active {
 		activeMembers.Set(member.MemberID, member)
 	}
 	stickyCandidates, stickyApplied := uint64(0), uint64(0)
 	assignments.SetAllIndexed(func(_ int, item store.GroupPartitionAssignment) store.GroupPartitionAssignment {
-		previousOwner, ok := previousOwners.Get(groupAssignmentKey(item.Topic, item.Partition))
+		previousOwner, ok := previousOwners.Get(item.Topic, item.Partition)
 		if !ok || previousOwner == item.MemberID {
 			return item
 		}
@@ -214,13 +210,10 @@ func movedPartitions(previous *store.ConsumerGroupAssignment, assignments []stor
 	if previous == nil {
 		return 0
 	}
-	previousOwners := collectionmapping.NewMap[string, string]()
-	for _, item := range previous.Assignments {
-		previousOwners.Set(groupAssignmentKey(item.Topic, item.Partition), item.MemberID)
-	}
+	previousOwners := assignmentOwnerTable(previous.Assignments)
 	moved := uint64(0)
 	for _, item := range assignments {
-		previousOwner, ok := previousOwners.Get(groupAssignmentKey(item.Topic, item.Partition))
+		previousOwner, ok := previousOwners.Get(item.Topic, item.Partition)
 		if ok && previousOwner != item.MemberID {
 			moved++
 		}
@@ -229,15 +222,28 @@ func movedPartitions(previous *store.ConsumerGroupAssignment, assignments []stor
 }
 
 func memberLoads(assignments []store.GroupPartitionAssignment) []GroupMemberLoadSummary {
-	loads := collectionmapping.NewMap[string, int]()
-	for _, assignment := range assignments {
-		loads.Set(assignment.MemberID, loads.GetOrDefault(assignment.MemberID, 0)+1)
-	}
+	loads := assignmentsByMember(assignments)
 	members := collectionlist.NewList(loads.Keys()...).
 		Sort(cmp.Compare)
 	return collectionlist.MapList(members, func(_ int, memberID string) GroupMemberLoadSummary {
-		return GroupMemberLoadSummary{MemberID: memberID, Partitions: loads.GetOrDefault(memberID, 0)}
+		return GroupMemberLoadSummary{MemberID: memberID, Partitions: len(loads.Get(memberID))}
 	}).Values()
+}
+
+func assignmentOwnerTable(assignments []store.GroupPartitionAssignment) *collectionmapping.Table[string, uint32, string] {
+	owners := collectionmapping.NewTable[string, uint32, string]()
+	for _, assignment := range assignments {
+		owners.Put(assignment.Topic, assignment.Partition, assignment.MemberID)
+	}
+	return owners
+}
+
+func assignmentsByMember(assignments []store.GroupPartitionAssignment) *collectionmapping.MultiMap[string, store.GroupPartitionAssignment] {
+	byMember := collectionmapping.NewMultiMapWithCapacity[string, store.GroupPartitionAssignment](len(assignments))
+	for _, assignment := range assignments {
+		byMember.Put(assignment.MemberID, assignment)
+	}
+	return byMember
 }
 
 func sortGroupAssignments(assignments []store.GroupPartitionAssignment) []store.GroupPartitionAssignment {
@@ -266,10 +272,6 @@ func normalizeGroupAssignmentStrategy(raw string) GroupAssignmentStrategy {
 	default:
 		return GroupAssignmentRoundRobin
 	}
-}
-
-func groupAssignmentKey(topic string, partition uint32) string {
-	return topic + "\x00" + strconvUint32(partition)
 }
 
 func strconvUint32(value uint32) string {

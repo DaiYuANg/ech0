@@ -19,11 +19,14 @@ ech0 is a Go embedded message broker with a library-first public API and a singl
 
 The binary path builds a full broker runtime:
 
-1. Load config with `configx` from defaults, files, env, and flags.
-2. Initialize logging and runtime dependencies through the broker package.
-3. Open the segment log store and in-memory state machine metadata store.
-4. Construct the broker service and TCP server.
-5. Start Dragonboat, Admin UI, metrics, and scheduled jobs.
+1. Build a `dix` application from a config source.
+2. Load config with a `configx` provider from defaults, files, env, and flags.
+3. Create logging, metrics, event bus, storage, broker, scheduler, TCP transport, and Admin UI dependencies from `dix` modules.
+4. Open the segment log store and in-memory state machine metadata store.
+5. Construct the broker service and TCP server.
+6. Start Dragonboat, Admin UI, metrics, and scheduled jobs.
+
+The binary runtime is split into `dix` modules for core broker state, scheduler, TCP transport, and admin surfaces. The `Config`, `*slog.Logger`, and `dix.EventLogger` are all provided by the module graph, so config loading and operational logging follow the same dependency-injection path as the rest of the runtime.
 
 The embedded path in the root package does less:
 
@@ -212,9 +215,9 @@ The implementation favors arcgolabs libraries where they match the responsibilit
 
 - `dix` for runtime dependency organization.
 - `logx` for binary logging integration.
-- `eventx` for broker events.
-- `collectionx` for collection operations and protocol codec registries.
-- `configx` for binary configuration loading.
+- `eventx` for broker control-plane events with bounded `ants` dispatch.
+- `collectionx` for collection operations, protocol codec registries, recent event buffers, shard metadata caches, and group assignment views.
+- `configx` for binary configuration loading through a `dix` provider.
 - `httpx` on Fiber for Admin/OpenAPI surfaces.
 - `observabilityx` for metrics wiring.
 - `dragonboat` for clustered multi-group Raft.

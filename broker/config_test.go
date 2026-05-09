@@ -1,11 +1,15 @@
 package broker_test
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	broker "github.com/DaiYuANg/ech0/broker"
+	"github.com/arcgolabs/dix"
 	"github.com/spf13/pflag"
 )
 
@@ -45,5 +49,50 @@ bind_addr = "127.0.0.1:19091"
 	}
 	if cfg.Raft.BindAddr != "127.0.0.1:3210" {
 		t.Fatalf("expected default raft bind addr, got %q", cfg.Raft.BindAddr)
+	}
+}
+
+func TestNewAppFromConfigSourceLoadsConfigWithDIX(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "ech0.toml")
+	dataDir := filepath.ToSlash(filepath.Join(root, "data"))
+	content := fmt.Appendf(nil, `
+[broker]
+node_id = 9
+data_dir = %q
+bind_addr = "127.0.0.1:0"
+
+[admin]
+enabled = false
+`, dataDir)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app, err := broker.NewAppFromConfigSource(broker.NewConfigSource(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rt, err := app.Start(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if stopErr := rt.Stop(ctx); stopErr != nil {
+			t.Fatal(stopErr)
+		}
+	}()
+
+	cfg, err := dix.ResolveAs[broker.Config](rt.Container())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Broker.NodeID != 9 {
+		t.Fatalf("expected dix-loaded node id, got %d", cfg.Broker.NodeID)
+	}
+	if cfg.Broker.DataDir != dataDir {
+		t.Fatalf("expected dix-loaded data dir, got %q", cfg.Broker.DataDir)
 	}
 }
