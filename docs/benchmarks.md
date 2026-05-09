@@ -92,13 +92,13 @@ Useful flags:
 | `--fetch-batch` | `128` | Max records per fetch. |
 | `--commit-every` | `1` | Commit consumer offsets every N non-empty fetch batches. Raising this separates message fetch throughput from synchronous offset commit raft traffic. |
 | `--poll-idle` | `1ms` | Consumer sleep after an empty fetch. |
-| `--samples` | `200000` | Max latency samples retained for percentile output. |
+| `--samples` | `200000` | Deprecated compatibility flag. Percentiles are now calculated from an HDR histogram over all recorded latencies. |
 
 The report includes:
 
 - Produced and consumed message counts.
 - Publish and consume throughput.
-- Publish and fetch latency average, p50, p95, p99, and max.
+- Publish and fetch latency average, p50, p95, p99, p99.9, p99.99, and max.
 - Publish and consume error counts.
 
 Publish latency is measured per produce operation. When `--batch-size` is greater than 1, throughput counts messages but publish latency counts batch requests.

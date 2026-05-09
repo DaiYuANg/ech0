@@ -46,8 +46,9 @@ type BrokerConfig struct {
 }
 
 type AdminConfig struct {
-	Enabled  bool   `json:"enabled"   koanf:"enabled"   mapstructure:"enabled"   toml:"enabled"`
-	BindAddr string `json:"bind_addr" koanf:"bind_addr" mapstructure:"bind_addr" toml:"bind_addr"`
+	Enabled      bool   `json:"enabled"       koanf:"enabled"       mapstructure:"enabled"       toml:"enabled"`
+	BindAddr     string `json:"bind_addr"     koanf:"bind_addr"     mapstructure:"bind_addr"     toml:"bind_addr"`
+	DebugEnabled bool   `json:"debug_enabled" koanf:"debug_enabled" mapstructure:"debug_enabled" toml:"debug_enabled"`
 }
 
 type StorageConfig struct {

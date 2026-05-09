@@ -1,6 +1,8 @@
 package broker
 
 import (
+	"context"
+
 	"github.com/DaiYuANg/ech0/queue"
 	"github.com/DaiYuANg/ech0/store"
 )
@@ -153,24 +155,24 @@ func (r singleMessageRuntime) ReadPage(topicPartition store.TopicPartition, curs
 	return out, nil
 }
 
-func (r singleMessageRuntime) EnforceRetention(nowMS uint64) (store.RetentionCleanupResult, error) {
+func (r singleMessageRuntime) EnforceRetention(ctx context.Context, nowMS uint64) (store.RetentionCleanupResult, error) {
 	cleaner, ok := r.log.(store.RetentionCleaner)
 	if !ok {
 		return store.RetentionCleanupResult{}, nil
 	}
-	out, err := cleaner.EnforceRetention(nowMS)
+	out, err := cleaner.EnforceRetention(ctx, nowMS)
 	if err != nil {
 		return store.RetentionCleanupResult{}, wrapBrokerStore(err, "enforce message retention")
 	}
 	return out, nil
 }
 
-func (r singleMessageRuntime) Compact(nowMS uint64, sealedSegmentBatch int) (store.CompactionCleanupResult, error) {
+func (r singleMessageRuntime) Compact(ctx context.Context, nowMS uint64, sealedSegmentBatch int) (store.CompactionCleanupResult, error) {
 	cleaner, ok := r.log.(store.CompactionCleaner)
 	if !ok {
 		return store.CompactionCleanupResult{}, nil
 	}
-	out, err := cleaner.Compact(nowMS, sealedSegmentBatch)
+	out, err := cleaner.Compact(ctx, nowMS, sealedSegmentBatch)
 	if err != nil {
 		return store.CompactionCleanupResult{}, wrapBrokerStore(err, "compact messages")
 	}

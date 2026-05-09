@@ -1,11 +1,16 @@
 package store
 
 import (
+	"context"
+
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionset "github.com/arcgolabs/collectionx/set"
 )
 
-func (s *MemoryStore) EnforceRetention(nowMS uint64) (RetentionCleanupResult, error) {
+func (s *MemoryStore) EnforceRetention(ctx context.Context, nowMS uint64) (RetentionCleanupResult, error) {
+	if err := ctx.Err(); err != nil {
+		return RetentionCleanupResult{}, wrapExternal(err, "enforce memory retention")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := RetentionCleanupResult{}
@@ -27,8 +32,11 @@ func (s *MemoryStore) EnforceRetention(nowMS uint64) (RetentionCleanupResult, er
 	return result, nil
 }
 
-func (s *MemoryStore) Compact(nowMS uint64, sealedSegmentBatch int) (CompactionCleanupResult, error) {
+func (s *MemoryStore) Compact(ctx context.Context, nowMS uint64, sealedSegmentBatch int) (CompactionCleanupResult, error) {
 	_ = sealedSegmentBatch
+	if err := ctx.Err(); err != nil {
+		return CompactionCleanupResult{}, wrapExternal(err, "compact memory records")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := CompactionCleanupResult{}

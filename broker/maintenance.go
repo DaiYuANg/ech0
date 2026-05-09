@@ -11,7 +11,7 @@ func (b *Broker) EnforceRetentionOnce(ctx context.Context) (store.RetentionClean
 	if !ok {
 		return store.RetentionCleanupResult{}, nil
 	}
-	result, err := cleaner.EnforceRetention(store.NowMS())
+	result, err := cleaner.EnforceRetention(ctx, store.NowMS())
 	if err != nil {
 		return store.RetentionCleanupResult{}, wrapBroker("retention_cleanup_failed", err, "enforce retention cleanup")
 	}
@@ -26,7 +26,7 @@ func (b *Broker) CompactOnce(ctx context.Context) (store.CompactionCleanupResult
 	if !ok {
 		return store.CompactionCleanupResult{}, nil
 	}
-	result, err := cleaner.Compact(store.NowMS(), b.cfg.Storage.CompactionSealedSegmentBatch)
+	result, err := cleaner.Compact(ctx, store.NowMS(), b.cfg.Storage.CompactionSealedSegmentBatch)
 	if err != nil {
 		return store.CompactionCleanupResult{}, wrapBroker("compaction_cleanup_failed", err, "compact log records")
 	}

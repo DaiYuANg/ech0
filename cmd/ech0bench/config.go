@@ -42,7 +42,7 @@ func parseFlags() benchConfig {
 	flag.IntVar(&cfg.fetchBatch, "fetch-batch", 128, "max records per fetch")
 	flag.IntVar(&cfg.commitEvery, "commit-every", 1, "commit consumer offsets every N non-empty fetch batches")
 	flag.DurationVar(&cfg.pollIdle, "poll-idle", time.Millisecond, "sleep duration after an empty fetch")
-	flag.IntVar(&cfg.samples, "samples", 200000, "max latency samples kept in memory")
+	flag.IntVar(&cfg.samples, "samples", 200000, "deprecated compatibility flag; latency percentiles use an HDR histogram")
 	flag.Parse()
 	return cfg
 }

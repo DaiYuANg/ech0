@@ -1,5 +1,7 @@
 package store
 
+import "context"
+
 type MessageLogStore interface {
 	CreateTopic(topic TopicConfig) error
 	TopicExists(topic string) (bool, error)
@@ -15,11 +17,11 @@ type MessageLogPager interface {
 }
 
 type RetentionCleaner interface {
-	EnforceRetention(nowMS uint64) (RetentionCleanupResult, error)
+	EnforceRetention(ctx context.Context, nowMS uint64) (RetentionCleanupResult, error)
 }
 
 type CompactionCleaner interface {
-	Compact(nowMS uint64, sealedSegmentBatch int) (CompactionCleanupResult, error)
+	Compact(ctx context.Context, nowMS uint64, sealedSegmentBatch int) (CompactionCleanupResult, error)
 }
 
 type OffsetStore interface {

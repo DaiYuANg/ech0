@@ -37,14 +37,16 @@ func mibPerSecond(bytes uint64, seconds float64) float64 {
 }
 
 func printLatency(name string, snapshot latencySnapshot) {
-	writeStdout("%s count=%d avg=%s p50=%s p95=%s p99=%s max=%s sampled=%d\n",
+	writeStdout("%s count=%d avg=%s p50=%s p95=%s p99=%s p999=%s p9999=%s max=%s recorded=%d\n",
 		name,
 		snapshot.count,
 		formatDurationASCII(snapshot.avg()),
 		formatDurationASCII(snapshot.percentile(50)),
 		formatDurationASCII(snapshot.percentile(95)),
 		formatDurationASCII(snapshot.percentile(99)),
+		formatDurationASCII(snapshot.percentile(99.9)),
+		formatDurationASCII(snapshot.percentile(99.99)),
 		formatDurationASCII(snapshot.max),
-		len(snapshot.samples),
+		snapshot.recorded(),
 	)
 }

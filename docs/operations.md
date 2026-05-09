@@ -72,6 +72,8 @@ Admin is served from the broker package on Fiber. It provides:
 
 Admin and OpenAPI use `arcgolabs/httpx` for the HTTP surface while the default server is Fiber.
 
+`admin.debug_enabled` defaults to `false`. When enabled, the admin server also exposes `GET /debug/fgprof` for wall-clock profiling with `fgprof`; keep it disabled on public admin surfaces.
+
 ## Metrics
 
 Metrics are exposed through the admin server and are wired through the broker metrics package. The project uses the arcgolabs observability stack where it fits the runtime surface.
@@ -79,6 +81,8 @@ Metrics are exposed through the admin server and are wired through the broker me
 Current metric coverage includes broker/runtime counters, stream gauges, cleanup counters, produce counters, and storx storage operation metrics. Storage metrics are emitted from `storx/observer` and include operation count, error count, and duration labels for engine, target type, target, operation, and status.
 
 Hot-path performance metrics include broker command duration, Dragonboat proposal duration, FSM duration, fetch duration, store append duration, and store read duration. They are intended for short benchmark and load-test runs where stage-level labels are useful for locating bottlenecks.
+
+For mixed CPU and IO investigations, enable `admin.debug_enabled` and collect `fgprof` output from `/debug/fgprof`. This is useful for distinguishing on-CPU work from raft, storage, and filesystem wait time during benchmark runs.
 
 ## Docker
 

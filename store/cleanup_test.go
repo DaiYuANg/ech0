@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -16,7 +17,7 @@ func TestMemoryRetentionKeepsOffsetsMonotonic(t *testing.T) {
 	oldMS := uint64(100)
 	appendRecord(t, st, store.RecordAppend{TimestampMS: &oldMS, Payload: []byte("old")})
 	appendRecord(t, st, store.RecordAppend{Payload: []byte("new")})
-	result, err := st.EnforceRetention(120)
+	result, err := st.EnforceRetention(context.Background(), 120)
 	requireNoError(t, err)
 	if result.RemovedRecords != 1 {
 		t.Fatalf("expected one retained record removed, got %#v", result)
@@ -42,7 +43,7 @@ func TestStorxCompactionRemovesStaleKeyVersions(t *testing.T) {
 	requireNoError(t, st.CreateTopic(topic))
 	appendKeyedRecord(t, st, "v1")
 	appendKeyedRecord(t, st, "v2")
-	result, err := st.Compact(store.NowMS(), 2)
+	result, err := st.Compact(context.Background(), store.NowMS(), 2)
 	requireNoError(t, err)
 	if result.CompactedPartitions != 1 || result.RemovedRecords != 1 {
 		t.Fatalf("unexpected compaction result: %#v", result)

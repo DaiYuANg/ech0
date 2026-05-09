@@ -222,6 +222,8 @@ The implementation favors arcgolabs libraries where they match the responsibilit
 - `storx` adapters for Badger and bbolt-backed stores.
 - `dragonboat` for clustered multi-group Raft.
 - `ants` for bounded background and shard fan-out work.
+- `HdrHistogram` for benchmark latency percentiles.
+- `fgprof` for optional admin-side wall-clock profiling.
 
 These dependencies are allowed inside implementation and binary-facing packages, but the public embedded API should stay smaller than the operational runtime.
 

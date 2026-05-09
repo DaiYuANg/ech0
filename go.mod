@@ -3,6 +3,7 @@ module github.com/DaiYuANg/ech0
 go 1.26.2
 
 require (
+	github.com/HdrHistogram/hdrhistogram-go v1.2.0
 	github.com/arcgolabs/collectionx/list v0.7.0
 	github.com/arcgolabs/collectionx/mapping v0.7.0
 	github.com/arcgolabs/collectionx/set v0.7.0
@@ -24,6 +25,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/dgraph-io/badger/v4 v4.9.1
 	github.com/dgraph-io/ristretto/v2 v2.2.0
+	github.com/felixge/fgprof v0.9.5
 	github.com/go-co-op/gocron/v2 v2.21.1
 	github.com/goccy/go-json v0.10.6
 	github.com/gofiber/fiber/v2 v2.52.13
@@ -41,7 +43,6 @@ require (
 
 require (
 	github.com/DataDog/zstd v1.5.2 // indirect
-	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
 	github.com/VictoriaMetrics/metrics v1.18.1 // indirect
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/arcgolabs/collectionx/graph v0.7.0 // indirect
@@ -78,6 +79,7 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
+	github.com/google/pprof v0.0.0-20240227163752-401108e1b7e7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect

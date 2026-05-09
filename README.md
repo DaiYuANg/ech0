@@ -111,6 +111,8 @@ Configuration is loaded with `arcgolabs/configx`. Environment variables use the 
 - `GET /api/topics`
 - `GET /api/metrics`
 
+When `admin.debug_enabled = true`, debug builds also expose `GET /debug/fgprof` on the admin server for wall-clock profiling.
+
 ## Development
 
 ```sh

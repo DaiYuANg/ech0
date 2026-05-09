@@ -12,6 +12,7 @@ import (
 	"github.com/arcgolabs/httpx"
 	"github.com/arcgolabs/httpx/adapter"
 	httpxfiber "github.com/arcgolabs/httpx/adapter/fiber"
+	"github.com/felixge/fgprof"
 	"github.com/gofiber/fiber/v2"
 	fiberadaptor "github.com/gofiber/fiber/v2/middleware/adaptor"
 )
@@ -104,6 +105,9 @@ func (s *AdminServer) registerRoutes() {
 
 	s.app.Get("/healthz", s.legacyHealth)
 	s.app.Get("/metrics", s.prometheusMetrics)
+	if s.cfg.Admin.DebugEnabled {
+		s.app.Get("/debug/fgprof", fiberadaptor.HTTPHandler(fgprof.Handler()))
+	}
 	s.app.Get("/api/groups/:group/members", s.apiGroupMembers)
 	s.app.Get("/api/groups/:group/assignment", s.apiGroupAssignment)
 	s.app.Get("/api/groups/:group/lag", s.apiGroupLag)

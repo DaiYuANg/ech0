@@ -21,6 +21,7 @@ delay_scheduler_consumer_prefix = "__delay_scheduler"
 [admin]
 enabled = true
 bind_addr = "0.0.0.0:9091"
+debug_enabled = false
 
 [storage]
 segments_dir = "segments"
