@@ -13,7 +13,7 @@ type benchBroker interface {
 	CreateTopic(ctx context.Context, name string, partitions uint32) error
 	Publish(ctx context.Context, topic string, payload, key []byte) (benchMessage, error)
 	PublishBatch(ctx context.Context, topic string, partition uint32, records []benchPublishRecord) ([]benchMessage, error)
-	Fetch(ctx context.Context, consumer, topic string, partition uint32, maxRecords int) (benchFetchResult, error)
+	Fetch(ctx context.Context, consumer, topic string, partition uint32, offset *uint64, maxRecords int) (benchFetchResult, error)
 	Commit(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64) error
 	Close(ctx context.Context) error
 }
@@ -95,8 +95,12 @@ func (b *embeddedBenchBroker) PublishBatch(ctx context.Context, topic string, pa
 	return out, nil
 }
 
-func (b *embeddedBenchBroker) Fetch(ctx context.Context, consumer, topic string, partition uint32, maxRecords int) (benchFetchResult, error) {
-	batch, err := b.mq.Fetch(ctx, consumer, topic, ech0.FetchPartition(partition), ech0.FetchLimit(maxRecords))
+func (b *embeddedBenchBroker) Fetch(ctx context.Context, consumer, topic string, partition uint32, offset *uint64, maxRecords int) (benchFetchResult, error) {
+	opts := collectionlist.NewList(ech0.FetchPartition(partition), ech0.FetchLimit(maxRecords))
+	if offset != nil {
+		opts.Add(ech0.FetchOffset(*offset))
+	}
+	batch, err := b.mq.Fetch(ctx, consumer, topic, opts.Values()...)
 	if err != nil {
 		return benchFetchResult{}, fmt.Errorf("embedded fetch: %w", err)
 	}

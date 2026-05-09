@@ -98,9 +98,10 @@ func runConsumer(
 ) {
 	consumer := "ech0bench-" + strconv.FormatUint(uint64(partition), 10)
 	commits := consumerCommitBuffer{}
+	var nextOffset *uint64
 	for ctx.Err() == nil {
 		start := time.Now()
-		batch, err := mq.Fetch(ctx, consumer, cfg.topic, partition, cfg.fetchBatch)
+		batch, err := mq.Fetch(ctx, consumer, cfg.topic, partition, nextOffset, cfg.fetchBatch)
 		elapsed := time.Since(start)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -115,6 +116,8 @@ func runConsumer(
 			sleepIdle(ctx, cfg.pollIdle)
 			continue
 		}
+		offset := batch.NextOffset
+		nextOffset = &offset
 		commits.add(batch)
 		if commits.ready(cfg.commitEvery) {
 			flushConsumerCommit(ctx, mq, cfg, consumer, partition, &commits, counters)

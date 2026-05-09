@@ -93,13 +93,13 @@ func (b *tcpBenchBroker) PublishBatch(ctx context.Context, topic string, partiti
 	return messages, nil
 }
 
-func (b *tcpBenchBroker) Fetch(ctx context.Context, consumer, topic string, partition uint32, maxRecords int) (benchFetchResult, error) {
+func (b *tcpBenchBroker) Fetch(ctx context.Context, consumer, topic string, partition uint32, offset *uint64, maxRecords int) (benchFetchResult, error) {
 	var out protocol.FetchResponse
 	err := b.roundTrip(
 		ctx,
 		protocol.CmdFetchRequest,
 		protocol.CmdFetchResponse,
-		protocol.FetchRequest{Consumer: consumer, Topic: topic, Partition: partition, MaxRecords: maxRecords},
+		protocol.FetchRequest{Consumer: consumer, Topic: topic, Partition: partition, Offset: offset, MaxRecords: maxRecords},
 		&out,
 	)
 	if err != nil {
