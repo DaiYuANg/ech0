@@ -10,25 +10,8 @@ import (
 )
 
 func TestBrokerShardedStorxMessageRuntimePersistsByShard(t *testing.T) {
-	cfg := broker.DefaultConfig()
-	cfg.Broker.DataDir = t.TempDir()
-	cfg.Broker.DataShardCount = 2
-
-	centralLog := openBrokerStorxLog(t, cfg.SegmentLogPath(), "")
-	defer closeBrokerStorxLog(t, centralLog)
-	metaStore, err := store.OpenStorxMetadataStore(cfg.MetadataPath())
-	requireNoError(t, err)
-	defer closeBrokerStorxMetadata(t, metaStore)
-
-	b, err := broker.NewWithStores(cfg, centralLog, metaStore)
-	requireNoError(t, err)
-	stopped := false
-	defer func() {
-		if !stopped {
-			requireNoError(t, b.Stop(context.Background()))
-		}
-	}()
-
+	cfg, b, stop := newShardedStorxTestBroker(t)
+	defer stop()
 	ctx := context.Background()
 	topic := store.NewTopicConfig("orders")
 	topic.Partitions = 2
@@ -39,19 +22,75 @@ func TestBrokerShardedStorxMessageRuntimePersistsByShard(t *testing.T) {
 	assertPartitionPayload(ctx, t, b, 1, "p1")
 	assertTopicMessageSnapshot(t, b, 1, "p1")
 
-	requireNoError(t, b.Stop(ctx))
-	stopped = true
+	stop()
 	assertShardPayload(t, cfg, 0, 0, "p0")
 	assertShardPayload(t, cfg, 1, 1, "p1")
 }
 
+func TestBrokerShardedStorxMaintenanceRunsAcrossShards(t *testing.T) {
+	_, b, stop := newShardedStorxTestBroker(t)
+	defer stop()
+	ctx := context.Background()
+	retentionMS := uint64(1)
+	topic := store.NewTopicConfig("orders")
+	topic.Partitions = 2
+	topic.RetentionMS = &retentionMS
+	createTopic(ctx, t, b, topic)
+
+	oldMS := uint64(1)
+	publishPartitionRecord(ctx, t, b, 0, store.RecordAppend{TimestampMS: &oldMS, Payload: []byte("p0")})
+	publishPartitionRecord(ctx, t, b, 1, store.RecordAppend{TimestampMS: &oldMS, Payload: []byte("p1")})
+	result, err := b.EnforceRetentionOnce(ctx)
+	requireNoError(t, err)
+	if result.RemovedRecords != 2 {
+		t.Fatalf("unexpected retention result: %#v", result)
+	}
+	assertPartitionEmpty(ctx, t, b, 0)
+	assertPartitionEmpty(ctx, t, b, 1)
+}
+
+func newShardedStorxTestBroker(t *testing.T) (broker.Config, *broker.Broker, func()) {
+	t.Helper()
+	cfg := broker.DefaultConfig()
+	cfg.Broker.DataDir = t.TempDir()
+	cfg.Broker.DataShardCount = 2
+	centralLog := openBrokerStorxLog(t, cfg.SegmentLogPath(), "")
+	metaStore, err := store.OpenStorxMetadataStore(cfg.MetadataPath())
+	requireNoError(t, err)
+	b, err := broker.NewWithStores(cfg, centralLog, metaStore)
+	requireNoError(t, err)
+	stopped := false
+	closed := false
+	return cfg, b, func() {
+		if closed {
+			return
+		}
+		if !stopped {
+			requireNoError(t, b.Stop(context.Background()))
+			stopped = true
+		}
+		closeBrokerStorxLog(t, centralLog)
+		closeBrokerStorxMetadata(t, metaStore)
+		closed = true
+	}
+}
+
 func publishPartition(ctx context.Context, t *testing.T, b *broker.Broker, partition uint32, payload []byte) {
 	t.Helper()
-	result, err := b.Publish(ctx, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: partition}, nil, false, payload)
-	requireNoError(t, err)
-	if result.Partition != partition || !bytes.Equal(result.Record.Payload, payload) {
+	result := publishPartitionRecord(ctx, t, b, partition, store.RecordAppend{Payload: payload})
+	if !bytes.Equal(result.Record.Payload, payload) {
 		t.Fatalf("unexpected publish result: %#v", result)
 	}
+}
+
+func publishPartitionRecord(ctx context.Context, t *testing.T, b *broker.Broker, partition uint32, record store.RecordAppend) broker.ProduceResult {
+	t.Helper()
+	result, err := b.PublishRecord(ctx, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: partition}, record)
+	requireNoError(t, err)
+	if result.Partition != partition {
+		t.Fatalf("unexpected publish result: %#v", result)
+	}
+	return result
 }
 
 func assertPartitionPayload(ctx context.Context, t *testing.T, b *broker.Broker, partition uint32, want string) {
@@ -60,6 +99,15 @@ func assertPartitionPayload(ctx context.Context, t *testing.T, b *broker.Broker,
 	requireNoError(t, err)
 	if len(poll.Records) != 1 || string(poll.Records[0].Payload) != want {
 		t.Fatalf("unexpected partition %d poll result: %#v", partition, poll)
+	}
+}
+
+func assertPartitionEmpty(ctx context.Context, t *testing.T, b *broker.Broker, partition uint32) {
+	t.Helper()
+	poll, err := b.Fetch(ctx, "c1", "orders", partition, nil, 10)
+	requireNoError(t, err)
+	if len(poll.Records) != 0 {
+		t.Fatalf("expected empty partition %d poll result, got: %#v", partition, poll)
 	}
 }
 
