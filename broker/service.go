@@ -10,6 +10,7 @@ import (
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/queue"
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/eventx"
 	"github.com/dgraph-io/ristretto/v2"
 )
@@ -29,6 +30,7 @@ type Broker struct {
 	topicCache *ristretto.Cache[string, store.TopicConfig]
 	commands   brokerCommandRouter
 	shards     *brokerShardResolver
+	shardSpecs []dataShardSpec
 	dataShards dataShardRuntime
 
 	raftMu sync.RWMutex
@@ -85,8 +87,9 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		commitBatcher:  newRaftCommitBatcher(),
 	}
 	b.shards = newBrokerShardResolver(metaStore, cfg.Broker.DataShardCount)
+	b.shardSpecs = buildDataShardSpecs(cfg)
 	fallbackCommands := newSingleGroupCommandRouter(b)
-	b.dataShards = newCompatibilityDataShardRegistry(cfg.Broker.DataShardCount, newSingleGroupDataShardRuntime(fallbackCommands))
+	b.dataShards = newCompatibilityDataShardRegistry(b.shardSpecs, newSingleGroupDataShardRuntime(fallbackCommands))
 	b.commands = fallbackCommands
 	if cfg.Raft.Enabled {
 		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
@@ -181,6 +184,7 @@ func (b *Broker) RuntimeHealth() RuntimeHealth {
 	health := RuntimeHealth{
 		Status:      "ok",
 		RuntimeMode: "standalone",
+		DataShards:  dataShardHealth(b.shardSpecs),
 	}
 	b.raftMu.RLock()
 	node := b.raft
@@ -201,9 +205,10 @@ func (b *Broker) RuntimeHealth() RuntimeHealth {
 }
 
 type RuntimeHealth struct {
-	Status      string      `json:"status"`
-	RuntimeMode string      `json:"runtime_mode"`
-	Raft        *RaftHealth `json:"raft,omitempty"`
+	Status      string            `json:"status"`
+	RuntimeMode string            `json:"runtime_mode"`
+	DataShards  []DataShardHealth `json:"data_shards,omitempty"`
+	Raft        *RaftHealth       `json:"raft,omitempty"`
 }
 
 type RaftHealth struct {
@@ -211,4 +216,17 @@ type RaftHealth struct {
 	KnownNodes    int    `json:"known_nodes"`
 	LeaderID      uint64 `json:"leader_id,omitempty"`
 	LocalIsLeader bool   `json:"local_is_leader"`
+}
+
+type DataShardHealth struct {
+	ShardID     store.ShardID `json:"shard_id"`
+	RuntimeMode string        `json:"runtime_mode"`
+}
+
+func dataShardHealth(specs []dataShardSpec) []DataShardHealth {
+	out := collectionlist.NewListWithCapacity[DataShardHealth](len(specs))
+	for _, spec := range specs {
+		out.Add(DataShardHealth{ShardID: spec.ShardID, RuntimeMode: "compat_single_group"})
+	}
+	return out.Values()
 }

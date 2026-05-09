@@ -32,3 +32,25 @@ func TestConfigShardPathsUseTargetLayout(t *testing.T) {
 		t.Fatalf("shard badger path = %q, want %q", got, want)
 	}
 }
+
+func TestBrokerRuntimeHealthIncludesConfiguredDataShards(t *testing.T) {
+	cfg := broker.DefaultConfig()
+	cfg.Broker.DataShardCount = 3
+
+	b, err := broker.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	health := b.RuntimeHealth()
+	if len(health.DataShards) != 3 {
+		t.Fatalf("data shard health count = %d, want 3: %#v", len(health.DataShards), health.DataShards)
+	}
+	for index, shard := range health.DataShards {
+		if shard.ShardID != store.ShardID(index) {
+			t.Fatalf("data shard health[%d] shard_id = %d", index, shard.ShardID)
+		}
+		if shard.RuntimeMode != "compat_single_group" {
+			t.Fatalf("data shard health[%d] runtime_mode = %q", index, shard.RuntimeMode)
+		}
+	}
+}

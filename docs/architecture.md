@@ -83,6 +83,7 @@ The current first step has landed the placement model without changing runtime r
 - Non-explicit produce partitioning is resolved before dispatch and rewritten to an explicit partition command. That makes the data-plane command target stable for future per-shard Raft groups.
 - The cluster router now depends on a `dataShardRuntime` boundary. The default implementation is still a single-group adapter, but data commands now enter the codebase through an explicit shard runtime seam.
 - Data shard runtimes are registered behind a shard registry. Today each configured shard points at the compatibility single-group runtime; the next implementation can swap individual shard entries to local or Raft-backed runtimes.
+- Each configured shard also has a runtime spec with target directories for shard-local Raft, segment log, and Badger state. Runtime health exposes the configured shard IDs and their current compatibility runtime mode.
 
 The public API remains library-first:
 

@@ -23,13 +23,13 @@ type dataShardRegistry struct {
 	runtimes *collectionmapping.Map[store.ShardID, dataShardRuntime]
 }
 
-func newCompatibilityDataShardRegistry(shardCount uint32, runtime dataShardRuntime) dataShardRuntime {
-	if shardCount == 0 {
-		shardCount = 1
+func newCompatibilityDataShardRegistry(specs []dataShardSpec, runtime dataShardRuntime) dataShardRuntime {
+	if len(specs) == 0 {
+		specs = []dataShardSpec{{ShardID: 0}}
 	}
-	runtimes := collectionmapping.NewMapWithCapacity[store.ShardID, dataShardRuntime](int(shardCount))
-	for shardIndex := range shardCount {
-		runtimes.Set(store.ShardID(shardIndex), runtime)
+	runtimes := collectionmapping.NewMapWithCapacity[store.ShardID, dataShardRuntime](len(specs))
+	for _, spec := range specs {
+		runtimes.Set(spec.ShardID, runtime)
 	}
 	return dataShardRegistry{runtimes: runtimes}
 }
