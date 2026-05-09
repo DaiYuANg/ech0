@@ -108,7 +108,7 @@ func newBenchmarkBroker(root benchRootContext, cfg benchConfig, dataDir benchmar
 	if err != nil {
 		return nil, fmt.Errorf("open embedded broker: %w", err)
 	}
-	return &embeddedBenchBroker{mq: mq}, nil
+	return &embeddedBenchBroker{mq: mq, cfg: cfg}, nil
 }
 
 func newBenchRunner(cfg benchConfig, dataDir benchmarkDataDirectory, mq benchBroker) *benchRunner {

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	ech0 "github.com/DaiYuANg/ech0"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 )
 
 type benchBroker interface {
@@ -32,35 +34,62 @@ type benchFetchResult struct {
 }
 
 type embeddedBenchBroker struct {
-	mq *ech0.Broker
+	mq       *ech0.Broker
+	cfg      benchConfig
+	producer *ech0.Producer
 }
 
 func (b *embeddedBenchBroker) CreateTopic(ctx context.Context, name string, partitions uint32) error {
 	if err := b.mq.CreateTopic(ctx, name, ech0.Partitions(partitions)); err != nil {
 		return fmt.Errorf("embedded create topic: %w", err)
 	}
+	producer, err := b.mq.NewProducer(ctx, name,
+		ech0.ProducerBatchSize(b.cfg.batchSize),
+		ech0.ProducerInFlight(int(b.cfg.producerInflight)),
+	)
+	if err != nil {
+		return fmt.Errorf("embedded create producer: %w", err)
+	}
+	b.producer = producer
 	return nil
 }
 
 func (b *embeddedBenchBroker) Publish(ctx context.Context, topic string, payload, key []byte) (benchMessage, error) {
-	msg, err := b.mq.Publish(ctx, topic, payload, ech0.Key(key))
+	producer, err := b.requireProducer()
 	if err != nil {
-		return benchMessage{}, fmt.Errorf("embedded publish: %w", err)
+		return benchMessage{}, err
+	}
+	future, err := producer.Send(ctx, payload, ech0.Key(key))
+	if err != nil {
+		return benchMessage{}, fmt.Errorf("embedded enqueue publish: %w", err)
+	}
+	msg, err := future.Await(ctx)
+	if err != nil {
+		return benchMessage{}, fmt.Errorf("embedded await publish: %w", err)
 	}
 	return benchMessage{Payload: msg.Payload, NextOffset: msg.NextOffset}, nil
 }
 
 func (b *embeddedBenchBroker) PublishBatch(ctx context.Context, topic string, partition uint32, records []benchPublishRecord) ([]benchMessage, error) {
-	payloads := make([][]byte, 0, len(records))
-	for _, record := range records {
-		payloads = append(payloads, record.Payload)
-	}
-	messages, err := b.mq.PublishBatch(ctx, topic, payloads, ech0.Partition(partition))
+	_ = topic
+	producer, err := b.requireProducer()
 	if err != nil {
-		return nil, fmt.Errorf("embedded publish batch: %w", err)
+		return nil, err
 	}
-	out := make([]benchMessage, 0, len(messages))
-	for _, msg := range messages {
+	futures := collectionlist.NewListWithCapacity[*ech0.ProduceFuture](len(records))
+	for _, record := range records {
+		future, err := producer.Send(ctx, record.Payload, ech0.Partition(partition), ech0.Key(record.Key))
+		if err != nil {
+			return nil, fmt.Errorf("embedded enqueue publish batch: %w", err)
+		}
+		futures.Add(future)
+	}
+	out := make([]benchMessage, 0, futures.Len())
+	for _, future := range futures.Values() {
+		msg, err := future.Await(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("embedded await publish batch: %w", err)
+		}
 		out = append(out, benchMessage{Payload: msg.Payload, NextOffset: msg.NextOffset})
 	}
 	return out, nil
@@ -86,8 +115,19 @@ func (b *embeddedBenchBroker) Commit(ctx context.Context, consumer, topic string
 }
 
 func (b *embeddedBenchBroker) Close(ctx context.Context) error {
-	if err := b.mq.Close(ctx); err != nil {
-		return fmt.Errorf("embedded close: %w", err)
+	var result error
+	if b.producer != nil {
+		result = errors.Join(result, b.producer.Close(ctx))
 	}
-	return nil
+	if err := b.mq.Close(ctx); err != nil {
+		result = errors.Join(result, fmt.Errorf("embedded close: %w", err))
+	}
+	return result
+}
+
+func (b *embeddedBenchBroker) requireProducer() (*ech0.Producer, error) {
+	if b.producer == nil {
+		return nil, errors.New("embedded producer is not initialized")
+	}
+	return b.producer, nil
 }

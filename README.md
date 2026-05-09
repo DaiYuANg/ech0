@@ -58,6 +58,27 @@ func main() {
 }
 ```
 
+For producer-side batching and multiple in-flight publishes, use the library producer:
+
+```go
+producer, err := mq.NewProducer(ctx, "orders",
+	ech0.ProducerBatchSize(64),
+	ech0.ProducerInFlight(8),
+)
+if err != nil {
+	log.Fatal(err)
+}
+defer producer.Close(ctx)
+
+future, err := producer.Send(ctx, []byte(`{"event":"created"}`), ech0.Key([]byte("order-1")))
+if err != nil {
+	log.Fatal(err)
+}
+if _, err := future.Await(ctx); err != nil {
+	log.Fatal(err)
+}
+```
+
 Use the `broker` and `store` packages only when you need lower-level control over runtime wiring, storage, Raft, or transports.
 
 ## Binary Usage

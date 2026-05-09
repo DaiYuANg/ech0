@@ -17,8 +17,8 @@ func printReport(
 	seconds := elapsed.Seconds()
 
 	writeStdout("ech0bench completed\n")
-	writeStdout("mode=%s data_dir=%s broker_addr=%s topic=%s duration=%s producers=%d consumers=%d partitions=%d payload_bytes=%d batch_size=%d fetch_batch=%d\n",
-		cfg.mode(), dataDir, cfg.brokerAddr, cfg.topic, elapsed.Round(time.Millisecond), cfg.producers, cfg.activeConsumers, cfg.partitions, cfg.payloadBytes, cfg.batchSize, cfg.fetchBatch)
+	writeStdout("mode=%s data_dir=%s broker_addr=%s topic=%s duration=%s producers=%d consumers=%d partitions=%d payload_bytes=%d batch_size=%d producer_inflight=%d fetch_batch=%d\n",
+		cfg.mode(), dataDir, cfg.brokerAddr, cfg.topic, elapsed.Round(time.Millisecond), cfg.producers, cfg.activeConsumers, cfg.partitions, cfg.payloadBytes, cfg.batchSize, cfg.producerInflight, cfg.fetchBatch)
 	writeStdout("produced=%d consumed=%d publish_errors=%d consume_errors=%d\n",
 		produced, consumed, counters.publishErrors.Load(), counters.consumeErrors.Load())
 	writeStdout("produce_rate=%.2f msg/s produce_throughput=%.2f MiB/s\n",

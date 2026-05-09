@@ -88,6 +88,7 @@ Useful flags:
 | `--duration` | `30s` | Run duration. |
 | `--payload-bytes` | `1024` | Message payload size. |
 | `--batch-size` | `1` | Records per produce request. Values greater than 1 use the broker batch produce path. |
+| `--producer-inflight` | `1` | Max in-flight produce requests per producer. Values greater than 1 make the producer Kafka-like and async, which is useful for separating broker throughput from synchronous client wait time. |
 | `--fetch-batch` | `128` | Max records per fetch. |
 | `--poll-idle` | `1ms` | Consumer sleep after an empty fetch. |
 | `--samples` | `200000` | Max latency samples retained for percentile output. |
@@ -100,6 +101,7 @@ The report includes:
 - Publish and consume error counts.
 
 Publish latency is measured per produce operation. When `--batch-size` is greater than 1, throughput counts messages but publish latency counts batch requests.
+When `--producer-inflight` is greater than 1, each producer keeps multiple produce operations in flight. Latency still measures individual publish or publish-batch round trips, but throughput is no longer limited by a producer waiting synchronously for each request before issuing the next one.
 
 ## Local Run: 2026-05-08
 
@@ -149,6 +151,7 @@ Follow-up runs after adding `--batch-size` and configurable `raft.commit_timeout
 | Mode | Settings | Produce Rate | Consume Rate | Publish p50 | Publish p95 | Errors |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | Embedded library | `batch_size=16`, 15s | 984.46 msg/s | 983.07 msg/s | 64.248ms per batch | 79.024ms per batch | 0 |
+| Embedded library | `batch_size=16`, `producer_inflight=8`, 5s, library `Producer` | 57,982.49 msg/s | 57,963.51 msg/s | 8.587ms per batch | 11.317ms per batch | 0 |
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=1`, 15s | 73.33 msg/s | 72.93 msg/s | 50.017ms | 71.646ms | 0 |
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, 15s | 109.86 msg/s | 102.40 msg/s | 568.516ms per batch | 608.446ms per batch | 0 |
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, real store batch append, 15s | 429.83 msg/s | 248.51 msg/s | 63.611ms per batch | 93.292ms per batch | 0 |
@@ -158,7 +161,7 @@ Follow-up runs after adding `--batch-size` and configurable `raft.commit_timeout
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, segment write coalescing + reader cache, 15s | 1,522.10 msg/s | 1,511.44 msg/s | 39.298ms per batch | 63.744ms per batch | 0 |
 | TCP raft cluster | `commit_timeout_ms=5`, `batch_size=16`, binary raft hot command codec, 15s | 1,404.43 msg/s | 1,400.16 msg/s | 36.285ms per batch | 100.158ms per batch | 0 |
 
-These follow-up numbers show that making `CommitTimeout` configurable is necessary but not enough by itself. The real store batch append path improved cluster produce throughput by roughly 3.9x over the previous `batch_size=16` run and moved batch publish p50 from about 569ms to about 64ms. Raft proposal coalescing helped consume keep up by batching commit offsets. Grouped segment reads then removed the major fetch bottleneck and moved this local Docker run above 1,000 msg/s for both produce and consume.
+These follow-up numbers show that making `CommitTimeout` configurable is necessary but not enough by itself. The library `Producer` async path moves embedded mode above 57k msg/s in this local run, which confirms that synchronous client wait time was dominating embedded `batch_size=16` throughput. The real store batch append path improved cluster produce throughput by roughly 3.9x over the previous `batch_size=16` run and moved batch publish p50 from about 569ms to about 64ms. Raft proposal coalescing helped consume keep up by batching commit offsets. Grouped segment reads then removed the major fetch bottleneck and moved this local Docker run above 1,000 msg/s for both produce and consume.
 
 ## Cluster Metrics Drilldown
 
@@ -382,6 +385,40 @@ Readout:
 - Raft log bytes per entry are now about 28.5 KiB in this workload. The previous local sample was roughly 32 MiB across about 740 log entries, so the hot command codec materially reduces log byte volume.
 - End-to-end throughput did not exceed the previous best in this particular Docker run because p95 publish and fetch latency regressed. The remaining dominant costs are still raft log persistence (`put_many`) and local read/fetch IO variance, not command encoding.
 
+## Local Kafka Comparison: 2026-05-09
+
+This run compares ech0 and Kafka on the same Windows Docker Desktop host. It is still not a perfectly identical workload because `ech0bench` runs simultaneous produce and consume through ech0's TCP API, while Kafka's built-in perf tools report producer and consumer paths separately.
+
+Kafka environment:
+
+- Image: `apache/kafka:4.2.0`.
+- Cluster: 3 broker/controller KRaft nodes from `deploy/docker/docker-compose.kafka-bench.yml`.
+- Topic: 4 partitions, replication factor 3, `min.insync.replicas=2`.
+- Producer: 4 concurrent `kafka-producer-perf-test.sh` processes, total 200,000 records, 1 KiB record size, `acks=all`, `batch.size=16384`, `linger.ms=5`, no compression.
+- Consumer: `kafka-consumer-perf-test.sh`, 200,000 records, fresh group, `auto.offset.reset=earliest`, run after produce to drain the topic.
+
+ech0 environment:
+
+- Image built from current workspace, commit `b8507d4`.
+- Cluster: 3-node Docker raft cluster, clean `ECH0_CLUSTER_DATA_ROOT=./data/ech0-kafka-compare-20260509`.
+- Workload: `--duration 15s --producers 4 --consumers 4 --partitions 4 --payload-bytes 1024 --batch-size 16 --fetch-batch 256`.
+- Leader target: `127.0.0.1:29090`.
+
+Results:
+
+| System | Workload | Produced | Consumed | Produce Rate | Consume Rate | Latency Signal |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| ech0 TCP raft cluster | simultaneous produce/consume, 15s | 30,576 | 30,336 | 2,038.38 msg/s | 2,022.38 msg/s | publish p50 30.345ms, p95 36.489ms; fetch p99 11.191ms |
+| Kafka KRaft cluster | producer-only wall clock | 200,000 | n/a | 19,969.82 msg/s | n/a | producer records had multi-second latency because the perf tool allows a large async backlog |
+| Kafka KRaft cluster | consumer drain after produce | n/a | 200,000 | n/a | 69,255.17 msg/s wall clock; 166,805.67 msg/s fetch window | consumer perf fetch window excludes startup and group coordination |
+
+Readout:
+
+- On this host, Kafka producer-only wall-clock throughput is about 9.8x the current ech0 clustered produce rate.
+- Kafka's consumer drain is about 34x ech0 by full command wall clock, or about 82x by Kafka's own fetch-window metric.
+- The Kafka producer comparison is throughput-oriented, not latency-equivalent. Kafka's perf producer keeps many requests in flight; the observed record latency was seconds, while ech0's TCP benchmark measured synchronous batch request latency.
+- The core architectural difference remains the same: Kafka distributes partition leaders across brokers and has a mature async batch log path; ech0 currently serializes mutating commands through one Raft group leader.
+
 ## Kafka and NATS Comparison Notes
 
 Do not compare the local numbers above directly to public Kafka or NATS benchmark snippets unless all systems run on the same machine, payload size, durability settings, replication factor, batching, compression, and client concurrency.
@@ -405,7 +442,7 @@ Recommended fair comparison plan:
 
 1. Run Kafka with replication factor 3, 1 KiB records, same host or same VM class, and report `acks=all` plus `kafka-producer-perf-test.sh` / `kafka-consumer-perf-test.sh`.
 2. Run NATS JetStream with file storage, replicas 3, 1 KiB messages, and both sync and async `nats bench js pub`.
-3. Run ech0 with both per-message produce and batched produce to separate protocol overhead from storage and raft overhead.
+3. Run ech0 with both synchronous produce and `--producer-inflight > 1` async batched produce to separate client wait time from storage and raft overhead.
 4. Capture CPU, disk write latency, fsync policy, and Docker-vs-native placement for every system.
 
 ## Bottleneck Reading Guide

@@ -26,13 +26,17 @@ func runProducer(
 	counters *benchCounters,
 	latencies *latencyRecorder,
 ) {
+	if cfg.producerInflight > 1 {
+		runAsyncProducer(ctx, mq, cfg, producerID, partition, payload, counters, latencies)
+		return
+	}
 	if cfg.batchSize > 1 {
 		runBatchProducer(ctx, mq, cfg, producerID, partition, payload, counters, latencies)
 		return
 	}
 	sequence := uint64(0)
 	for ctx.Err() == nil {
-		key := []byte(strconv.FormatUint(uint64(producerID), 10) + "/" + strconv.FormatUint(sequence, 10))
+		key := benchmarkRecordKey(producerID, sequence)
 		start := time.Now()
 		msg, err := mq.Publish(ctx, cfg.topic, payload, key)
 		elapsed := time.Since(start)
@@ -157,8 +161,11 @@ func benchmarkBatchRecords(producerID uint32, baseSequence uint64, payload []byt
 	records := make([]benchPublishRecord, 0, batchSize)
 	for idx := range batchSize {
 		sequence := baseSequence + uint64(idx)
-		key := []byte(strconv.FormatUint(uint64(producerID), 10) + "/" + strconv.FormatUint(sequence, 10))
-		records = append(records, benchPublishRecord{Payload: payload, Key: key})
+		records = append(records, benchPublishRecord{Payload: payload, Key: benchmarkRecordKey(producerID, sequence)})
 	}
 	return records
+}
+
+func benchmarkRecordKey(producerID uint32, sequence uint64) []byte {
+	return []byte(strconv.FormatUint(uint64(producerID), 10) + "/" + strconv.FormatUint(sequence, 10))
 }

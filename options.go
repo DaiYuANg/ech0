@@ -60,6 +60,15 @@ type fetchOptions struct {
 	maxRecords int
 }
 
+type ProducerOption func(*producerOptions)
+
+type producerOptions struct {
+	batchSize int
+	linger    time.Duration
+	buffer    int
+	inFlight  int
+}
+
 func DefaultOptions() Options {
 	return Options{
 		DataDir:        "./data",
@@ -133,6 +142,38 @@ func FetchLimit(maxRecords int) FetchOption {
 	}
 }
 
+func ProducerBatchSize(size int) ProducerOption {
+	return func(opts *producerOptions) {
+		if size > 0 {
+			opts.batchSize = size
+		}
+	}
+}
+
+func ProducerLinger(duration time.Duration) ProducerOption {
+	return func(opts *producerOptions) {
+		if duration >= 0 {
+			opts.linger = duration
+		}
+	}
+}
+
+func ProducerBuffer(size int) ProducerOption {
+	return func(opts *producerOptions) {
+		if size > 0 {
+			opts.buffer = size
+		}
+	}
+}
+
+func ProducerInFlight(limit int) ProducerOption {
+	return func(opts *producerOptions) {
+		if limit > 0 {
+			opts.inFlight = limit
+		}
+	}
+}
+
 func normalizeOptions(opts Options) Options {
 	defaults := DefaultOptions()
 	if opts.DataDir == "" {
@@ -146,6 +187,25 @@ func normalizeOptions(opts Options) Options {
 	}
 	if opts.MaxPayloadSize == 0 {
 		opts.MaxPayloadSize = defaults.MaxPayloadSize
+	}
+	return opts
+}
+
+func normalizeProducerOptions(opts producerOptions) producerOptions {
+	if opts.batchSize <= 0 {
+		opts.batchSize = 16
+	}
+	if opts.linger < 0 {
+		opts.linger = 0
+	}
+	if opts.linger == 0 {
+		opts.linger = 5 * time.Millisecond
+	}
+	if opts.inFlight <= 0 {
+		opts.inFlight = 4
+	}
+	if opts.buffer <= 0 {
+		opts.buffer = opts.batchSize * opts.inFlight * 4
 	}
 	return opts
 }

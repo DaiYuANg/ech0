@@ -10,19 +10,20 @@ import (
 )
 
 type benchConfig struct {
-	dataDir         string
-	brokerAddr      string
-	topic           string
-	partitions      uint32
-	producers       uint32
-	consumers       uint32
-	activeConsumers uint32
-	duration        time.Duration
-	payloadBytes    int
-	batchSize       int
-	fetchBatch      int
-	pollIdle        time.Duration
-	samples         int
+	dataDir          string
+	brokerAddr       string
+	topic            string
+	partitions       uint32
+	producers        uint32
+	consumers        uint32
+	activeConsumers  uint32
+	duration         time.Duration
+	payloadBytes     int
+	batchSize        int
+	producerInflight uint32
+	fetchBatch       int
+	pollIdle         time.Duration
+	samples          int
 }
 
 func parseFlags() benchConfig {
@@ -36,6 +37,7 @@ func parseFlags() benchConfig {
 	flag.DurationVar(&cfg.duration, "duration", 30*time.Second, "stress test duration")
 	flag.IntVar(&cfg.payloadBytes, "payload-bytes", 1024, "message payload size")
 	flag.IntVar(&cfg.batchSize, "batch-size", 1, "records per produce request")
+	uint32Var(&cfg.producerInflight, "producer-inflight", 1, "max in-flight produce requests per producer")
 	flag.IntVar(&cfg.fetchBatch, "fetch-batch", 128, "max records per fetch")
 	flag.DurationVar(&cfg.pollIdle, "poll-idle", time.Millisecond, "sleep duration after an empty fetch")
 	flag.IntVar(&cfg.samples, "samples", 200000, "max latency samples kept in memory")
@@ -68,6 +70,9 @@ func validateBenchConfig(cfg benchConfig) error {
 	}
 	if cfg.batchSize <= 0 {
 		return errors.New("batch-size must be greater than zero")
+	}
+	if cfg.producerInflight == 0 {
+		return errors.New("producer-inflight must be greater than zero")
 	}
 	if cfg.fetchBatch <= 0 {
 		return errors.New("fetch-batch must be greater than zero")

@@ -19,7 +19,8 @@ type tcpBenchBroker struct {
 }
 
 func newTCPBenchBroker(cfg benchConfig) *tcpBenchBroker {
-	poolSize := int(cfg.producers + cfg.consumers + 1)
+	producerSlots := int(cfg.producers) * int(cfg.producerInflight)
+	poolSize := producerSlots + int(cfg.consumers) + 1
 	if poolSize <= 0 {
 		poolSize = 1
 	}
