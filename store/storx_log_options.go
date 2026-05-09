@@ -18,6 +18,7 @@ const (
 
 type StorxLogOptions struct {
 	Compression SegmentCompression
+	IndexPath   string
 	Logger      *slog.Logger
 	Observers   []observer.Observer
 	Metrics     StoreMetrics

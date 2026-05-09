@@ -2,6 +2,8 @@ package store_test
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -30,17 +32,47 @@ func TestStorxStoresPersistLogAndMetadata(t *testing.T) {
 	requirePersistedTopic(t, metaStore)
 }
 
+func TestStorxLogStoreUsesCustomIndexPath(t *testing.T) {
+	root := t.TempDir()
+	logPath := filepath.Join(root, "segments")
+	indexPath := filepath.Join(root, "badger")
+
+	logStore, err := store.OpenStorxLogStoreWithOptions(logPath, store.StorxLogOptions{IndexPath: indexPath})
+	requireNoError(t, err)
+	persistLogRecord(t, logStore)
+	requireNoError(t, logStore.Close())
+
+	logStore, err = store.OpenStorxLogStoreWithOptions(logPath, store.StorxLogOptions{IndexPath: indexPath})
+	requireNoError(t, err)
+	defer closeLogStore(t, logStore)
+	requirePersistedRecord(t, logStore)
+
+	if _, err := os.Stat(indexPath); err != nil {
+		t.Fatalf("expected custom index path to exist: %v", err)
+	}
+	defaultIndexPath := filepath.Join(logPath, "index.badger")
+	if _, err := os.Stat(defaultIndexPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected default index path to remain unused, got: %v", err)
+	}
+}
+
 func persistOrderState(t *testing.T, logStore *store.StorxLogStore, metaStore *store.StorxMetadataStore) {
+	t.Helper()
+	topic := persistLogRecord(t, logStore)
+	requireNoError(t, metaStore.SaveTopicConfig(topic))
+	requireNoError(t, metaStore.SaveConsumerOffset("c1", store.NewTopicPartition("orders", 0), 1))
+}
+
+func persistLogRecord(t *testing.T, logStore *store.StorxLogStore) store.TopicConfig {
 	t.Helper()
 	topic := store.NewTopicConfig("orders")
 	requireNoError(t, logStore.CreateTopic(topic))
-	requireNoError(t, metaStore.SaveTopicConfig(topic))
 	record, err := logStore.Append(store.NewTopicPartition("orders", 0), []byte("m1"))
 	requireNoError(t, err)
 	if record.Offset != 0 {
 		t.Fatalf("unexpected offset: %d", record.Offset)
 	}
-	requireNoError(t, metaStore.SaveConsumerOffset("c1", store.NewTopicPartition("orders", 0), 1))
+	return topic
 }
 
 func requirePersistedRecord(t *testing.T, logStore *store.StorxLogStore) {

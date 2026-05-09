@@ -2,8 +2,10 @@ package broker
 
 import (
 	"context"
+	"errors"
 
 	"github.com/DaiYuANg/ech0/store"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 )
 
@@ -17,6 +19,9 @@ type dataShardCommand struct {
 
 type dataShardRuntime interface {
 	ApplyDataShardCommand(context.Context, dataShardCommand) (any, error)
+	EnsureTopic(context.Context, store.TopicConfig) error
+	Close() error
+	RuntimeMode() string
 }
 
 type dataShardRegistry struct {
@@ -46,6 +51,60 @@ func (r dataShardRegistry) ApplyDataShardCommand(ctx context.Context, cmd dataSh
 	return value, nil
 }
 
+func (r dataShardRegistry) EnsureTopic(ctx context.Context, topic store.TopicConfig) error {
+	var result error
+	r.runtimes.Range(func(shardID store.ShardID, runtime dataShardRuntime) bool {
+		if runtime != nil {
+			err := runtime.EnsureTopic(ctx, topic)
+			result = errors.Join(result, wrapBroker("data_shard_topic_init_failed", err, "ensure topic %s on data shard %d", topic.Name, shardID))
+		}
+		return true
+	})
+	return result
+}
+
+func (r dataShardRegistry) Close() error {
+	var result error
+	r.runtimes.Range(func(shardID store.ShardID, runtime dataShardRuntime) bool {
+		if runtime != nil {
+			err := runtime.Close()
+			result = errors.Join(result, wrapBroker("data_shard_close_failed", err, "close data shard %d", shardID))
+		}
+		return true
+	})
+	return result
+}
+
+func (r dataShardRegistry) RuntimeMode() string {
+	return "registry"
+}
+
+func (r dataShardRegistry) RuntimeModeForShard(shardID store.ShardID) string {
+	runtime, ok := r.runtimes.Get(shardID)
+	if !ok || runtime == nil {
+		return "missing"
+	}
+	return runtime.RuntimeMode()
+}
+
+func dataShardHealth(specs []dataShardSpec, runtime dataShardRuntime) []DataShardHealth {
+	out := collectionlist.NewListWithCapacity[DataShardHealth](len(specs))
+	for _, spec := range specs {
+		out.Add(DataShardHealth{ShardID: spec.ShardID, RuntimeMode: dataShardRuntimeMode(runtime, spec.ShardID)})
+	}
+	return out.Values()
+}
+
+func dataShardRuntimeMode(runtime dataShardRuntime, shardID store.ShardID) string {
+	if runtime == nil {
+		return "missing"
+	}
+	if registry, ok := runtime.(interface{ RuntimeModeForShard(store.ShardID) string }); ok {
+		return registry.RuntimeModeForShard(shardID)
+	}
+	return runtime.RuntimeMode()
+}
+
 type singleGroupDataShardRuntime struct {
 	router brokerCommandRouter
 }
@@ -63,4 +122,30 @@ func (r singleGroupDataShardRuntime) ApplyDataShardCommand(ctx context.Context, 
 		return nil, wrapBroker("single_group_data_shard_apply_failed", err, "apply data shard command %s to compatibility raft group", cmd.CommandType)
 	}
 	return value, nil
+}
+
+func (r singleGroupDataShardRuntime) EnsureTopic(context.Context, store.TopicConfig) error {
+	return nil
+}
+
+func (r singleGroupDataShardRuntime) Close() error {
+	return nil
+}
+
+func (r singleGroupDataShardRuntime) RuntimeMode() string {
+	return "compat_single_group"
+}
+
+func (b *Broker) ensureTopicDataShards(ctx context.Context, topic store.TopicConfig) error {
+	if b == nil || b.dataShards == nil {
+		return nil
+	}
+	return wrapBroker("data_shards_topic_init_failed", b.dataShards.EnsureTopic(ctx, topic), "ensure topic %s on data shards", topic.Name)
+}
+
+func (b *Broker) closeDataShards() error {
+	if b == nil || b.dataShards == nil {
+		return nil
+	}
+	return wrapBroker("data_shards_close_failed", b.dataShards.Close(), "close data shards")
 }

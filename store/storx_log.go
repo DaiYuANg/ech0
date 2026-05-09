@@ -78,7 +78,11 @@ func OpenStorxLogStoreWithOptions(path string, options StorxLogOptions) (*StorxL
 	if mkdirErr := os.MkdirAll(segmentsDir, 0o750); mkdirErr != nil {
 		return nil, errors.Join(wrapExternal(mkdirErr, "create segment log directory"), compression.close())
 	}
-	index, err := openSegmentIndex(filepath.Join(rootDir, "index.badger"), options)
+	indexPath := options.IndexPath
+	if indexPath == "" {
+		indexPath = filepath.Join(rootDir, "index.badger")
+	}
+	index, err := openSegmentIndex(indexPath, options)
 	if err != nil {
 		return nil, errors.Join(err, compression.close())
 	}

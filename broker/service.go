@@ -10,7 +10,6 @@ import (
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/queue"
 	"github.com/DaiYuANg/ech0/store"
-	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/eventx"
 	"github.com/dgraph-io/ristretto/v2"
 )
@@ -168,23 +167,23 @@ func (b *Broker) Stop(ctx context.Context) error {
 	node := b.raft
 	b.raft = nil
 	b.raftMu.Unlock()
+	var result error
 	if node != nil {
-		if err := node.Close(); err != nil {
-			return err
-		}
+		result = errors.Join(result, node.Close())
 	}
+	result = errors.Join(result, b.closeDataShards())
 	b.closeTopicCache()
 	if b.events != nil {
-		return wrapBroker("event_bus_close_failed", b.events.Close(), "close event bus")
+		result = errors.Join(result, wrapBroker("event_bus_close_failed", b.events.Close(), "close event bus"))
 	}
-	return nil
+	return result
 }
 
 func (b *Broker) RuntimeHealth() RuntimeHealth {
 	health := RuntimeHealth{
 		Status:      "ok",
 		RuntimeMode: "standalone",
-		DataShards:  dataShardHealth(b.shardSpecs),
+		DataShards:  dataShardHealth(b.shardSpecs, b.dataShards),
 	}
 	b.raftMu.RLock()
 	node := b.raft
@@ -221,12 +220,4 @@ type RaftHealth struct {
 type DataShardHealth struct {
 	ShardID     store.ShardID `json:"shard_id"`
 	RuntimeMode string        `json:"runtime_mode"`
-}
-
-func dataShardHealth(specs []dataShardSpec) []DataShardHealth {
-	out := collectionlist.NewListWithCapacity[DataShardHealth](len(specs))
-	for _, spec := range specs {
-		out.Add(DataShardHealth{ShardID: spec.ShardID, RuntimeMode: "compat_single_group"})
-	}
-	return out.Values()
 }

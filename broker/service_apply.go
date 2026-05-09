@@ -22,6 +22,9 @@ func (b *Broker) applyCreateTopic(ctx context.Context, topic store.TopicConfig) 
 	if err := b.ensureTopicShardPlacements(topic); err != nil {
 		return store.TopicConfig{}, wrapBroker("topic_shard_placement_failed", err, "ensure topic shard placement")
 	}
+	if err := b.ensureTopicDataShards(ctx, topic); err != nil {
+		return store.TopicConfig{}, err
+	}
 	b.cacheTopicConfig(topic)
 	b.publishEvent(ctx, TopicCreatedEvent{Topic: topic.Name, Partitions: topic.Partitions})
 	return topic, nil
