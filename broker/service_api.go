@@ -49,6 +49,14 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning Pu
 	return routePartitionCommand(ctx, b, publishPartitionCommandTarget(topic, partitioning), raftCommandProduceBatch, req, b.applyProduceBatch)
 }
 
+func (b *Broker) publishBatches(ctx context.Context, requests []produceBatchCommand) (produceBatchesResult, error) {
+	req := produceBatchesCommand{Requests: requests}
+	if b.usesClusterCommandRouter() {
+		return b.routeProduceBatchesCommand(ctx, req)
+	}
+	return b.applyProduceBatches(ctx, req)
+}
+
 func (b *Broker) Fetch(ctx context.Context, consumer, topic string, partition uint32, offset *uint64, maxRecords int) (poll store.PollResult, err error) {
 	const operation = "fetch"
 	totalStart := time.Now()

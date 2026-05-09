@@ -8,16 +8,17 @@ const (
 	CmdHandshakeRequest uint16 = 1
 	CmdPingRequest      uint16 = 2
 
-	CmdCreateTopicRequest   uint16 = 10
-	CmdListTopicsRequest    uint16 = 11
-	CmdProduceRequest       uint16 = 20
-	CmdProduceBatchRequest  uint16 = 21
-	CmdFetchRequest         uint16 = 22
-	CmdFetchBatchRequest    uint16 = 23
-	CmdCommitOffsetRequest  uint16 = 24
-	CmdNackRequest          uint16 = 30
-	CmdProcessRetryRequest  uint16 = 31
-	CmdScheduleDelayRequest uint16 = 32
+	CmdCreateTopicRequest    uint16 = 10
+	CmdListTopicsRequest     uint16 = 11
+	CmdProduceRequest        uint16 = 20
+	CmdProduceBatchRequest   uint16 = 21
+	CmdFetchRequest          uint16 = 22
+	CmdFetchBatchRequest     uint16 = 23
+	CmdCommitOffsetRequest   uint16 = 24
+	CmdProduceBatchesRequest uint16 = 25
+	CmdNackRequest           uint16 = 30
+	CmdProcessRetryRequest   uint16 = 31
+	CmdScheduleDelayRequest  uint16 = 32
 
 	CmdSendDirectRequest uint16 = 40
 	CmdFetchInboxRequest uint16 = 41
@@ -39,18 +40,19 @@ const (
 )
 
 const (
-	CmdHandshakeResponse     uint16 = 1001
-	CmdPingResponse          uint16 = 1002
-	CmdCreateTopicResponse   uint16 = 1010
-	CmdListTopicsResponse    uint16 = 1011
-	CmdProduceResponse       uint16 = 1020
-	CmdProduceBatchResponse  uint16 = 1021
-	CmdFetchResponse         uint16 = 1022
-	CmdFetchBatchResponse    uint16 = 1023
-	CmdCommitOffsetResponse  uint16 = 1024
-	CmdNackResponse          uint16 = 1030
-	CmdProcessRetryResponse  uint16 = 1031
-	CmdScheduleDelayResponse uint16 = 1032
+	CmdHandshakeResponse      uint16 = 1001
+	CmdPingResponse           uint16 = 1002
+	CmdCreateTopicResponse    uint16 = 1010
+	CmdListTopicsResponse     uint16 = 1011
+	CmdProduceResponse        uint16 = 1020
+	CmdProduceBatchResponse   uint16 = 1021
+	CmdFetchResponse          uint16 = 1022
+	CmdFetchBatchResponse     uint16 = 1023
+	CmdCommitOffsetResponse   uint16 = 1024
+	CmdProduceBatchesResponse uint16 = 1025
+	CmdNackResponse           uint16 = 1030
+	CmdProcessRetryResponse   uint16 = 1031
+	CmdScheduleDelayResponse  uint16 = 1032
 
 	CmdSendDirectResponse uint16 = 1040
 	CmdFetchInboxResponse uint16 = 1041

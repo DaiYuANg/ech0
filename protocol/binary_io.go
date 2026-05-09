@@ -4,22 +4,28 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
-	"math"
-	"strconv"
 
+	"github.com/DaiYuANg/ech0/internal/bufferpool"
 	"github.com/samber/oops"
 )
 
 type binaryWriter struct {
-	buf bytes.Buffer
+	buf *bufferpool.Buffer
 }
 
 func newBinaryWriter() *binaryWriter {
-	return &binaryWriter{}
+	return &binaryWriter{buf: bufferpool.Get()}
 }
 
 func (w *binaryWriter) bytes() []byte {
-	return w.buf.Bytes()
+	out := bufferpool.CopyAndPut(w.buf)
+	w.buf = nil
+	return out
+}
+
+func (w *binaryWriter) release() {
+	bufferpool.Put(w.buf)
+	w.buf = nil
 }
 
 func (w *binaryWriter) writeU8(value uint8) {
@@ -272,26 +278,4 @@ func (r *binaryReader) ensureEOF() error {
 		return oops.In("protocol").Code("binary_trailing_data").With("remaining", r.inner.Len()).New("binary body has trailing data")
 	}
 	return nil
-}
-
-func checkedUint16(value int, label string) (uint16, error) {
-	if value < 0 || value > math.MaxUint16 {
-		return 0, oops.In("protocol").Code("binary_value_too_large").With("field", label, "value", value).New("value exceeds u16")
-	}
-	return uint16(value), nil // #nosec G115 -- value is range-checked above.
-}
-
-func checkedUint32(value int, label string) (uint32, error) {
-	if value < 0 || value > math.MaxUint32 {
-		return 0, oops.In("protocol").Code("binary_value_too_large").With("field", label, "value", value).New("value exceeds u32")
-	}
-	return uint32(value), nil // #nosec G115 -- value is range-checked above.
-}
-
-func intFromUint32(value uint32) (int, error) {
-	out, err := strconv.Atoi(strconv.FormatUint(uint64(value), 10))
-	if err != nil {
-		return 0, oops.In("protocol").Code("binary_value_too_large").Wrapf(err, "convert u32 to int")
-	}
-	return out, nil
 }

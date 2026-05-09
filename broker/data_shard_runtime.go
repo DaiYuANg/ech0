@@ -28,6 +28,19 @@ type dataShardRegistry struct {
 	runtimes *collectionmapping.Map[store.ShardID, dataShardRuntime]
 }
 
+type localDataShardRuntime struct{}
+
+func newLocalDataShardRegistry(specs []dataShardSpec) dataShardRuntime {
+	if len(specs) == 0 {
+		specs = []dataShardSpec{{ShardID: 0}}
+	}
+	runtimes := collectionmapping.NewMapWithCapacity[store.ShardID, dataShardRuntime](len(specs))
+	for _, spec := range specs {
+		runtimes.Set(spec.ShardID, localDataShardRuntime{})
+	}
+	return dataShardRegistry{runtimes: runtimes}
+}
+
 func (r dataShardRegistry) ApplyDataShardCommand(ctx context.Context, cmd dataShardCommand) (any, error) {
 	runtime, ok := r.runtimes.Get(cmd.ShardID)
 	if !ok || runtime == nil {
@@ -92,6 +105,25 @@ func dataShardRuntimeMode(runtime dataShardRuntime, shardID store.ShardID) strin
 		return registry.RuntimeModeForShard(shardID)
 	}
 	return runtime.RuntimeMode()
+}
+
+func (r localDataShardRuntime) ApplyDataShardCommand(ctx context.Context, cmd dataShardCommand) (any, error) {
+	if cmd.Local == nil {
+		return nil, brokerStoreError(store.CodeUnavailable, "local segment data shard command has no local apply function")
+	}
+	return cmd.Local(ctx)
+}
+
+func (r localDataShardRuntime) EnsureTopic(context.Context, store.TopicConfig) error {
+	return nil
+}
+
+func (r localDataShardRuntime) Close() error {
+	return nil
+}
+
+func (r localDataShardRuntime) RuntimeMode() string {
+	return "local_segment"
 }
 
 type raftDataShardRuntime struct {

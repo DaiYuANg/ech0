@@ -38,6 +38,14 @@ func newSingleGroupCommandRouter(b *Broker) brokerCommandRouter {
 	return singleGroupCommandRouter{broker: b}
 }
 
+type metadataOnlyCommandRouter struct {
+	metadata brokerCommandRouter
+}
+
+func newMetadataOnlyCommandRouter(metadata brokerCommandRouter) brokerCommandRouter {
+	return metadataOnlyCommandRouter{metadata: metadata}
+}
+
 func topicCommandTarget(topic string) partitionCommandTarget {
 	return partitionCommandTarget{Topic: topic}
 }
@@ -103,6 +111,38 @@ func (r singleGroupCommandRouter) raftNode() *raftNode {
 		return nil
 	}
 	return r.broker.currentRaftNode()
+}
+
+func (r metadataOnlyCommandRouter) ApplyMetadataCommand(
+	ctx context.Context,
+	commandType string,
+	payload any,
+	local commandApplyFunc,
+) (any, error) {
+	value, err := r.metadata.ApplyMetadataCommand(ctx, commandType, payload, local)
+	if err != nil {
+		return nil, wrapBroker("metadata_only_command_route_failed", err, "route metadata command %s", commandType)
+	}
+	return value, nil
+}
+
+func (r metadataOnlyCommandRouter) ApplyPartitionCommand(
+	ctx context.Context,
+	target partitionCommandTarget,
+	commandType string,
+	payload any,
+	local commandApplyFunc,
+) (any, error) {
+	_ = commandType
+	_ = payload
+	if err := target.validate(); err != nil {
+		return nil, err
+	}
+	return local(ctx)
+}
+
+func (r metadataOnlyCommandRouter) UsesCluster() bool {
+	return false
 }
 
 func (b *Broker) commandRouter() brokerCommandRouter {

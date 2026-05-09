@@ -19,6 +19,7 @@ var tcpFrameHandlers = map[uint16]frameHandler{
 	protocol.CmdListTopicsRequest:                 (*TCPServer).handleListTopicsFrame,
 	protocol.CmdProduceRequest:                    (*TCPServer).handleProduceFrame,
 	protocol.CmdProduceBatchRequest:               (*TCPServer).handleProduceBatchFrame,
+	protocol.CmdProduceBatchesRequest:             (*TCPServer).handleProduceBatchesFrame,
 	protocol.CmdFetchRequest:                      (*TCPServer).handleFetchFrame,
 	protocol.CmdFetchBatchRequest:                 (*TCPServer).handleFetchBatchFrame,
 	protocol.CmdCommitOffsetRequest:               (*TCPServer).handleCommitOffsetFrame,
@@ -136,6 +137,35 @@ func (s *TCPServer) handleProduceBatchFrame(ctx context.Context, frame transport
 		NextOffset: result.Records[len(result.Records)-1].Offset + 1,
 		Appended:   len(result.Records),
 	})
+}
+
+func (s *TCPServer) handleProduceBatchesFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.ProduceBatchesRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	commands := collectionlist.NewListWithCapacity[produceBatchCommand](len(req.Items))
+	items := collectionlist.NewListWithCapacity[protocol.ProduceBatchesItemResponse](len(req.Items))
+	for _, item := range req.Items {
+		records, err := batchRecordsFromProtocol(protocol.ProduceBatchRequest(item))
+		if err != nil {
+			items.Add(protocol.ProduceBatchesItemResponse{Topic: item.Topic, Error: err.Error()})
+			commands.Add(produceBatchCommand{})
+			continue
+		}
+		commands.Add(produceBatchCommand{
+			Topic:        item.Topic,
+			Partitioning: partitioningFromProtocol(item.Partitioning, item.Partition),
+			Records:      records,
+		})
+		items.Add(protocol.ProduceBatchesItemResponse{Topic: item.Topic})
+	}
+	result, err := s.broker.publishBatches(ctx, commands.Values())
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	out := mergeProduceBatchesResponse(req.Items, items.Values(), result.Items)
+	return okFrame(protocol.CmdProduceBatchesResponse, protocol.ProduceBatchesResponse{Items: out})
 }
 
 func (s *TCPServer) handleFetchFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {

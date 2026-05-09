@@ -21,6 +21,9 @@ func (s *StorxLogStore) clearLogStorage() error {
 	if err := s.closeSegmentWriters(); err != nil {
 		return err
 	}
+	if err := s.closeSegmentIndexWriters(); err != nil {
+		return err
+	}
 	if err := s.closeSegmentReaders(); err != nil {
 		return err
 	}
@@ -110,8 +113,12 @@ func (s *StorxLogStore) appendRestoredRecord(tp TopicPartition, record Record) e
 	if err != nil {
 		return err
 	}
-	if err := s.appendSegmentIndexPointers(s.segmentRelativePath(tp, pointer.SegmentID), []segmentRecordPointer{pointer}); err != nil {
+	segmentPath := s.segmentRelativePath(tp, pointer.SegmentID)
+	if err := s.appendSegmentIndexPointers(segmentPath, []segmentRecordPointer{pointer}); err != nil {
 		return wrapExternal(err, "restore log record index")
+	}
+	if err := s.syncAppendWrites([]string{segmentPath}, []string{segmentIndexRelativePath(segmentPath)}); err != nil {
+		return wrapExternal(err, "sync restored log record")
 	}
 	s.recordAppendedPointer(tp, pointer)
 	return nil

@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
+
+	"github.com/DaiYuANg/ech0/internal/bufferpool"
 )
 
 func (s *StorxLogStore) nextOffset(topicPartition TopicPartition) uint64 {
@@ -29,7 +32,7 @@ func (s *StorxLogStore) appendFrame(
 	if err != nil {
 		return segmentRecordPointer{}, err
 	}
-	positions, err := s.appendFramesToSegment(topicPartition, segmentID, [][]byte{frame})
+	result, err := s.appendFramesToSegment(topicPartition, segmentID, [][]byte{frame})
 	if err != nil {
 		return segmentRecordPointer{}, err
 	}
@@ -38,26 +41,36 @@ func (s *StorxLogStore) appendFrame(
 		Partition:   topicPartition.Partition,
 		Offset:      record.Offset,
 		SegmentID:   segmentID,
-		Position:    positions[0],
+		Position:    result.positions[0],
 		Length:      len(frame),
 		TimestampMS: record.TimestampMS,
 		Attributes:  record.Attributes,
 	}, nil
 }
 
-func (s *StorxLogStore) appendFramesToSegment(topicPartition TopicPartition, segmentID uint64, frames [][]byte) ([]int64, error) {
+type segmentAppendResult struct {
+	relativePath string
+	positions    []int64
+}
+
+func (s *StorxLogStore) appendFramesToSegment(topicPartition TopicPartition, segmentID uint64, frames [][]byte) (segmentAppendResult, error) {
 	relativePath := s.segmentRelativePath(topicPartition, segmentID)
 	if mkdirErr := os.MkdirAll(filepath.Join(s.segmentsDir, filepath.Dir(relativePath)), 0o750); mkdirErr != nil {
-		return nil, wrapExternal(mkdirErr, "create segment file directory")
+		return segmentAppendResult{}, wrapExternal(mkdirErr, "create segment file directory")
 	}
 	writer, err := s.segmentWriter(relativePath)
 	if err != nil {
-		return nil, err
+		return segmentAppendResult{}, err
 	}
-	return writer.appendFrames(frames)
+	positions, err := writer.appendFrames(frames)
+	if err != nil {
+		return segmentAppendResult{}, err
+	}
+	return segmentAppendResult{relativePath: relativePath, positions: positions}, nil
 }
 
 type segmentWriter struct {
+	mu       sync.Mutex
 	file     *os.File
 	position int64
 }
@@ -100,18 +113,18 @@ func (w *segmentWriter) appendFrames(frames [][]byte) ([]int64, error) {
 	if len(frames) == 0 {
 		return nil, nil
 	}
-	positions, payload := w.coalesceFrames(frames)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	positions, payload, release := w.coalesceFrames(frames)
+	defer release()
 	if err := w.writeFrames(payload); err != nil {
 		return nil, err
 	}
 	w.position += int64(len(payload))
-	if err := w.file.Sync(); err != nil {
-		return nil, wrapExternal(err, "sync segment file")
-	}
 	return positions, nil
 }
 
-func (w *segmentWriter) coalesceFrames(frames [][]byte) ([]int64, []byte) {
+func (w *segmentWriter) coalesceFrames(frames [][]byte) ([]int64, []byte, func()) {
 	positions := make([]int64, 0, len(frames))
 	total := 0
 	nextPosition := w.position
@@ -121,13 +134,16 @@ func (w *segmentWriter) coalesceFrames(frames [][]byte) ([]int64, []byte) {
 		total += len(frame)
 	}
 	if len(frames) == 1 {
-		return positions, frames[0]
+		return positions, frames[0], func() {}
 	}
-	payload := make([]byte, 0, total)
+	buffer := bufferpool.Get()
+	if cap(buffer.B) < total {
+		buffer.B = make([]byte, 0, total)
+	}
 	for _, frame := range frames {
-		payload = append(payload, frame...)
+		buffer.B = append(buffer.B, frame...)
 	}
-	return positions, payload
+	return positions, buffer.B, func() { bufferpool.Put(buffer) }
 }
 
 func (w *segmentWriter) writeFrames(payload []byte) error {
@@ -141,6 +157,15 @@ func (w *segmentWriter) writeFrames(payload []byte) error {
 	return nil
 }
 
+func (w *segmentWriter) sync() error {
+	if w == nil || w.file == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return wrapExternal(w.file.Sync(), "sync segment file")
+}
+
 func (s *StorxLogStore) closeSegmentWriters() error {
 	if s == nil || s.writers == nil {
 		return nil
@@ -150,7 +175,7 @@ func (s *StorxLogStore) closeSegmentWriters() error {
 	var result error
 	s.writers.Range(func(_ string, writer *segmentWriter) bool {
 		if writer != nil && writer.file != nil {
-			result = errors.Join(result, wrapExternal(writer.file.Close(), "close segment file"))
+			result = errors.Join(result, writer.sync(), wrapExternal(writer.file.Close(), "close segment file"))
 		}
 		return true
 	})

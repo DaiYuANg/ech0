@@ -87,6 +87,32 @@ type ProduceBatchResponse struct {
 	Appended   int    `json:"appended"`
 }
 
+type ProduceBatchesItemRequest struct {
+	Topic        string               `json:"topic"`
+	Partition    *uint32              `json:"partition,omitempty"`
+	Partitioning ProducePartitioning  `json:"partitioning"`
+	Payloads     [][]byte             `json:"payloads,omitempty"`
+	Records      []ProduceBatchRecord `json:"records,omitempty"`
+}
+
+type ProduceBatchesRequest struct {
+	Items []ProduceBatchesItemRequest `json:"items"`
+}
+
+type ProduceBatchesItemResponse struct {
+	Topic      string `json:"topic"`
+	Partition  uint32 `json:"partition"`
+	BaseOffset uint64 `json:"base_offset"`
+	LastOffset uint64 `json:"last_offset"`
+	NextOffset uint64 `json:"next_offset"`
+	Appended   int    `json:"appended"`
+	Error      string `json:"error,omitempty"`
+}
+
+type ProduceBatchesResponse struct {
+	Items []ProduceBatchesItemResponse `json:"items"`
+}
+
 type FetchRequest struct {
 	Consumer   string  `json:"consumer"`
 	Topic      string  `json:"topic"`

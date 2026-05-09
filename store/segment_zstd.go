@@ -35,14 +35,22 @@ func newSegmentFrameCompression(kind SegmentCompression) (segmentFrameCompressio
 }
 
 func (c segmentFrameCompression) encode(body []byte) (uint32, []byte, error) {
+	return c.encodeWithMagic(body, segmentFrameMagic, segmentFrameZstdMagic)
+}
+
+func (c segmentFrameCompression) encodeBatch(body []byte) (uint32, []byte, error) {
+	return c.encodeWithMagic(body, segmentBatchMagic, segmentBatchZstdMagic)
+}
+
+func (c segmentFrameCompression) encodeWithMagic(body []byte, plainMagic, zstdMagic uint32) (uint32, []byte, error) {
 	switch c.kind {
 	case SegmentCompressionNone:
-		return segmentFrameMagic, body, nil
+		return plainMagic, body, nil
 	case SegmentCompressionZstd:
 		if c.encoder == nil {
 			return 0, nil, E(CodeInvalidArgument, "zstd segment encoder is not initialized")
 		}
-		return segmentFrameZstdMagic, c.encoder.EncodeAll(body, nil), nil
+		return zstdMagic, c.encoder.EncodeAll(body, nil), nil
 	default:
 		return 0, nil, E(CodeInvalidArgument, "unsupported segment compression %q", c.kind)
 	}

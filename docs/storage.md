@@ -1,6 +1,6 @@
 # Storage
 
-ech0 separates broker metadata from message storage. Broker runtime is Dragonboat-first: a single node runs single-replica Dragonboat metadata/data groups, and a cluster runs the same groups with multiple replicas. Dragonboat snapshots provide durable recovery for business metadata and state machine data. Message bytes live in append-only segment files with shard-local binary index files. The message hot path does not depend on Badger or bbolt.
+ech0 separates broker metadata from message storage. Broker runtime is Dragonboat-first for metadata: a single node runs a single-replica Dragonboat metadata group and writes messages directly to local segment logs, while a multi-node cluster also enables Dragonboat data shard groups. Dragonboat snapshots provide durable recovery for business metadata and clustered state machine data. Message bytes live in append-only segment files with shard-local binary index files. The message hot path does not depend on Badger or bbolt.
 
 ## Storage Layers
 
@@ -9,24 +9,26 @@ ech0 separates broker metadata from message storage. Broker runtime is Dragonboa
 | Metadata | Dragonboat state machine | Topic configs, consumer offsets, consumer group members, assignments, broker state. |
 | Message manifest | `topics.json` | Topic configs needed by the local segment log. |
 | Message index | `*.idx` files plus in-memory indexes | Per-record segment pointers and computed next offsets. |
-| Message bytes | Segment files | zstd-compressed record frames containing key, headers, attributes, timestamp, and payload. |
+| Message bytes | Segment files | zstd-compressed single-record or batch frames containing key, headers, attributes, timestamp, and payload. |
 
 This gives the broker ordered append/read behavior without making a KV store hold message payloads or record pointers.
 
 ## Message Append Path
 
-Appending a message follows this path:
+Appending messages follows this path:
 
 1. Load the topic config for the target partition.
 2. Validate payload limits.
 3. Load the next offset from the in-memory partition index.
 4. Build a `store.Record`.
-5. Encode the record as a segment frame.
-6. Append the frame to the active segment file.
-7. Append a binary `segmentRecordPointer` entry to the segment `.idx` file.
-8. Advance the in-memory next offset.
+5. Queue the request into the partition append pipeline, which drains immediately available work for the same partition.
+6. Encode the drained records as one segment batch frame per target segment.
+7. Append the frame to the active segment file through a cached segment writer.
+8. Append binary `segmentRecordPointer` entries through a cached `.idx` writer.
+9. Schedule an asynchronous group sync for the dirty segment and index files.
+10. Advance the in-memory next offset.
 
-The pointer records topic, partition, offset, segment ID, byte position, byte length, timestamp, and attributes. Reads use the in-memory pointer slice to seek into the segment file and decode only the requested records. `segment_read_mode = "mmap"` is an experimental read path that maps sealed segment files and decodes directly from the mapped byte slice. Active append segments still use positional reads.
+The pointer records topic, partition, offset, segment ID, byte position, byte length, timestamp, and attributes. Records from the same batch frame can share the same position and length; reads decode that frame once and select records by offset. `segment_read_mode = "mmap"` is an experimental read path that maps sealed segment files and decodes directly from the mapped byte slice. Active append segments still use positional reads.
 
 ## Segment Frame
 
@@ -34,13 +36,13 @@ Each segment frame has:
 
 | Field | Description |
 | --- | --- |
-| magic | `ECZ0` (`0x45435a30`) for zstd-compressed frames, or legacy `ECH0` (`0x45434830`) for uncompressed frames. |
+| magic | `ECZ0` (`0x45435a30`) for zstd-compressed single-record frames, `ECBZ` (`0x4543425a`) for zstd-compressed batch frames, or legacy `ECH0` (`0x45434830`) / `ECB0` (`0x45434230`) for uncompressed frames. |
 | checksum | CRC32 of the stored frame body. |
-| body | zstd-compressed record body for `ECZ0`, raw record body for `ECH0`. |
+| body | zstd-compressed or raw record body for single-record frames; zstd-compressed or raw count-prefixed record bodies for batch frames. |
 
 The record body stores offset, timestamp, attributes, key, headers, and payload. Length-prefixed byte fields use an ASCII decimal length followed by `:`, then raw bytes.
 
-New writes use zstd compression by default and reads continue to accept legacy uncompressed frames. The checksum protects against partial or corrupted frame reads. The segment index entry provides the exact frame position and length.
+New writes use zstd compression by default and reads continue to accept legacy uncompressed frames. The checksum protects against partial or corrupted frame reads. The segment index entry provides the exact frame position and length. Clean shutdown flushes pending asynchronous group sync work before segment and index files are closed.
 
 ## Metadata Store
 
@@ -67,7 +69,7 @@ Both metadata and log stores implement snapshot/restore contracts:
 - Metadata snapshots copy topics, offsets, members, assignments, and broker state.
 - Log snapshots copy topic configs, visible records, and computed next offsets.
 
-Dragonboat runtime requires both metadata and message runtimes to implement `store.Snapshotter`; startup validates this before creating the Dragonboat runtime. Dragonboat owns the replicated Raft log and raft-side metadata under `data/dragonboat/<node_id>`.
+Dragonboat runtime requires both metadata and message runtimes to implement `store.Snapshotter`; startup validates this before creating the Dragonboat runtime. In single-replica mode only the metadata group is started. In multi-node mode Dragonboat also starts data shard groups. Dragonboat owns the replicated Raft log and raft-side metadata under `data/dragonboat/<node_id>`.
 
 ## Retention
 
@@ -92,7 +94,7 @@ Compaction is a scheduled job and is leader-gated by Dragonboat leadership. Per-
 
 Message storage is fixed to the hybrid model:
 
-- Dragonboat state machines as the clustered source of truth for metadata and shard state.
+- Dragonboat state machines as the source of truth for metadata and, in multi-node mode, replicated shard state.
 - Segment files for actual message bytes.
 - Segment `.idx` files for local message offset indexes.
 

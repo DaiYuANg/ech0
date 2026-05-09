@@ -37,6 +37,10 @@ func singleReplicaRaftCluster(cfg Config) bool {
 	return len(cfg.Raft.Cluster) == 1 && cfg.Raft.Cluster[0].NodeID == cfg.Broker.NodeID
 }
 
+func dataRaftEnabled(cfg Config) bool {
+	return len(cfg.Raft.Cluster) > 1
+}
+
 func dragonboatInitialMembers(cfg Config) map[uint64]dragonboat.Target {
 	members := make(map[uint64]dragonboat.Target, len(cfg.Raft.Cluster))
 	for _, peer := range cfg.Raft.Cluster {
@@ -110,6 +114,9 @@ func raftGroupIDs(cfg Config) []uint64 {
 	}
 	groups := make([]uint64, 0, int(count)+1)
 	groups = append(groups, raftMetadataGroupID)
+	if !dataRaftEnabled(cfg) {
+		return groups
+	}
 	for shardIndex := range count {
 		groups = append(groups, dataShardRaftGroupID(store.ShardID(shardIndex)))
 	}

@@ -33,8 +33,37 @@ func TestBrokerRuntimeHealthIncludesConfiguredDataShards(t *testing.T) {
 		t.Fatal(err)
 	}
 	health := b.RuntimeHealth()
+	if health.RuntimeMode != "single_replica_cluster" {
+		t.Fatalf("runtime mode = %q, want single_replica_cluster", health.RuntimeMode)
+	}
 	if len(health.DataShards) != 3 {
 		t.Fatalf("data shard health count = %d, want 3: %#v", len(health.DataShards), health.DataShards)
+	}
+	for index, shard := range health.DataShards {
+		if shard.ShardID != store.ShardID(index) {
+			t.Fatalf("data shard health[%d] shard_id = %d", index, shard.ShardID)
+		}
+		if shard.RuntimeMode != "local_segment" {
+			t.Fatalf("data shard health[%d] runtime_mode = %q", index, shard.RuntimeMode)
+		}
+	}
+}
+
+func TestBrokerRuntimeHealthUsesDragonboatGroupsForMultiPeerDataShards(t *testing.T) {
+	cfg := broker.DefaultConfig()
+	cfg.Broker.DataShardCount = 2
+	cfg.Raft.Cluster = []broker.RaftPeerConfig{
+		{NodeID: 1, Addr: "127.0.0.1:3210"},
+		{NodeID: 2, Addr: "127.0.0.1:3211"},
+	}
+
+	b, err := broker.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	health := b.RuntimeHealth()
+	if health.RuntimeMode != "cluster" {
+		t.Fatalf("runtime mode = %q, want cluster", health.RuntimeMode)
 	}
 	for index, shard := range health.DataShards {
 		if shard.ShardID != store.ShardID(index) {

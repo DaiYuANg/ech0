@@ -4,11 +4,12 @@ import (
 	"errors"
 	"os"
 	"time"
+
+	collectionlist "github.com/arcgolabs/collectionx/list"
 )
 
 type appendBatchPlan struct {
 	records []Record
-	frames  [][]byte
 	writes  []segmentBatchWrite
 }
 
@@ -17,7 +18,11 @@ type segmentBatchWrite struct {
 	indexes   []int
 }
 
-func (s *StorxLogStore) AppendRecordsBatch(topicPartition TopicPartition, records []RecordAppend) (out []Record, err error) {
+func (s *StorxLogStore) AppendRecordsBatch(topicPartition TopicPartition, records []RecordAppend) ([]Record, error) {
+	return s.appendPipeline(topicPartition).append(records)
+}
+
+func (s *StorxLogStore) appendRecordsBatchDirect(topicPartition TopicPartition, records []RecordAppend) (out []Record, err error) {
 	const operation = "append_batch"
 	totalStart := time.Now()
 	defer func() {
@@ -57,7 +62,6 @@ func (s *StorxLogStore) prepareAppendBatch(
 	s.recordAppendStage(operation, "next_offset", len(appendRecords), offsetStart, nil)
 
 	records := make([]Record, len(appendRecords))
-	frames := make([][]byte, len(appendRecords))
 	encodeStart := time.Now()
 	for index, appendRecord := range appendRecords {
 		if len(appendRecord.Payload) > int(topic.MaxMessageBytes) {
@@ -71,23 +75,16 @@ func (s *StorxLogStore) prepareAppendBatch(
 			return appendBatchPlan{}, offsetErr
 		}
 		record := newStoredRecord(offset, appendRecord)
-		frame, encodeErr := encodeSegmentFrameWithCompression(record, s.compression)
-		if encodeErr != nil {
-			s.recordAppendStage(operation, "encode_frame", index+1, encodeStart, encodeErr)
-			return appendBatchPlan{}, encodeErr
-		}
 		records[index] = record
-		frames[index] = frame
 	}
 	s.recordAppendStage(operation, "encode_frame", len(appendRecords), encodeStart, nil)
 
-	writes, writeErr := s.planBatchSegmentWrites(topic, topicPartition, records, frames)
+	writes, writeErr := s.planBatchSegmentWrites(topic, topicPartition, records)
 	if writeErr != nil {
 		return appendBatchPlan{}, writeErr
 	}
 	return appendBatchPlan{
 		records: records,
-		frames:  frames,
 		writes:  writes,
 	}, nil
 }
@@ -107,7 +104,6 @@ func (s *StorxLogStore) planBatchSegmentWrites(
 	topic TopicConfig,
 	topicPartition TopicPartition,
 	records []Record,
-	frames [][]byte,
 ) ([]segmentBatchWrite, error) {
 	if len(records) == 0 {
 		return nil, nil
@@ -118,15 +114,16 @@ func (s *StorxLogStore) planBatchSegmentWrites(
 		return nil, err
 	}
 	writes := make([]segmentBatchWrite, 0, 1)
-	for index, frame := range frames {
-		nextSegmentID, nextSize, segmentErr := segmentForBatchFrame(topic, records[index], segmentID, currentSize, len(frame))
+	for index, record := range records {
+		frameSize := estimatedSegmentFrameSize(record)
+		nextSegmentID, nextSize, segmentErr := segmentForBatchFrame(topic, record, segmentID, currentSize, frameSize)
 		if segmentErr != nil {
 			return nil, segmentErr
 		}
 		segmentID = nextSegmentID
 		currentSize = nextSize
 		writes = appendBatchSegmentWrite(writes, segmentID, index)
-		currentSize += int64(len(frame))
+		currentSize += int64(frameSize)
 	}
 	return writes, nil
 }
@@ -190,17 +187,24 @@ func (s *StorxLogStore) commitAppendBatch(
 	plan appendBatchPlan,
 ) ([]Record, error) {
 	appendStart := time.Now()
-	pointers, appendErr := s.appendBatchFrames(topicPartition, plan)
+	pointers, segmentPaths, appendErr := s.appendBatchFrames(topicPartition, plan)
 	s.recordAppendStage(operation, "append_frame", len(plan.records), appendStart, appendErr)
 	if appendErr != nil {
 		return nil, appendErr
 	}
 
 	indexStart := time.Now()
-	indexErr := s.appendBatchSegmentIndexes(topicPartition, pointers)
+	indexPaths, indexErr := s.appendBatchSegmentIndexes(topicPartition, pointers)
 	s.recordAppendStage(operation, "index_set", len(plan.records), indexStart, indexErr)
 	if indexErr != nil {
 		return nil, wrapExternal(indexErr, "save segment record indexes")
+	}
+
+	syncStart := time.Now()
+	syncErr := s.syncAppendWrites(segmentPaths, indexPaths)
+	s.recordAppendStage(operation, "sync", len(plan.records), syncStart, syncErr)
+	if syncErr != nil {
+		return nil, syncErr
 	}
 
 	nextOffsetStart := time.Now()
@@ -209,7 +213,8 @@ func (s *StorxLogStore) commitAppendBatch(
 	return cloneRecords(plan.records), nil
 }
 
-func (s *StorxLogStore) appendBatchSegmentIndexes(topicPartition TopicPartition, pointers []segmentRecordPointer) error {
+func (s *StorxLogStore) appendBatchSegmentIndexes(topicPartition TopicPartition, pointers []segmentRecordPointer) ([]string, error) {
+	paths := collectionlist.NewList[string]()
 	start := 0
 	for start < len(pointers) {
 		segmentID := pointers[start].SegmentID
@@ -219,37 +224,70 @@ func (s *StorxLogStore) appendBatchSegmentIndexes(topicPartition TopicPartition,
 		}
 		relativePath := s.segmentRelativePath(topicPartition, segmentID)
 		if err := s.appendSegmentIndexPointers(relativePath, pointers[start:end]); err != nil {
-			return err
-		}
-		start = end
-	}
-	return nil
-}
-
-func (s *StorxLogStore) appendBatchFrames(topicPartition TopicPartition, plan appendBatchPlan) ([]segmentRecordPointer, error) {
-	pointers := make([]segmentRecordPointer, len(plan.records))
-	for _, write := range plan.writes {
-		frames := make([][]byte, 0, len(write.indexes))
-		for _, recordIndex := range write.indexes {
-			frames = append(frames, plan.frames[recordIndex])
-		}
-		positions, err := s.appendFramesToSegment(topicPartition, write.segmentID, frames)
-		if err != nil {
 			return nil, err
 		}
-		for positionIndex, recordIndex := range write.indexes {
-			record := plan.records[recordIndex]
-			pointers[recordIndex] = segmentRecordPointer{
-				Topic:       topicPartition.Topic,
-				Partition:   topicPartition.Partition,
-				Offset:      record.Offset,
-				SegmentID:   write.segmentID,
-				Position:    positions[positionIndex],
-				Length:      len(plan.frames[recordIndex]),
-				TimestampMS: record.TimestampMS,
-				Attributes:  record.Attributes,
-			}
+		paths.Add(segmentIndexRelativePath(relativePath))
+		start = end
+	}
+	return paths.Values(), nil
+}
+
+func (s *StorxLogStore) appendBatchFrames(topicPartition TopicPartition, plan appendBatchPlan) ([]segmentRecordPointer, []string, error) {
+	pointers := make([]segmentRecordPointer, len(plan.records))
+	segmentPaths := collectionlist.NewListWithCapacity[string](len(plan.writes))
+	for _, write := range plan.writes {
+		frame, err := encodeSegmentBatchFrameWithCompression(recordsForBatchWrite(plan.records, write), s.compression)
+		if err != nil {
+			return nil, nil, err
+		}
+		result, err := s.appendBatchFrame(topicPartition, write.segmentID, frame)
+		if err != nil {
+			return nil, nil, err
+		}
+		segmentPaths.Add(result.relativePath)
+		assignBatchFramePointers(topicPartition, plan.records, write, result.positions[0], len(frame), pointers)
+	}
+	return pointers, segmentPaths.Values(), nil
+}
+
+func recordsForBatchWrite(records []Record, write segmentBatchWrite) []Record {
+	out := make([]Record, 0, len(write.indexes))
+	for _, recordIndex := range write.indexes {
+		out = append(out, records[recordIndex])
+	}
+	return out
+}
+
+func (s *StorxLogStore) appendBatchFrame(topicPartition TopicPartition, segmentID uint64, frame []byte) (segmentAppendResult, error) {
+	result, err := s.appendFramesToSegment(topicPartition, segmentID, [][]byte{frame})
+	if err != nil {
+		return segmentAppendResult{}, err
+	}
+	if len(result.positions) == 0 {
+		return segmentAppendResult{}, E(CodeCodec, "append batch frame returned no position")
+	}
+	return result, nil
+}
+
+func assignBatchFramePointers(
+	topicPartition TopicPartition,
+	records []Record,
+	write segmentBatchWrite,
+	position int64,
+	length int,
+	pointers []segmentRecordPointer,
+) {
+	for _, recordIndex := range write.indexes {
+		record := records[recordIndex]
+		pointers[recordIndex] = segmentRecordPointer{
+			Topic:       topicPartition.Topic,
+			Partition:   topicPartition.Partition,
+			Offset:      record.Offset,
+			SegmentID:   write.segmentID,
+			Position:    position,
+			Length:      length,
+			TimestampMS: record.TimestampMS,
+			Attributes:  record.Attributes,
 		}
 	}
-	return pointers, nil
 }

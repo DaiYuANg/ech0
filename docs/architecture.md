@@ -51,14 +51,14 @@ The root API deliberately does not expose the full broker `Config`. Embedded use
 
 `broker.Broker` is the main service boundary. Mutating operations are routed through command routers:
 
-- Commands are proposed through Dragonboat. Metadata commands target the metadata group; partition-owned commands target the owning data shard group.
+- Metadata commands are proposed through Dragonboat. In single-replica mode, partition-owned commands apply directly to local segment shards. In multi-node cluster mode, partition-owned commands target the owning Dragonboat data shard group.
 - Coalesced produce and offset commit commands are split by shard before they enter Raft, so one client batch can become several independent group proposals.
 
 Read operations use the local runtime today, with `RaftReadPolicy` reserved in configuration for stricter clustered read behavior.
 
 ## Target Cluster Architecture
 
-The broker uses Dragonboat as the consensus runtime in both single-node and multi-node deployments. One configured peer is a single-replica cluster; multiple peers are a replicated cluster. The broker starts one Dragonboat NodeHost per process, one metadata group, and one data group per configured data shard.
+The broker uses Dragonboat as the metadata consensus runtime in both single-node and multi-node deployments. One configured peer is a single-replica cluster with local segment data shards; multiple peers form a replicated cluster with Dragonboat data shard groups. The broker starts one Dragonboat NodeHost per process and always starts the metadata group. Data shard groups start only in multi-node cluster mode.
 
 The target clustered architecture splits the system into a control plane and a data plane:
 
@@ -80,7 +80,7 @@ The current clustered implementation has these properties:
 - Cluster mode installs a cluster router that resolves known `topic/partition` targets to shard IDs and proposes data commands to the matching Dragonboat data group.
 - Coalesced `produce_batches` and `commit_offsets` are split by resolved shard target before dispatch. Result merging preserves original request order across group proposals.
 - Non-explicit produce partitioning is resolved before dispatch and rewritten to an explicit partition command. That makes the data-plane command target stable for future per-shard Raft groups.
-- The cluster router depends on a `dataShardRuntime` boundary. Each configured shard points at a Dragonboat group runtime.
+- The router depends on a `dataShardRuntime` boundary. Single-replica mode points each configured shard at a local segment runtime; multi-node cluster mode points each shard at a Dragonboat group runtime.
 - Each configured shard also has a runtime spec with a target directory for its shard-local segment log. Runtime health exposes the configured shard IDs and their current runtime mode.
 - The broker message runtime is now an internal interface. The default adapter preserves the existing single log behavior.
 - When sharded segment storage is used with `broker.data_shard_count > 1`, broker message reads and writes use a sharded message runtime. Each shard opens its own segment log under `data/shards/shard-NNNN`.
@@ -113,8 +113,8 @@ This creates two router implementations:
 
 | Router | Use |
 | --- | --- |
-| Local fallback router | Used before Dragonboat startup and in narrow unit-test paths. Applies directly to local queue/store. |
-| Cluster router | Resolves metadata commands to the metadata group and data commands to the owning data shard group. |
+| Metadata-only router | Single-replica mode. Metadata commands go through Dragonboat; data commands apply to local segment shards. |
+| Cluster router | Multi-node mode. Resolves metadata commands to the metadata group and data commands to the owning data shard group. |
 
 The implementation has cut over to the Dragonboat group router. The old single global clustered data path is no longer part of the runtime.
 
@@ -148,7 +148,7 @@ data/
       segments/
 ```
 
-Within a shard, the segment log remains the message storage backend and maintains its own `*.idx` files for offset-to-frame pointers. Experimental `segment_read_mode = "mmap"` maps sealed segment files for reads, while active segments continue to use positional reads. Dragonboat owns the replication and ordering log for the metadata and data groups under the NodeHost directory. This still writes through Raft and the segment log, but the work is spread across independent groups and independent stores instead of one global queue.
+Within a shard, the segment log remains the message storage backend and maintains its own `*.idx` files for offset-to-frame pointers. Experimental `segment_read_mode = "mmap"` maps sealed segment files for reads, while active segments continue to use positional reads. Dragonboat owns the metadata log in single-replica mode and both metadata/data ordering logs in multi-node mode. In multi-node mode message writes still pass through Raft and the segment log, but the work is spread across independent groups and independent stores instead of one global queue.
 
 A later, more invasive storage optimization can make the Raft log and message segment log share a batch format or reduce duplicated payload writes. That should be a second-stage optimization after sharding proves out.
 
@@ -191,17 +191,18 @@ A later, more invasive storage optimization can make the Raft log and message se
 
 ## Expected Performance Shape
 
-The first target is not matching Kafka immediately. The first target is removing the single-leader ceiling:
+The first target is removing the single-leader ceiling while keeping the single-node hot path batch-first:
 
 - With 4 data shards and balanced leaders, the write path should be able to use multiple raft FSMs and multiple segment stores.
 - Produce and commit offset commands should queue only behind work for their shard, not the whole cluster.
 - Fetch pressure should spread across shard stores.
 
-The main remaining gap to Kafka after this change will be storage efficiency:
+The main remaining gaps to Kafka after this change are replicated storage efficiency and network/client maturity:
 
 - Kafka has a partition log that is both the storage log and replication unit.
 - ech0 will still have Raft log plus segment log until the second-stage storage optimization.
-- Kafka has mature client async batching, batch compression, and zero-copy/page-cache-heavy reads. ech0 still needs those as separate work items.
+- ech0 now has broker-side append batching, batch segment frames, and asynchronous group sync for the local segment path.
+- Kafka still has more mature TCP batching, page-cache/zero-copy reads, and heavily optimized producer and consumer clients.
 
 ## Dependency Strategy
 

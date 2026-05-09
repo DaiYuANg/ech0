@@ -11,7 +11,7 @@ The public root package keeps the mental model intentionally small: configure a 
 - Persistent segment-log storage with shard-local binary indexes.
 - Dependency injection, logging, events, and helpers using `arcgolabs/dix`, `logx`, `eventx`, and `collectionx`.
 - Admin and OpenAPI HTTP surface built with `arcgolabs/httpx` on Fiber.
-- Dragonboat multi-group Raft for broker coordination; one configured peer is a single-replica cluster, multiple peers are a replicated cluster.
+- Dragonboat Raft for metadata coordination; multiple configured peers also enable replicated data shard groups.
 - Retry, delay, nack, and scheduled workers using `go-co-op/gocron`, gated by Raft leadership.
 
 ## Library Usage

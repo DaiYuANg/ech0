@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/DaiYuANg/ech0/store"
@@ -240,9 +241,24 @@ func durationFromMillis(milliseconds uint64) time.Duration {
 
 func boundedDuration(value uint64, unit time.Duration) time.Duration {
 	const maxDuration = time.Duration(1<<63 - 1)
-	maxValue := uint64(maxDuration / unit) // #nosec G115 -- maxDuration/unit is non-negative and bounded.
+	maxValue, err := durationMaxValue(maxDuration, unit)
+	if err != nil {
+		return maxDuration
+	}
 	if value > maxValue {
 		return maxDuration
 	}
-	return time.Duration(value) * unit // #nosec G115 -- value is checked against maxValue before conversion.
+	parsed, err := strconv.ParseInt(strconv.FormatUint(value, 10), 10, 64)
+	if err != nil {
+		return maxDuration
+	}
+	return time.Duration(parsed) * unit
+}
+
+func durationMaxValue(maxDuration, unit time.Duration) (uint64, error) {
+	value, err := strconv.ParseUint(strconv.FormatInt(int64(maxDuration/unit), 10), 10, 64)
+	if err != nil {
+		return 0, wrapBroker("duration_max_value_failed", err, "parse max duration")
+	}
+	return value, nil
 }

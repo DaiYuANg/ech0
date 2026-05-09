@@ -15,6 +15,8 @@ func bodyCodecEntries() *collectionlist.List[bodyCodecEntry] {
 		bodyCodecEntry{CmdProduceResponse, encodeProduceResponse, decodeProduceResponse},
 		bodyCodecEntry{CmdProduceBatchRequest, encodeProduceBatchRequest, decodeProduceBatchRequest},
 		bodyCodecEntry{CmdProduceBatchResponse, encodeProduceBatchResponse, decodeProduceBatchResponse},
+		bodyCodecEntry{CmdProduceBatchesRequest, encodeProduceBatchesRequest, decodeProduceBatchesRequest},
+		bodyCodecEntry{CmdProduceBatchesResponse, encodeProduceBatchesResponse, decodeProduceBatchesResponse},
 		bodyCodecEntry{CmdFetchRequest, encodeFetchRequest, decodeFetchRequest},
 		bodyCodecEntry{CmdFetchResponse, encodeFetchResponse, decodeFetchResponse},
 		bodyCodecEntry{CmdFetchBatchRequest, encodeFetchBatchRequest, decodeFetchBatchRequest},

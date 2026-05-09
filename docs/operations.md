@@ -25,17 +25,17 @@ The embedded root package does not expose this full config surface. Embedded use
 
 ## Single-Replica Cluster
 
-Single-replica cluster mode runs one broker process with Dragonboat metadata and data groups. This is the default when `raft.cluster` contains one peer:
+Single-replica cluster mode runs one broker process with a Dragonboat metadata group and local segment-log data shards. This is the default when `raft.cluster` contains one peer:
 
 ```sh
 ech0 --config config/ech0.toml.example
 ```
 
-Writes still go through Dragonboat, so the runtime layout is consistent with multi-node clusters. Scheduled jobs are gated by the local Dragonboat leader state.
+Metadata writes go through Dragonboat, while message writes use the local segment hot path. Scheduled jobs are gated by the local Dragonboat leader state.
 
 ## Cluster Mode
 
-Cluster mode coordinates mutating broker commands through Dragonboat multi-group Raft:
+Cluster mode coordinates mutating broker commands through Dragonboat multi-group Raft when `raft.cluster` contains multiple peers:
 
 - Topic creation.
 - Produces and batch produces on the owning data shard group.

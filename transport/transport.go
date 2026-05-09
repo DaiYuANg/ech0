@@ -3,7 +3,9 @@ package transport
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/samber/oops"
 )
@@ -84,11 +86,11 @@ func NewFrame(version uint8, command uint16, body []byte) (Frame, error) {
 }
 
 func frameBodyLen(body []byte) (uint32, error) {
-	const maxUint32 = ^uint32(0)
-	if uint64(len(body)) > uint64(maxUint32) {
+	var out uint32
+	if _, err := fmt.Sscan(strconv.Itoa(len(body)), &out); err != nil {
 		return 0, oops.In("transport").Code("frame_body_too_large").With("body_len", len(body)).New("frame body too large")
 	}
-	return uint32(len(body)), nil // #nosec G115 -- body length is checked against max uint32 before conversion.
+	return out, nil
 }
 
 func ReadFrame(r io.Reader) (Frame, error) {

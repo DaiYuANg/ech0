@@ -2,10 +2,12 @@ package store
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
@@ -116,11 +118,13 @@ func (s *StorxLogStore) appendSegmentIndexDeletes(pointers []segmentRecordPointe
 		byPath.Set(path, append(byPath.GetOrDefault(path, nil), segmentIndexEntry{Pointer: pointer, Deleted: true}))
 	}
 	var result error
+	indexPaths := collectionlist.NewListWithCapacity[string](byPath.Len())
 	byPath.Range(func(relativePath string, entries []segmentIndexEntry) bool {
 		result = errors.Join(result, s.appendSegmentIndexEntries(relativePath, entries))
+		indexPaths.Add(segmentIndexRelativePath(relativePath))
 		return true
 	})
-	return result
+	return errors.Join(result, s.syncAppendWrites(nil, indexPaths.Values()))
 }
 
 func (s *StorxLogStore) appendSegmentIndexEntries(relativePath string, entries []segmentIndexEntry) error {
@@ -133,25 +137,88 @@ func (s *StorxLogStore) appendSegmentIndexEntries(relativePath string, entries [
 	if mkdirErr := os.MkdirAll(indexDir, 0o750); mkdirErr != nil {
 		return wrapExternal(mkdirErr, "create segment index directory")
 	}
-	root, err := os.OpenRoot(s.segmentsDir)
+	writer, err := s.segmentIndexWriter(indexRelativePath)
 	if err != nil {
-		return wrapExternal(err, "open segment index root")
+		return err
+	}
+	return writer.append(payload)
+}
+
+type segmentIndexWriter struct {
+	mu   sync.Mutex
+	file *os.File
+}
+
+func (s *StorxLogStore) segmentIndexWriter(indexRelativePath string) (*segmentIndexWriter, error) {
+	s.indexWritersMu.Lock()
+	defer s.indexWritersMu.Unlock()
+	if writer, ok := s.indexWriters.Get(indexRelativePath); ok {
+		return writer, nil
+	}
+	writer, err := openSegmentIndexWriter(s.segmentsDir, indexRelativePath)
+	if err != nil {
+		return nil, err
+	}
+	s.indexWriters.Set(indexRelativePath, writer)
+	return writer, nil
+}
+
+func openSegmentIndexWriter(rootDir, indexRelativePath string) (*segmentIndexWriter, error) {
+	root, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return nil, wrapExternal(err, "open segment index root")
 	}
 	file, err := root.OpenFile(indexRelativePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	closeRootErr := root.Close()
 	if err != nil {
-		return errors.Join(wrapExternal(err, "open segment index"), wrapExternal(closeRootErr, "close segment index root"))
+		return nil, errors.Join(wrapExternal(err, "open segment index"), wrapExternal(closeRootErr, "close segment index root"))
 	}
 	if closeRootErr != nil {
-		return errors.Join(wrapExternal(closeRootErr, "close segment index root"), wrapExternal(file.Close(), "close segment index"))
+		return nil, errors.Join(wrapExternal(closeRootErr, "close segment index root"), wrapExternal(file.Close(), "close segment index"))
 	}
-	if _, err := file.Write(payload); err != nil {
-		return errors.Join(wrapExternal(err, "write segment index"), wrapExternal(file.Close(), "close segment index"))
+	return &segmentIndexWriter{file: file}, nil
+}
+
+func (w *segmentIndexWriter) append(payload []byte) error {
+	if len(payload) == 0 {
+		return nil
 	}
-	if err := file.Sync(); err != nil {
-		return errors.Join(wrapExternal(err, "sync segment index"), wrapExternal(file.Close(), "close segment index"))
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	written, err := w.file.Write(payload)
+	if err != nil {
+		return wrapExternal(err, "write segment index")
 	}
-	return wrapExternal(file.Close(), "close segment index")
+	if written != len(payload) {
+		return wrapExternal(io.ErrShortWrite, "write segment index")
+	}
+	return nil
+}
+
+func (w *segmentIndexWriter) sync() error {
+	if w == nil || w.file == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return wrapExternal(w.file.Sync(), "sync segment index")
+}
+
+func (s *StorxLogStore) closeSegmentIndexWriters() error {
+	if s == nil || s.indexWriters == nil {
+		return nil
+	}
+	s.indexWritersMu.Lock()
+	defer s.indexWritersMu.Unlock()
+	var result error
+	s.indexWriters.Range(func(_ string, writer *segmentIndexWriter) bool {
+		if writer != nil && writer.file != nil {
+			result = errors.Join(result, writer.sync(), wrapExternal(writer.file.Close(), "close segment index"))
+		}
+		return true
+	})
+	s.indexWriters.Clear()
+	return result
 }
 
 func segmentIndexRelativePath(segmentRelativePath string) string {

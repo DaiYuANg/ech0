@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/DaiYuANg/ech0/direct"
 	"github.com/DaiYuANg/ech0/protocol"
@@ -50,9 +51,12 @@ func errorFrame(code, message string) transport.Frame {
 	}
 	frame, err := transport.NewFrame(protocol.Version, protocol.CmdErrorResponse, body)
 	if err != nil {
-		bodyLen := min(len(body), int(^uint32(0)))
+		bodyLen, lenErr := errorFrameBodyLen(len(body))
+		if lenErr != nil {
+			bodyLen = 0
+		}
 		return transport.Frame{
-			Header: errorFrameHeader(uint32(bodyLen)), // #nosec G115 -- bodyLen is clamped to max uint32 before conversion.
+			Header: errorFrameHeader(bodyLen),
 			Body:   body,
 		}
 	}
@@ -64,6 +68,17 @@ func errorFrameHeader(bodyLen uint32) transport.FrameHeader {
 	header := transport.NewFrameHeader(protocol.Version, protocol.CmdErrorResponse, bodyLen)
 	header.Status = transport.StatusError
 	return header
+}
+
+func errorFrameBodyLen(length int) (uint32, error) {
+	if length < 0 {
+		return 0, errors.New("negative frame body length")
+	}
+	var out uint32
+	if _, err := fmt.Sscan(strconv.Itoa(length), &out); err != nil {
+		return 0, wrapBroker("frame_body_len_failed", err, "parse frame body length")
+	}
+	return out, nil
 }
 
 func errorFromErr(err error) transport.Frame {
@@ -169,6 +184,56 @@ func batchPayloadsFromProtocol(payloads [][]byte) []store.RecordAppend {
 		out.Add(store.NewRecordAppend(payload))
 	}
 	return out.Values()
+}
+
+func mergeProduceBatchesResponse(
+	requests []protocol.ProduceBatchesItemRequest,
+	base []protocol.ProduceBatchesItemResponse,
+	results []produceBatchItemResult,
+) []protocol.ProduceBatchesItemResponse {
+	out := collectionlist.NewListWithCapacity[protocol.ProduceBatchesItemResponse](len(base))
+	for index, item := range base {
+		out.Add(mergeProduceBatchesItemResponse(index, requests, item, results))
+	}
+	return out.Values()
+}
+
+func mergeProduceBatchesItemResponse(
+	index int,
+	requests []protocol.ProduceBatchesItemRequest,
+	item protocol.ProduceBatchesItemResponse,
+	results []produceBatchItemResult,
+) protocol.ProduceBatchesItemResponse {
+	if index < len(requests) {
+		item.Topic = requests[index].Topic
+	}
+	if item.Error != "" {
+		return item
+	}
+	if index >= len(results) {
+		item.Error = "produce batch result missing"
+		return item
+	}
+	return produceBatchItemToProtocol(item, results[index])
+}
+
+func produceBatchItemToProtocol(
+	item protocol.ProduceBatchesItemResponse,
+	result produceBatchItemResult,
+) protocol.ProduceBatchesItemResponse {
+	if result.Error != "" {
+		item.Error = result.Error
+		return item
+	}
+	item.Partition = result.Result.Partition
+	item.Appended = len(result.Result.Records)
+	if len(result.Result.Records) == 0 {
+		return item
+	}
+	item.BaseOffset = result.Result.Records[0].Offset
+	item.LastOffset = result.Result.Records[len(result.Result.Records)-1].Offset
+	item.NextOffset = item.LastOffset + 1
+	return item
 }
 
 func leaseFromStore(member store.ConsumerGroupMember) (protocol.ConsumerGroupMemberLease, error) {

@@ -87,8 +87,13 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	b.shards = newBrokerShardResolver(metaStore, cfg.Broker.DataShardCount)
 	b.shardSpecs = buildDataShardSpecs(cfg)
 	fallbackCommands := newSingleGroupCommandRouter(b)
-	b.dataShards = newRaftDataShardRegistry(b, b.shardSpecs)
-	b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
+	if dataRaftEnabled(cfg) {
+		b.dataShards = newRaftDataShardRegistry(b, b.shardSpecs)
+		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
+	} else {
+		b.dataShards = newLocalDataShardRegistry(b.shardSpecs)
+		b.commands = newMetadataOnlyCommandRouter(fallbackCommands)
+	}
 	for _, opt := range opts {
 		opt(b)
 	}
@@ -193,7 +198,7 @@ func (b *Broker) Stop(ctx context.Context) error {
 func (b *Broker) RuntimeHealth() RuntimeHealth {
 	health := RuntimeHealth{
 		Status:      "ok",
-		RuntimeMode: "raft",
+		RuntimeMode: runtimeMode(b.cfg),
 		DataShards:  dataShardHealth(b.shardSpecs, b.dataShards),
 	}
 	b.raftMu.RLock()
@@ -209,6 +214,13 @@ func (b *Broker) RuntimeHealth() RuntimeHealth {
 		health.Status = "degraded"
 	}
 	return health
+}
+
+func runtimeMode(cfg Config) string {
+	if dataRaftEnabled(cfg) {
+		return "cluster"
+	}
+	return "single_replica_cluster"
 }
 
 type RuntimeHealth struct {

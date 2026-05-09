@@ -12,6 +12,7 @@ func encodeWith[T any](value any, write func(*binaryWriter, T) error) ([]byte, e
 	}
 	writer := newBinaryWriter()
 	if err := write(writer, typed); err != nil {
+		writer.release()
 		return nil, err
 	}
 	return writer.bytes(), nil
