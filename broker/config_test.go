@@ -56,6 +56,7 @@ func TestNewAppFromConfigSourceLoadsConfigWithDIX(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "ech0.toml")
 	dataDir := filepath.ToSlash(filepath.Join(root, "data"))
+	raftAddr := freeTCPAddr(t)
 	content := fmt.Appendf(nil, `
 [broker]
 node_id = 9
@@ -64,7 +65,14 @@ bind_addr = "127.0.0.1:0"
 
 [admin]
 enabled = false
-`, dataDir)
+
+[raft]
+bind_addr = %q
+
+[[raft.cluster]]
+node_id = 9
+addr = %q
+`, dataDir, raftAddr, raftAddr)
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -18,8 +18,8 @@ func openMappedSegment(rootDir, relativePath string) (*mappedSegment, error) {
 	if err != nil {
 		return nil, errors.Join(wrapExternal(err, "open mmap segment file"), wrapExternal(root.Close(), "close mmap segment root"))
 	}
-	if err := root.Close(); err != nil {
-		return nil, closeMappedSegmentOpen(nil, file, wrapExternal(err, "close mmap segment root"))
+	if closeErr := root.Close(); closeErr != nil {
+		return nil, closeMappedSegmentOpen(nil, file, wrapExternal(closeErr, "close mmap segment root"))
 	}
 	info, err := file.Stat()
 	if err != nil {
@@ -32,7 +32,11 @@ func openMappedSegment(rootDir, relativePath string) (*mappedSegment, error) {
 	if size < 0 || size != int64(int(size)) {
 		return nil, closeMappedSegmentOpen(nil, file, E(CodeInvalidArgument, "segment file size %d cannot be memory-mapped", size))
 	}
-	data, err := unix.Mmap(int(file.Fd()), 0, int(size), unix.PROT_READ, unix.MAP_SHARED)
+	fd := file.Fd()
+	if fd > uintptr(^uint(0)>>1) {
+		return nil, closeMappedSegmentOpen(nil, file, E(CodeInvalidArgument, "segment file descriptor %d cannot be memory-mapped", fd))
+	}
+	data, err := unix.Mmap(int(fd), 0, int(size), unix.PROT_READ, unix.MAP_SHARED)
 	if err != nil {
 		return nil, closeMappedSegmentOpen(nil, file, wrapExternal(err, "memory-map segment file"))
 	}

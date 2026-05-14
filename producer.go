@@ -43,7 +43,7 @@ type producerBatch struct {
 	items     *collectionlist.List[producerItem]
 }
 
-func (b *Broker) NewProducer(ctx context.Context, topic string, opts ...ProducerOption) (*Producer, error) {
+func (b *Broker) NewProducer(ctx context.Context, topic string, opts ...ProducerOption) (_ *Producer, retErr error) {
 	if b == nil || b.broker == nil {
 		return nil, producerError("broker_nil", "broker is nil")
 	}
@@ -62,6 +62,11 @@ func (b *Broker) NewProducer(ctx context.Context, topic string, opts ...Producer
 	}
 	producerOpts = normalizeProducerOptions(producerOpts)
 	producerCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer func() {
+		if retErr != nil {
+			cancel()
+		}
+	}()
 	p := &Producer{
 		broker:     b,
 		topic:      topic,
