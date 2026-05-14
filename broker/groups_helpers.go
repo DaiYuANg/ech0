@@ -74,15 +74,7 @@ func assignmentsByMember(assignments []store.GroupPartitionAssignment) *collecti
 
 func sortGroupAssignments(assignments []store.GroupPartitionAssignment) []store.GroupPartitionAssignment {
 	return collectionlist.NewList(assignments...).
-		Sort(func(left, right store.GroupPartitionAssignment) int {
-			if left.Topic == right.Topic {
-				if left.Partition == right.Partition {
-					return cmp.Compare(left.MemberID, right.MemberID)
-				}
-				return cmp.Compare(left.Partition, right.Partition)
-			}
-			return cmp.Compare(left.Topic, right.Topic)
-		}).Values()
+		Sort(compareGroupPartitionAssignment).Values()
 }
 
 func memberWantsTopic(member store.ConsumerGroupMember, topic string) bool {

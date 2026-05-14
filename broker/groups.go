@@ -84,22 +84,9 @@ func (b *Broker) buildGroupRebalancePlan(group string, now uint64, previous *sto
 	if previous != nil {
 		generation = previous.Generation + 1
 	}
-	assignments := collectionlist.NewList[store.GroupPartitionAssignment]()
-	if len(active) > 0 {
-		partitions, err := b.groupPartitions(active)
-		if err != nil {
-			return groupRebalancePlan{}, err
-		}
-		switch strategy {
-		case GroupAssignmentRoundRobin:
-			assignments = buildRoundRobinAssignments(active, partitions)
-		case GroupAssignmentRange:
-			assignments = buildRangeAssignments(active, partitions)
-		}
-	}
-	stickyCandidates, stickyApplied := uint64(0), uint64(0)
-	if b.cfg.Broker.GroupStickyAssignments && previous != nil {
-		stickyCandidates, stickyApplied = applyStickyAssignments(assignments, previous.Assignments, active)
+	assignments, stickyCandidates, stickyApplied, err := b.buildGroupAssignments(strategy, previous, active)
+	if err != nil {
+		return groupRebalancePlan{}, err
 	}
 	assignment := store.ConsumerGroupAssignment{
 		Group:       group,
@@ -120,6 +107,41 @@ func (b *Broker) buildGroupRebalancePlan(group string, now uint64, previous *sto
 		StickyApplied:    stickyApplied,
 		MemberLoads:      memberLoads(assignment.Assignments),
 	}, nil
+}
+
+func (b *Broker) buildGroupAssignments(
+	strategy GroupAssignmentStrategy,
+	previous *store.ConsumerGroupAssignment,
+	active []store.ConsumerGroupMember,
+) (*collectionlist.List[store.GroupPartitionAssignment], uint64, uint64, error) {
+	assignments := collectionlist.NewList[store.GroupPartitionAssignment]()
+	if len(active) == 0 {
+		return assignments, 0, 0, nil
+	}
+	partitions, err := b.groupPartitions(active)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if b.cfg.Broker.GroupStickyAssignments && previous != nil {
+		out, candidates, applied := buildCooperativeStickyAssignments(previous.Assignments, active, partitions)
+		return out, candidates, applied, nil
+	}
+	return buildStrategyAssignments(strategy, active, partitions), 0, 0, nil
+}
+
+func buildStrategyAssignments(
+	strategy GroupAssignmentStrategy,
+	active []store.ConsumerGroupMember,
+	partitions []store.TopicPartition,
+) *collectionlist.List[store.GroupPartitionAssignment] {
+	switch strategy {
+	case GroupAssignmentRoundRobin:
+		return buildRoundRobinAssignments(active, partitions)
+	case GroupAssignmentRange:
+		return buildRangeAssignments(active, partitions)
+	default:
+		return buildRoundRobinAssignments(active, partitions)
+	}
 }
 
 func buildRoundRobinAssignments(active []store.ConsumerGroupMember, partitions []store.TopicPartition) *collectionlist.List[store.GroupPartitionAssignment] {
@@ -191,30 +213,6 @@ func appendRangeAssignments(assignments *collectionlist.List[store.GroupPartitio
 		}
 		cursor += size
 	}
-}
-
-func applyStickyAssignments(assignments *collectionlist.List[store.GroupPartitionAssignment], previous []store.GroupPartitionAssignment, active []store.ConsumerGroupMember) (uint64, uint64) {
-	previousOwners := assignmentOwnerTable(previous)
-	activeMembers := collectionmapping.NewMap[string, store.ConsumerGroupMember]()
-	for _, member := range active {
-		activeMembers.Set(member.MemberID, member)
-	}
-	stickyCandidates, stickyApplied := uint64(0), uint64(0)
-	assignments.SetAllIndexed(func(_ int, item store.GroupPartitionAssignment) store.GroupPartitionAssignment {
-		previousOwner, ok := previousOwners.Get(item.Topic, item.Partition)
-		if !ok || previousOwner == item.MemberID {
-			return item
-		}
-		member, activeOK := activeMembers.Get(previousOwner)
-		if !activeOK || !memberWantsTopic(member, item.Topic) {
-			return item
-		}
-		stickyCandidates++
-		item.MemberID = previousOwner
-		stickyApplied++
-		return item
-	})
-	return stickyCandidates, stickyApplied
 }
 
 func movedPartitions(previous *store.ConsumerGroupAssignment, assignments []store.GroupPartitionAssignment) uint64 {
