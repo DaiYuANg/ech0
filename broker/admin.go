@@ -124,6 +124,7 @@ func (s *AdminServer) registerRoutes() {
 		s.app.Get("/debug/fgprof", fiberadaptor.HTTPHandler(fgprof.Handler()))
 	}
 	s.app.Get("/api/groups/:group/members", s.apiGroupMembers)
+	s.app.Get("/api/groups/:group/health", s.apiGroupHealth)
 	s.app.Get("/api/groups/:group/assignment", s.apiGroupAssignment)
 	s.app.Get("/api/groups/:group/lag", s.apiGroupLag)
 	s.app.Post("/api/groups/:group/rebalance", s.apiGroupRebalance)
@@ -227,6 +228,7 @@ type topicMessagesView struct {
 
 type groupView struct {
 	Group      string
+	Health     *GroupHealthSummary
 	Explain    *GroupRebalanceExplainSummary
 	Members    []GroupMemberSummary
 	Assignment *GroupAssignmentSummary

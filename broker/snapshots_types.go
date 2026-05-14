@@ -103,6 +103,37 @@ type GroupRebalanceExplainSummary struct {
 	MemberLoads       []GroupMemberLoadSummary `json:"member_loads"`
 }
 
+type GroupRebalanceHistorySummary struct {
+	Group            string                   `json:"group"`
+	Generation       uint64                   `json:"generation"`
+	Strategy         string                   `json:"strategy"`
+	ActiveMembers    int                      `json:"active_members"`
+	TotalAssignments int                      `json:"total_assignments"`
+	MovedPartitions  uint64                   `json:"moved_partitions"`
+	StickyCandidates uint64                   `json:"sticky_candidates"`
+	StickyApplied    uint64                   `json:"sticky_applied"`
+	UpdatedAtMS      uint64                   `json:"updated_at_ms"`
+	MemberLoads      []GroupMemberLoadSummary `json:"member_loads"`
+}
+
+type GroupHealthSummary struct {
+	Group                  string                         `json:"group"`
+	Status                 string                         `json:"status"`
+	Generation             uint64                         `json:"generation"`
+	TotalMembers           int                            `json:"total_members"`
+	ActiveMembers          int                            `json:"active_members"`
+	ExpiredMembers         int                            `json:"expired_members"`
+	AssignedPartitions     int                            `json:"assigned_partitions"`
+	TotalBacklogRecords    uint64                         `json:"total_backlog_records"`
+	TotalLagRecords        uint64                         `json:"total_lag_records"`
+	MaxPartitionLagRecords uint64                         `json:"max_partition_lag_records"`
+	Members                []GroupMemberSummary           `json:"members"`
+	Assignment             *GroupAssignmentSummary        `json:"assignment,omitempty"`
+	Lag                    *GroupLagSummary               `json:"lag,omitempty"`
+	RebalanceExplain       *GroupRebalanceExplainSummary  `json:"rebalance_explain,omitempty"`
+	RebalanceHistory       []GroupRebalanceHistorySummary `json:"rebalance_history,omitempty"`
+}
+
 type StreamMetricsSnapshot struct {
 	TopicCount                       int    `json:"topic_count"`
 	TopicsWithBacklog                int    `json:"topics_with_backlog"`

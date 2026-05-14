@@ -265,6 +265,7 @@ func (b *Broker) applyRebalanceGroup(ctx context.Context, req rebalanceGroupComm
 		return store.ConsumerGroupAssignment{}, wrapBrokerStore(err, "save group assignment")
 	}
 	recordRebalanceMetrics(ctx, b.metrics, plan)
+	b.recordGroupRebalanceHistory(plan)
 	return plan.Assignment, nil
 }
 

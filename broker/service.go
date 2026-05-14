@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/arcgolabs/authx"
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/eventx"
 	"github.com/dgraph-io/ristretto/v2"
 	"github.com/lyonbrown4d/ech0/direct"
@@ -31,6 +32,7 @@ type Broker struct {
 	auth                    *authx.Engine
 	quota                   QuotaLimiter
 	topicCache              *ristretto.Cache[string, store.TopicConfig]
+	groupRebalanceHistory   *collectionlist.ConcurrentRingBuffer[GroupRebalanceHistorySummary]
 	commands                brokerCommandRouter
 	shards                  *brokerShardResolver
 	shardSpecs              []dataShardSpec
@@ -86,14 +88,17 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		return nil, err
 	}
 	b := &Broker{
-		cfg:            cfg,
-		log:            logStore,
-		meta:           metaStore,
-		router:         newPartitionRouter(),
-		logger:         slog.Default(),
-		auth:           newDefaultAuthEngine(slog.Default()),
-		quota:          newConfiguredQuotaLimiter(cfg.Governance.Quota),
-		topicCache:     topicCache,
+		cfg:        cfg,
+		log:        logStore,
+		meta:       metaStore,
+		router:     newPartitionRouter(),
+		logger:     slog.Default(),
+		auth:       newDefaultAuthEngine(slog.Default()),
+		quota:      newConfiguredQuotaLimiter(cfg.Governance.Quota),
+		topicCache: topicCache,
+		groupRebalanceHistory: collectionlist.NewConcurrentRingBuffer[GroupRebalanceHistorySummary](
+			brokerLifecycleEvents,
+		),
 		produceBatcher: newRaftProduceBatcher(),
 		commitBatcher:  newRaftCommitBatcher(),
 	}

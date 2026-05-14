@@ -100,22 +100,26 @@ func previousOffset(offset uint64, limit int) uint64 {
 
 func (s *AdminServer) uiGroup(c *fiber.Ctx) error {
 	group := c.Params("group")
-	explain, explainErr := s.broker.GroupRebalanceExplainFor(c.UserContext(), group)
-	members, membersErr := s.broker.GroupMembersSnapshotFor(c.UserContext(), group)
-	assignment, assignmentErr := s.broker.GroupAssignmentSnapshotFor(c.UserContext(), group)
-	lag, lagErr := s.broker.GroupLagSnapshotFor(c.UserContext(), group)
-	view := groupView{
-		Group:      group,
-		Explain:    &explain,
-		Members:    members,
-		Assignment: assignment,
-		Lag:        lag,
-		Error:      strings.Join(collectionStrings(explainErr, membersErr, assignmentErr, lagErr), "; "),
+	health, err := s.broker.GroupHealthSnapshotFor(c.UserContext(), group)
+	view := groupView{Group: group, Health: health}
+	if health != nil {
+		view.Explain = health.RebalanceExplain
+		view.Members = health.Members
+		view.Assignment = health.Assignment
+		view.Lag = health.Lag
 	}
-	if explainErr != nil {
-		view.Explain = nil
+	if err != nil {
+		view.Error = err.Error()
 	}
 	return adminRender(c, "admin_templates/group", view)
+}
+
+func (s *AdminServer) apiGroupHealth(c *fiber.Ctx) error {
+	health, err := s.broker.GroupHealthSnapshotFor(c.UserContext(), c.Params("group"))
+	if err != nil {
+		return adminJSONError(c, err)
+	}
+	return adminJSON(c, health)
 }
 
 func (s *AdminServer) apiGroupMembers(c *fiber.Ctx) error {
@@ -193,16 +197,6 @@ func adminRender(c *fiber.Ctx, name string, view any) error {
 
 func adminJSON(c *fiber.Ctx, value any) error {
 	return wrapBroker("admin_json_failed", c.JSON(value), "write admin json")
-}
-
-func collectionStrings(errs ...error) []string {
-	out := collectionlist.NewList[string]()
-	for _, err := range errs {
-		if err != nil {
-			out.Add(err.Error())
-		}
-	}
-	return out.Values()
 }
 
 type adminErrorResponse struct {
