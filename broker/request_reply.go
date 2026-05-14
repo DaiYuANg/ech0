@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DaiYuANg/ech0/direct"
-	"github.com/DaiYuANg/ech0/store"
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/cenkalti/backoff/v5"
+	"github.com/lyonbrown4d/ech0/direct"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 func (b *Broker) Request(ctx context.Context, subject string, payload []byte, opts RequestOptions) (ReplyMessage, error) {

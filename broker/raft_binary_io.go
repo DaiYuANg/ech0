@@ -7,7 +7,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/DaiYuANg/ech0/store"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 type raftBinaryWriter struct {

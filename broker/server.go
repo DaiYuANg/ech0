@@ -9,8 +9,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/DaiYuANg/ech0/protocol"
-	"github.com/DaiYuANg/ech0/transport"
+	"github.com/lyonbrown4d/ech0/protocol"
+	"github.com/lyonbrown4d/ech0/transport"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"

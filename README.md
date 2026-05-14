@@ -23,7 +23,7 @@ import (
 	"context"
 	"log"
 
-	ech0 "github.com/DaiYuANg/ech0"
+	ech0 "github.com/lyonbrown4d/ech0"
 )
 
 func main() {

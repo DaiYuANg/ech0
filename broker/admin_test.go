@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	broker "github.com/DaiYuANg/ech0/broker"
 	"github.com/arcgolabs/dix"
+	broker "github.com/lyonbrown4d/ech0/broker"
 )
 
 func TestAdminUILoadsEmbeddedTailwindTemplates(t *testing.T) {

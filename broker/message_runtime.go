@@ -3,8 +3,8 @@ package broker
 import (
 	"context"
 
-	"github.com/DaiYuANg/ech0/queue"
-	"github.com/DaiYuANg/ech0/store"
+	"github.com/lyonbrown4d/ech0/queue"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 type messageRuntime interface {

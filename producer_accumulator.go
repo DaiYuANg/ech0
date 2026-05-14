@@ -3,10 +3,10 @@ package ech0
 import (
 	"time"
 
-	internalbroker "github.com/DaiYuANg/ech0/broker"
-	"github.com/DaiYuANg/ech0/store"
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	internalbroker "github.com/lyonbrown4d/ech0/broker"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 type producerAccumulator struct {

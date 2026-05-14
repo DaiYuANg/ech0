@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/DaiYuANg/ech0/protocol"
-	"github.com/DaiYuANg/ech0/store"
 	"github.com/arcgolabs/mapper"
+	"github.com/lyonbrown4d/ech0/protocol"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 var (

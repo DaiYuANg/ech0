@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"time"
 
-	internalbroker "github.com/DaiYuANg/ech0/broker"
+	internalbroker "github.com/lyonbrown4d/ech0/broker"
 )
 
 type Options struct {

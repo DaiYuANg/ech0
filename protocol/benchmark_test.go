@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/DaiYuANg/ech0/protocol"
+	"github.com/lyonbrown4d/ech0/protocol"
 )
 
 var protocolBenchmarkSink []byte

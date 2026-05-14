@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/DaiYuANg/ech0/internal/bufferpool"
+	"github.com/lyonbrown4d/ech0/internal/bufferpool"
 	"github.com/samber/oops"
 )
 

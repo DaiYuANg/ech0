@@ -5,9 +5,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/DaiYuANg/ech0/protocol"
-	"github.com/DaiYuANg/ech0/transport"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	"github.com/lyonbrown4d/ech0/protocol"
+	"github.com/lyonbrown4d/ech0/transport"
 )
 
 type tcpConnectionIndex struct {

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/DaiYuANg/ech0/queue"
-	"github.com/DaiYuANg/ech0/store"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	"github.com/lyonbrown4d/ech0/queue"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 type shardedMessageRuntime struct {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/DaiYuANg/ech0/store"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 func TestMemorySnapshotRoundTripsJSONWithCollectionLists(t *testing.T) {

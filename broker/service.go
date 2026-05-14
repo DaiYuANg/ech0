@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/DaiYuANg/ech0/direct"
-	"github.com/DaiYuANg/ech0/store"
 	"github.com/arcgolabs/eventx"
 	"github.com/dgraph-io/ristretto/v2"
+	"github.com/lyonbrown4d/ech0/direct"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 type Option func(*Broker)

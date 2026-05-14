@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/DaiYuANg/ech0/transport"
+	"github.com/lyonbrown4d/ech0/transport"
 )
 
 var transportBenchmarkSink transport.Frame

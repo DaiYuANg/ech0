@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	ech0 "github.com/DaiYuANg/ech0"
 	"github.com/arcgolabs/dix"
 	"github.com/arcgolabs/logx"
+	ech0 "github.com/lyonbrown4d/ech0"
 )
 
 type benchRootContext struct {

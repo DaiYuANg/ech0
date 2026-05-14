@@ -7,8 +7,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/DaiYuANg/ech0/protocol"
-	"github.com/DaiYuANg/ech0/transport"
+	"github.com/lyonbrown4d/ech0/protocol"
+	"github.com/lyonbrown4d/ech0/transport"
 )
 
 const tcpBenchOperationTimeout = 30 * time.Second

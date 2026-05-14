@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	protocol "github.com/DaiYuANg/ech0/protocol"
 	collectionset "github.com/arcgolabs/collectionx/set"
+	protocol "github.com/lyonbrown4d/ech0/protocol"
 )
 
 func TestHandshakeBinaryRoundTrip(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/DaiYuANg/ech0/store"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 func TestStorxStoresPersistLogAndMetadata(t *testing.T) {

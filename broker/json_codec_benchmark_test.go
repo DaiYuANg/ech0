@@ -4,9 +4,9 @@ import (
 	stdjson "encoding/json"
 	"testing"
 
-	"github.com/DaiYuANg/ech0/store"
 	"github.com/bytedance/sonic"
 	goccyjson "github.com/goccy/go-json"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 var jsonBenchmarkBytesSink []byte

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DaiYuANg/ech0/store"
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 const raftCoalesceWindow = time.Millisecond

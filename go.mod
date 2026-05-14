@@ -1,4 +1,4 @@
-module github.com/DaiYuANg/ech0
+module github.com/lyonbrown4d/ech0
 
 go 1.26.2
 

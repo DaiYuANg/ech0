@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	ech0 "github.com/DaiYuANg/ech0"
+	ech0 "github.com/lyonbrown4d/ech0"
 )
 
 func TestEmbeddedBrokerMinimalFlow(t *testing.T) {

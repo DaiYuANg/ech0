@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/DaiYuANg/ech0/internal/bufferpool"
+	"github.com/lyonbrown4d/ech0/internal/bufferpool"
 )
 
 func (s *StorxLogStore) nextOffset(topicPartition TopicPartition) uint64 {

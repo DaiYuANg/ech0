@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	ech0 "github.com/DaiYuANg/ech0"
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	ech0 "github.com/lyonbrown4d/ech0"
 )
 
 type benchBroker interface {

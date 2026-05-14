@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/DaiYuANg/ech0/store"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 var storeBenchmarkRecordSink store.Record

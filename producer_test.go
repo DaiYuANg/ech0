@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	ech0 "github.com/DaiYuANg/ech0"
+	ech0 "github.com/lyonbrown4d/ech0"
 )
 
 func TestEmbeddedProducerFlushesPartialBatchOnClose(t *testing.T) {

@@ -3,7 +3,7 @@ package ech0
 import (
 	"time"
 
-	"github.com/DaiYuANg/ech0/store"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 type Message struct {

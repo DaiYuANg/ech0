@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	broker "github.com/DaiYuANg/ech0/broker"
-	"github.com/DaiYuANg/ech0/store"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	broker "github.com/lyonbrown4d/ech0/broker"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 func TestBrokerSingleNodeRaftProduceFetch(t *testing.T) {
