@@ -25,31 +25,33 @@ type ConfigSource struct {
 }
 
 type BrokerConfig struct {
-	NodeID                       uint64  `json:"node_id"                         koanf:"node_id"                         mapstructure:"node_id"                         toml:"node_id"`
-	ClusterName                  string  `json:"cluster_name"                    koanf:"cluster_name"                    mapstructure:"cluster_name"                    toml:"cluster_name"`
-	DataDir                      string  `json:"data_dir"                        koanf:"data_dir"                        mapstructure:"data_dir"                        toml:"data_dir"`
-	BindAddr                     string  `json:"bind_addr"                       koanf:"bind_addr"                       mapstructure:"bind_addr"                       toml:"bind_addr"`
-	MaxFrameBodyBytes            uint32  `json:"max_frame_body_bytes"            koanf:"max_frame_body_bytes"            mapstructure:"max_frame_body_bytes"            toml:"max_frame_body_bytes"`
-	MaxPayloadBytes              int     `json:"max_payload_bytes"               koanf:"max_payload_bytes"               mapstructure:"max_payload_bytes"               toml:"max_payload_bytes"`
-	MaxBatchPayloadBytes         int     `json:"max_batch_payload_bytes"         koanf:"max_batch_payload_bytes"         mapstructure:"max_batch_payload_bytes"         toml:"max_batch_payload_bytes"`
-	MaxFetchRecords              int     `json:"max_fetch_records"               koanf:"max_fetch_records"               mapstructure:"max_fetch_records"               toml:"max_fetch_records"`
-	MaxFetchWaitMS               uint64  `json:"max_fetch_wait_ms"               koanf:"max_fetch_wait_ms"               mapstructure:"max_fetch_wait_ms"               toml:"max_fetch_wait_ms"`
-	MaxConcurrentConnections     int64   `json:"max_concurrent_connections"      koanf:"max_concurrent_connections"      mapstructure:"max_concurrent_connections"      toml:"max_concurrent_connections"`
-	CommandRateLimitPerSecond    float64 `json:"command_rate_limit_per_second"   koanf:"command_rate_limit_per_second"   mapstructure:"command_rate_limit_per_second"   toml:"command_rate_limit_per_second"`
-	CommandRateLimitBurst        int     `json:"command_rate_limit_burst"        koanf:"command_rate_limit_burst"        mapstructure:"command_rate_limit_burst"        toml:"command_rate_limit_burst"`
-	TopicCacheMaxEntries         int64   `json:"topic_cache_max_entries"         koanf:"topic_cache_max_entries"         mapstructure:"topic_cache_max_entries"         toml:"topic_cache_max_entries"`
-	MaintenanceConcurrency       int64   `json:"maintenance_concurrency"         koanf:"maintenance_concurrency"         mapstructure:"maintenance_concurrency"         toml:"maintenance_concurrency"`
-	GroupAssignmentStrategy      string  `json:"group_assignment_strategy"       koanf:"group_assignment_strategy"       mapstructure:"group_assignment_strategy"       toml:"group_assignment_strategy"`
-	GroupStickyAssignments       bool    `json:"group_sticky_assignments"        koanf:"group_sticky_assignments"        mapstructure:"group_sticky_assignments"        toml:"group_sticky_assignments"`
-	DataShardCount               uint32  `json:"data_shard_count"                koanf:"data_shard_count"                mapstructure:"data_shard_count"                toml:"data_shard_count"`
-	RetryWorkerEnabled           bool    `json:"retry_worker_enabled"            koanf:"retry_worker_enabled"            mapstructure:"retry_worker_enabled"            toml:"retry_worker_enabled"`
-	RetryWorkerIntervalSecs      uint64  `json:"retry_worker_interval_secs"      koanf:"retry_worker_interval_secs"      mapstructure:"retry_worker_interval_secs"      toml:"retry_worker_interval_secs"`
-	RetryWorkerMaxRecords        int     `json:"retry_worker_max_records"        koanf:"retry_worker_max_records"        mapstructure:"retry_worker_max_records"        toml:"retry_worker_max_records"`
-	RetryWorkerConsumerPrefix    string  `json:"retry_worker_consumer_prefix"    koanf:"retry_worker_consumer_prefix"    mapstructure:"retry_worker_consumer_prefix"    toml:"retry_worker_consumer_prefix"`
-	DelaySchedulerEnabled        bool    `json:"delay_scheduler_enabled"         koanf:"delay_scheduler_enabled"         mapstructure:"delay_scheduler_enabled"         toml:"delay_scheduler_enabled"`
-	DelaySchedulerIntervalSecs   uint64  `json:"delay_scheduler_interval_secs"   koanf:"delay_scheduler_interval_secs"   mapstructure:"delay_scheduler_interval_secs"   toml:"delay_scheduler_interval_secs"`
-	DelaySchedulerMaxRecords     int     `json:"delay_scheduler_max_records"     koanf:"delay_scheduler_max_records"     mapstructure:"delay_scheduler_max_records"     toml:"delay_scheduler_max_records"`
-	DelaySchedulerConsumerPrefix string  `json:"delay_scheduler_consumer_prefix" koanf:"delay_scheduler_consumer_prefix" mapstructure:"delay_scheduler_consumer_prefix" toml:"delay_scheduler_consumer_prefix"`
+	NodeID                         uint64  `json:"node_id"                           koanf:"node_id"                           mapstructure:"node_id"                           toml:"node_id"`
+	ClusterName                    string  `json:"cluster_name"                      koanf:"cluster_name"                      mapstructure:"cluster_name"                      toml:"cluster_name"`
+	DataDir                        string  `json:"data_dir"                          koanf:"data_dir"                          mapstructure:"data_dir"                          toml:"data_dir"`
+	BindAddr                       string  `json:"bind_addr"                         koanf:"bind_addr"                         mapstructure:"bind_addr"                         toml:"bind_addr"`
+	MaxFrameBodyBytes              uint32  `json:"max_frame_body_bytes"              koanf:"max_frame_body_bytes"              mapstructure:"max_frame_body_bytes"              toml:"max_frame_body_bytes"`
+	MaxPayloadBytes                int     `json:"max_payload_bytes"                 koanf:"max_payload_bytes"                 mapstructure:"max_payload_bytes"                 toml:"max_payload_bytes"`
+	MaxBatchPayloadBytes           int     `json:"max_batch_payload_bytes"           koanf:"max_batch_payload_bytes"           mapstructure:"max_batch_payload_bytes"           toml:"max_batch_payload_bytes"`
+	MaxFetchRecords                int     `json:"max_fetch_records"                 koanf:"max_fetch_records"                 mapstructure:"max_fetch_records"                 toml:"max_fetch_records"`
+	MaxFetchWaitMS                 uint64  `json:"max_fetch_wait_ms"                 koanf:"max_fetch_wait_ms"                 mapstructure:"max_fetch_wait_ms"                 toml:"max_fetch_wait_ms"`
+	MaxConcurrentConnections       int64   `json:"max_concurrent_connections"        koanf:"max_concurrent_connections"        mapstructure:"max_concurrent_connections"        toml:"max_concurrent_connections"`
+	CommandRateLimitPerSecond      float64 `json:"command_rate_limit_per_second"     koanf:"command_rate_limit_per_second"     mapstructure:"command_rate_limit_per_second"     toml:"command_rate_limit_per_second"`
+	CommandRateLimitBurst          int     `json:"command_rate_limit_burst"          koanf:"command_rate_limit_burst"          mapstructure:"command_rate_limit_burst"          toml:"command_rate_limit_burst"`
+	TopicCacheMaxEntries           int64   `json:"topic_cache_max_entries"           koanf:"topic_cache_max_entries"           mapstructure:"topic_cache_max_entries"           toml:"topic_cache_max_entries"`
+	MaintenanceConcurrency         int64   `json:"maintenance_concurrency"           koanf:"maintenance_concurrency"           mapstructure:"maintenance_concurrency"           toml:"maintenance_concurrency"`
+	GroupAssignmentStrategy        string  `json:"group_assignment_strategy"         koanf:"group_assignment_strategy"         mapstructure:"group_assignment_strategy"         toml:"group_assignment_strategy"`
+	GroupStickyAssignments         bool    `json:"group_sticky_assignments"          koanf:"group_sticky_assignments"          mapstructure:"group_sticky_assignments"          toml:"group_sticky_assignments"`
+	DataShardCount                 uint32  `json:"data_shard_count"                  koanf:"data_shard_count"                  mapstructure:"data_shard_count"                  toml:"data_shard_count"`
+	RetryWorkerEnabled             bool    `json:"retry_worker_enabled"              koanf:"retry_worker_enabled"              mapstructure:"retry_worker_enabled"              toml:"retry_worker_enabled"`
+	RetryWorkerIntervalSecs        uint64  `json:"retry_worker_interval_secs"        koanf:"retry_worker_interval_secs"        mapstructure:"retry_worker_interval_secs"        toml:"retry_worker_interval_secs"`
+	RetryWorkerMaxRecords          int     `json:"retry_worker_max_records"          koanf:"retry_worker_max_records"          mapstructure:"retry_worker_max_records"          toml:"retry_worker_max_records"`
+	RetryWorkerConsumerPrefix      string  `json:"retry_worker_consumer_prefix"      koanf:"retry_worker_consumer_prefix"      mapstructure:"retry_worker_consumer_prefix"      toml:"retry_worker_consumer_prefix"`
+	DelaySchedulerEnabled          bool    `json:"delay_scheduler_enabled"           koanf:"delay_scheduler_enabled"           mapstructure:"delay_scheduler_enabled"           toml:"delay_scheduler_enabled"`
+	DelaySchedulerIntervalSecs     uint64  `json:"delay_scheduler_interval_secs"     koanf:"delay_scheduler_interval_secs"     mapstructure:"delay_scheduler_interval_secs"     toml:"delay_scheduler_interval_secs"`
+	DelaySchedulerMaxRecords       int     `json:"delay_scheduler_max_records"       koanf:"delay_scheduler_max_records"       mapstructure:"delay_scheduler_max_records"       toml:"delay_scheduler_max_records"`
+	DelaySchedulerConsumerPrefix   string  `json:"delay_scheduler_consumer_prefix"   koanf:"delay_scheduler_consumer_prefix"   mapstructure:"delay_scheduler_consumer_prefix"   toml:"delay_scheduler_consumer_prefix"`
+	TransactionCleanupEnabled      bool    `json:"transaction_cleanup_enabled"       koanf:"transaction_cleanup_enabled"       mapstructure:"transaction_cleanup_enabled"       toml:"transaction_cleanup_enabled"`
+	TransactionCleanupIntervalSecs uint64  `json:"transaction_cleanup_interval_secs" koanf:"transaction_cleanup_interval_secs" mapstructure:"transaction_cleanup_interval_secs" toml:"transaction_cleanup_interval_secs"`
 }
 
 type AdminConfig struct {

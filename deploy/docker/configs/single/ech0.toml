@@ -17,6 +17,8 @@ delay_scheduler_enabled = true
 delay_scheduler_interval_secs = 1
 delay_scheduler_max_records = 256
 delay_scheduler_consumer_prefix = "__delay_scheduler"
+transaction_cleanup_enabled = true
+transaction_cleanup_interval_secs = 5
 
 [admin]
 enabled = true

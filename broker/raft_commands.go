@@ -13,6 +13,7 @@ const (
 	raftCommandTxCommitOffset  = "tx_commit_offset"
 	raftCommandTxCommit        = "tx_commit"
 	raftCommandTxAbort         = "tx_abort"
+	raftCommandTxExpire        = "tx_expire"
 	raftCommandDirectSend      = "direct_send"
 	raftCommandDirectAck       = "direct_ack"
 	raftCommandJoinGroup       = "join_group"

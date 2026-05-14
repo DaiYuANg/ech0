@@ -3,31 +3,33 @@ package broker
 func DefaultConfig() Config {
 	return Config{
 		Broker: BrokerConfig{
-			NodeID:                       1,
-			ClusterName:                  "ech0-dev",
-			DataDir:                      "./data",
-			BindAddr:                     "127.0.0.1:9090",
-			MaxFrameBodyBytes:            4 * 1024 * 1024,
-			MaxPayloadBytes:              1024 * 1024,
-			MaxBatchPayloadBytes:         8 * 1024 * 1024,
-			MaxFetchRecords:              1000,
-			MaxFetchWaitMS:               5000,
-			MaxConcurrentConnections:     4096,
-			CommandRateLimitPerSecond:    0,
-			CommandRateLimitBurst:        0,
-			TopicCacheMaxEntries:         4096,
-			MaintenanceConcurrency:       4,
-			GroupAssignmentStrategy:      "round_robin",
-			GroupStickyAssignments:       true,
-			DataShardCount:               1,
-			RetryWorkerEnabled:           true,
-			RetryWorkerIntervalSecs:      5,
-			RetryWorkerMaxRecords:        256,
-			RetryWorkerConsumerPrefix:    "__retry_worker",
-			DelaySchedulerEnabled:        true,
-			DelaySchedulerIntervalSecs:   1,
-			DelaySchedulerMaxRecords:     256,
-			DelaySchedulerConsumerPrefix: "__delay_scheduler",
+			NodeID:                         1,
+			ClusterName:                    "ech0-dev",
+			DataDir:                        "./data",
+			BindAddr:                       "127.0.0.1:9090",
+			MaxFrameBodyBytes:              4 * 1024 * 1024,
+			MaxPayloadBytes:                1024 * 1024,
+			MaxBatchPayloadBytes:           8 * 1024 * 1024,
+			MaxFetchRecords:                1000,
+			MaxFetchWaitMS:                 5000,
+			MaxConcurrentConnections:       4096,
+			CommandRateLimitPerSecond:      0,
+			CommandRateLimitBurst:          0,
+			TopicCacheMaxEntries:           4096,
+			MaintenanceConcurrency:         4,
+			GroupAssignmentStrategy:        "round_robin",
+			GroupStickyAssignments:         true,
+			DataShardCount:                 1,
+			RetryWorkerEnabled:             true,
+			RetryWorkerIntervalSecs:        5,
+			RetryWorkerMaxRecords:          256,
+			RetryWorkerConsumerPrefix:      "__retry_worker",
+			DelaySchedulerEnabled:          true,
+			DelaySchedulerIntervalSecs:     1,
+			DelaySchedulerMaxRecords:       256,
+			DelaySchedulerConsumerPrefix:   "__delay_scheduler",
+			TransactionCleanupEnabled:      true,
+			TransactionCleanupIntervalSecs: 5,
 		},
 		Admin: AdminConfig{
 			Enabled:  true,
@@ -170,6 +172,9 @@ func normalizeBrokerWorkers(cfg *BrokerConfig) {
 	}
 	if cfg.DelaySchedulerConsumerPrefix == "" {
 		cfg.DelaySchedulerConsumerPrefix = "__delay_scheduler"
+	}
+	if cfg.TransactionCleanupIntervalSecs == 0 {
+		cfg.TransactionCleanupIntervalSecs = 5
 	}
 }
 

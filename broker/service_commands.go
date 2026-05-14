@@ -97,6 +97,10 @@ type txBoundaryCommand struct {
 	Identity TransactionIdentity
 }
 
+type txExpireCommand struct {
+	NowMS uint64
+}
+
 type directCommand struct {
 	Sender         string
 	Recipient      string

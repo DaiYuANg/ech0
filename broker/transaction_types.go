@@ -52,3 +52,7 @@ type TransactionBoundaryResult struct {
 	TxID   uint64
 	Status store.TransactionStatus
 }
+
+type TransactionTimeoutCleanupResult struct {
+	Expired int
+}

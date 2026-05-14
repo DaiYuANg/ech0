@@ -11,7 +11,8 @@ func (b *Broker) applyTxBegin(_ context.Context, req txBeginCommand) (Transactio
 	if req.TransactionalID == "" {
 		return TransactionBeginResult{}, brokerStoreError(store.CodeInvalidArgument, "transactional_id is required")
 	}
-	if err := b.ensureNoOpenTransaction(req.TransactionalID); err != nil {
+	history, err := b.transactionsForID(req.TransactionalID)
+	if err != nil {
 		return TransactionBeginResult{}, err
 	}
 	timeoutMS := req.TimeoutMS
@@ -23,11 +24,18 @@ func (b *Broker) applyTxBegin(_ context.Context, req txBeginCommand) (Transactio
 		return TransactionBeginResult{}, wrapBrokerStore(err, "allocate transaction id")
 	}
 	now := store.NowMS()
+	producerID, producerEpoch, err := nextTransactionProducerIdentity(txID, history)
+	if err != nil {
+		return TransactionBeginResult{}, err
+	}
+	if err := b.fenceOpenTransactions(history, now); err != nil {
+		return TransactionBeginResult{}, err
+	}
 	state := store.TransactionState{
 		TxID:            txID,
 		TransactionalID: req.TransactionalID,
-		ProducerID:      txID,
-		ProducerEpoch:   0,
+		ProducerID:      producerID,
+		ProducerEpoch:   producerEpoch,
 		Status:          store.TransactionStatusOpen,
 		TimeoutMS:       timeoutMS,
 		CreatedAtMS:     now,
@@ -195,4 +203,27 @@ func transactionPublishResult(txID uint64, partition uint32, record store.Record
 		Record:     record,
 		NextOffset: record.Offset + 1,
 	}
+}
+
+func (b *Broker) applyTxExpire(_ context.Context, req txExpireCommand) (TransactionTimeoutCleanupResult, error) {
+	nowMS := req.NowMS
+	if nowMS == 0 {
+		nowMS = store.NowMS()
+	}
+	transactions, err := b.meta.ListTransactions()
+	if err != nil {
+		return TransactionTimeoutCleanupResult{}, wrapBrokerStore(err, "list transactions")
+	}
+	result := TransactionTimeoutCleanupResult{}
+	for index := range transactions {
+		state := transactions[index]
+		if !transactionExpired(state, nowMS) {
+			continue
+		}
+		if err := b.abortTransactionState(&state, nowMS, "expire transaction"); err != nil {
+			return result, err
+		}
+		result.Expired++
+	}
+	return result, nil
 }

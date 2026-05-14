@@ -4,18 +4,56 @@ import (
 	"slices"
 	"strconv"
 
+	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/lyonbrown4d/ech0/store"
 )
 
-func (b *Broker) ensureNoOpenTransaction(transactionalID string) error {
+func (b *Broker) transactionsForID(transactionalID string) ([]store.TransactionState, error) {
 	transactions, err := b.meta.ListTransactions()
 	if err != nil {
-		return wrapBrokerStore(err, "list transactions")
+		return nil, wrapBrokerStore(err, "list transactions")
 	}
+	out := collectionlist.NewList[store.TransactionState]()
 	for index := range transactions {
-		if transactions[index].TransactionalID == transactionalID && transactions[index].Status == store.TransactionStatusOpen {
-			return brokerStoreError(store.CodeInvalidArgument, "transactional_id %s already has an open transaction", transactionalID)
+		if transactions[index].TransactionalID == transactionalID {
+			out.Add(transactions[index])
+		}
+	}
+	return out.Values(), nil
+}
+
+func nextTransactionProducerIdentity(txID uint64, history []store.TransactionState) (uint64, uint64, error) {
+	if len(history) == 0 {
+		return txID, 0, nil
+	}
+	producerID := uint64(0)
+	maxEpoch := uint64(0)
+	for index := range history {
+		if producerID == 0 && history[index].ProducerID != 0 {
+			producerID = history[index].ProducerID
+		}
+		if history[index].ProducerEpoch > maxEpoch {
+			maxEpoch = history[index].ProducerEpoch
+		}
+	}
+	if producerID == 0 {
+		producerID = txID
+	}
+	if maxEpoch == ^uint64(0) {
+		return 0, 0, brokerStoreError(store.CodeInvalidArgument, "transaction producer epoch overflows uint64")
+	}
+	return producerID, maxEpoch + 1, nil
+}
+
+func (b *Broker) fenceOpenTransactions(history []store.TransactionState, nowMS uint64) error {
+	for index := range history {
+		state := history[index]
+		if state.Status != store.TransactionStatusOpen {
+			continue
+		}
+		if err := b.abortTransactionState(&state, nowMS, "fence transaction"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -59,15 +97,33 @@ func (b *Broker) loadOpenTransaction(identity TransactionIdentity) (*store.Trans
 	if state.Status != store.TransactionStatusOpen {
 		return nil, brokerStoreError(store.CodeInvalidArgument, "transaction %d is %s", state.TxID, state.Status)
 	}
-	if state.ExpiresAtMS > 0 && store.NowMS() >= state.ExpiresAtMS {
-		state.Status = store.TransactionStatusAborted
-		state.UpdatedAtMS = store.NowMS()
-		if err := b.meta.SaveTransaction(*state); err != nil {
-			return nil, wrapBrokerStore(err, "expire transaction")
+	nowMS := store.NowMS()
+	if transactionExpired(*state, nowMS) {
+		if err := b.abortTransactionState(state, nowMS, "expire transaction"); err != nil {
+			return nil, err
 		}
 		return nil, brokerStoreError(store.CodeUnavailable, "transaction %d expired", state.TxID)
 	}
 	return state, nil
+}
+
+func transactionExpired(state store.TransactionState, nowMS uint64) bool {
+	return state.Status == store.TransactionStatusOpen && state.ExpiresAtMS > 0 && nowMS >= state.ExpiresAtMS
+}
+
+func (b *Broker) abortTransactionState(state *store.TransactionState, nowMS uint64, operation string) error {
+	if state.Status != store.TransactionStatusOpen {
+		return nil
+	}
+	if err := b.appendTransactionControlMarkers(state, store.TransactionControlAbort); err != nil {
+		return err
+	}
+	state.Status = store.TransactionStatusAborted
+	state.UpdatedAtMS = nowMS
+	if err := b.meta.SaveTransaction(*state); err != nil {
+		return wrapBrokerStore(err, operation)
+	}
+	return nil
 }
 
 func (b *Broker) advanceTransactionAfterPublish(state *store.TransactionState, batch store.TransactionPublishedBatch) error {

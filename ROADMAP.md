@@ -40,8 +40,8 @@ The first implementation cut should keep the public mental model small: existing
 ## Phase 2: MQ Semantics
 
 - Done: idempotent producer with producer ID, epoch, per-topic-partition sequence, broker-side dedupe window, TCP/raft protocol fields, and default embedded producer IDs.
-- Transactional offset commit for consume-transform-produce workflows.
-- Producer fencing and transaction timeout cleanup.
+- Done: transactional offset commit for consume-transform-produce workflows.
+- In progress: producer fencing and transaction timeout cleanup.
 - Transaction recovery tests across restart and cluster failover.
 - Seek by offset and seek by timestamp.
 - Pause and resume partition consumption.
@@ -143,7 +143,8 @@ The first implementation cut should keep the public mental model small: existing
 6. Tenant-aware metrics and admin views.
 7. Idempotent producer.
 8. Transactional offset commit.
-9. Seek and replay.
-10. Static membership and cooperative-sticky consumer group rebalance.
-11. Retention, compaction, and partition watermarks.
-12. DLQ replay and delay queue productization.
+9. Producer fencing and transaction timeout cleanup.
+10. Seek and replay.
+11. Static membership and cooperative-sticky consumer group rebalance.
+12. Retention, compaction, and partition watermarks.
+13. DLQ replay and delay queue productization.

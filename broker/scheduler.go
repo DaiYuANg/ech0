@@ -47,6 +47,7 @@ type scheduledJobRegistration struct {
 func scheduledRuntimeEnabled(cfg Config) bool {
 	return cfg.Broker.DelaySchedulerEnabled ||
 		cfg.Broker.RetryWorkerEnabled ||
+		cfg.Broker.TransactionCleanupEnabled ||
 		cfg.Storage.RetentionCleanupEnabled ||
 		cfg.Storage.CompactionCleanupEnabled
 }
@@ -88,6 +89,12 @@ func scheduledJobRegistrations(cfg Config) []scheduledJobRegistration {
 			code:     "retry_job_create_failed",
 			message:  "create retry worker job",
 			register: registerRetryJob,
+		},
+		scheduledJobRegistration{
+			enabled:  cfg.Broker.TransactionCleanupEnabled,
+			code:     "transaction_cleanup_job_create_failed",
+			message:  "create transaction cleanup job",
+			register: registerTransactionCleanupJob,
 		},
 		scheduledJobRegistration{
 			enabled:  cfg.Storage.RetentionCleanupEnabled,
@@ -141,6 +148,24 @@ func registerRetryJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, lo
 		gocron.WithTags("ech0", "retry"),
 	)
 	return wrapBroker("retry_job_register_failed", err, "register retry worker job")
+}
+
+func registerTransactionCleanupJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
+	interval := durationFromSeconds(cfg.Broker.TransactionCleanupIntervalSecs, 5*time.Second)
+	_, err := scheduler.NewJob(
+		gocron.DurationJob(interval),
+		gocron.NewTask(func(ctx context.Context) error {
+			result, err := broker.ExpireTransactionsOnce(ctx)
+			if err != nil {
+				return err
+			}
+			logMoved(logger, "transaction cleanup expired transactions", result.Expired)
+			return nil
+		}),
+		gocron.WithName("ech0.transaction_cleanup"),
+		gocron.WithTags("ech0", "transaction"),
+	)
+	return wrapBroker("transaction_cleanup_job_register_failed", err, "register transaction cleanup job")
 }
 
 func registerRetentionCleanupJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {

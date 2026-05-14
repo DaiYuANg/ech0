@@ -35,3 +35,16 @@ func (b *Broker) CompactOnce(ctx context.Context) (store.CompactionCleanupResult
 	}
 	return result, nil
 }
+
+func (b *Broker) ExpireTransactionsOnce(ctx context.Context) (TransactionTimeoutCleanupResult, error) {
+	return b.ExpireTransactions(ctx, store.NowMS())
+}
+
+func (b *Broker) ExpireTransactions(ctx context.Context, nowMS uint64) (TransactionTimeoutCleanupResult, error) {
+	req := txExpireCommand{NowMS: nowMS}
+	result, err := routeMetadataCommand(ctx, b, raftCommandTxExpire, req, b.applyTxExpire)
+	if err != nil {
+		return TransactionTimeoutCleanupResult{}, wrapBroker("transaction_cleanup_failed", err, "expire transactions")
+	}
+	return result, nil
+}

@@ -127,6 +127,35 @@ func TestBrokerTransactionCommitWritesSegmentMarker(t *testing.T) {
 	requireTransactionControlMarker(t, poll, store.TransactionControlCommit)
 }
 
+func TestBrokerTransactionBeginFencesOpenTransaction(t *testing.T) {
+	b := newTestBroker(t)
+	ctx := context.Background()
+	createTopic(ctx, t, b, store.NewTopicConfig("orders"))
+
+	first, err := b.BeginTransaction(ctx, "worker-1", 30_000)
+	requireNoError(t, err)
+	_, err = b.PublishTransactionalRecord(ctx, first.Identity, 0, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0}, store.NewRecordAppend([]byte("m1")))
+	requireNoError(t, err)
+
+	next, err := b.BeginTransaction(ctx, "worker-1", 30_000)
+	requireNoError(t, err)
+	if next.Identity.ProducerID != first.Identity.ProducerID || next.Identity.ProducerEpoch != first.Identity.ProducerEpoch+1 {
+		t.Fatalf("expected next transaction to fence producer epoch, first=%#v next=%#v", first.Identity, next.Identity)
+	}
+	_, err = b.PublishTransactionalRecord(ctx, first.Identity, 1, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0}, store.NewRecordAppend([]byte("stale")))
+	if err == nil {
+		t.Fatal("expected stale transaction publish to fail")
+	}
+	_, err = b.CommitTransaction(ctx, first.Identity)
+	if err == nil {
+		t.Fatal("expected stale transaction commit to fail")
+	}
+
+	poll, err := b.FetchWithIsolation(ctx, "c1", "orders", 0, nil, 10, broker.FetchIsolationReadUncommitted)
+	requireNoError(t, err)
+	requireTransactionControlMarker(t, poll, store.TransactionControlAbort)
+}
+
 func TestBrokerTransactionAbortWritesSegmentMarker(t *testing.T) {
 	b := newTestBroker(t)
 	ctx := context.Background()
@@ -142,6 +171,41 @@ func TestBrokerTransactionAbortWritesSegmentMarker(t *testing.T) {
 	poll, err := b.FetchWithIsolation(ctx, "c1", "orders", 0, nil, 10, broker.FetchIsolationReadUncommitted)
 	requireNoError(t, err)
 	requireTransactionControlMarker(t, poll, store.TransactionControlAbort)
+}
+
+func TestBrokerTransactionCleanupAbortsExpiredTransactions(t *testing.T) {
+	b := newTestBroker(t)
+	ctx := context.Background()
+	createTopic(ctx, t, b, store.NewTopicConfig("orders"))
+
+	tx, err := b.BeginTransaction(ctx, "worker-1", 1)
+	requireNoError(t, err)
+	_, err = b.PublishTransactionalRecord(ctx, tx.Identity, 0, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0}, store.NewRecordAppend([]byte("m1")))
+	requireNoError(t, err)
+
+	result, err := b.ExpireTransactions(ctx, tx.ExpiresAtMS)
+	requireNoError(t, err)
+	if result.Expired != 1 {
+		t.Fatalf("expected one expired transaction, got %#v", result)
+	}
+	result, err = b.ExpireTransactions(ctx, tx.ExpiresAtMS)
+	requireNoError(t, err)
+	if result.Expired != 0 {
+		t.Fatalf("expected cleanup to be idempotent, got %#v", result)
+	}
+	_, err = b.CommitTransaction(ctx, tx.Identity)
+	if err == nil {
+		t.Fatal("expected expired transaction commit to fail")
+	}
+
+	hidden, err := b.FetchWithIsolation(ctx, "c1", "orders", 0, nil, 10, broker.FetchIsolationReadCommitted)
+	requireNoError(t, err)
+	if len(hidden.Records) != 0 || hidden.NextOffset != 2 {
+		t.Fatalf("expected expired transaction to stay hidden, got %#v", hidden)
+	}
+	uncommitted, err := b.FetchWithIsolation(ctx, "c1", "orders", 0, nil, 10, broker.FetchIsolationReadUncommitted)
+	requireNoError(t, err)
+	requireTransactionControlMarker(t, uncommitted, store.TransactionControlAbort)
 }
 
 func TestBrokerTransactionCommitsOffsetAtomically(t *testing.T) {

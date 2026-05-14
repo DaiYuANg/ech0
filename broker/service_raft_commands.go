@@ -92,6 +92,7 @@ func (b *Broker) registerTransactionRaftHandlers(handlers *collectionmapping.Map
 	setRaftHandler(handlers, raftCommandTxCommitOffset, b.applyTxCommitOffset, "decode transaction commit offset command")
 	setRaftHandler(handlers, raftCommandTxCommit, b.applyTxCommit, "decode transaction commit command")
 	setRaftHandler(handlers, raftCommandTxAbort, b.applyTxAbort, "decode transaction abort command")
+	setRaftHandler(handlers, raftCommandTxExpire, b.applyTxExpire, "decode transaction expire command")
 }
 
 func (b *Broker) registerDirectRaftHandlers(handlers *collectionmapping.Map[string, raftCommandHandler]) {
