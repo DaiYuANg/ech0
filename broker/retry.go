@@ -9,13 +9,48 @@ import (
 )
 
 func (b *Broker) Nack(ctx context.Context, consumer, topic string, partition uint32, offset uint64, lastError *string) (RetryResult, error) {
-	req := nackCommand{Consumer: consumer, Topic: topic, Partition: partition, Offset: offset, LastError: lastError}
-	return routePartitionCommand(ctx, b, exactPartitionCommandTarget(topic, partition), raftCommandNack, req, b.applyNack)
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionCommit, topicResource(identity, topic)); err != nil {
+		return RetryResult{}, err
+	}
+	req := nackCommand{
+		Consumer:  scopedName(identity, "consumer", consumer),
+		Topic:     scopedTopicName(identity, topic),
+		Partition: partition,
+		Offset:    offset,
+		LastError: lastError,
+	}
+	result, err := b.nackScoped(ctx, req)
+	if err != nil {
+		return RetryResult{}, err
+	}
+	result.RetryTopic = visibleTopicName(identity, result.RetryTopic)
+	return result, nil
+}
+
+func (b *Broker) nackScoped(ctx context.Context, req nackCommand) (RetryResult, error) {
+	return routePartitionCommand(ctx, b, exactPartitionCommandTarget(req.Topic, req.Partition), raftCommandNack, req, b.applyNack)
 }
 
 func (b *Broker) ProcessRetryBatch(ctx context.Context, consumer, sourceTopic string, partition uint32, maxRecords int) (ProcessRetryResult, error) {
-	req := processRetryCommand{Consumer: consumer, SourceTopic: sourceTopic, Partition: partition, MaxRecords: maxRecords, NowMS: store.NowMS()}
-	return routePartitionCommand(ctx, b, exactPartitionCommandTarget(retryTopicName(sourceTopic), partition), raftCommandProcessRetry, req, b.applyProcessRetryBatch)
+	identity := b.identity(ctx)
+	req := processRetryCommand{
+		Consumer:    scopedName(identity, "consumer", consumer),
+		SourceTopic: scopedTopicName(identity, sourceTopic),
+		Partition:   partition,
+		MaxRecords:  maxRecords,
+		NowMS:       store.NowMS(),
+	}
+	result, err := b.processRetryBatchScoped(ctx, req)
+	if err != nil {
+		return ProcessRetryResult{}, err
+	}
+	result.RetryTopic = visibleTopicName(identity, result.RetryTopic)
+	return result, nil
+}
+
+func (b *Broker) processRetryBatchScoped(ctx context.Context, req processRetryCommand) (ProcessRetryResult, error) {
+	return routePartitionCommand(ctx, b, exactPartitionCommandTarget(retryTopicName(req.SourceTopic), req.Partition), raftCommandProcessRetry, req, b.applyProcessRetryBatch)
 }
 
 func (b *Broker) ProcessRetryTopicsOnce(ctx context.Context, consumerPrefix string, maxRecordsPerPartition int) (int, error) {
@@ -79,7 +114,8 @@ func (b *Broker) processRetryTopicPartitions(ctx context.Context, topic store.To
 	movedTotal := 0
 	for partition := range topic.Partitions {
 		consumer := fmt.Sprintf("%s:%s:%d", consumerPrefix, topic.Name, partition)
-		result, err := b.ProcessRetryBatch(ctx, consumer, topic.Name, partition, maxRecords)
+		req := processRetryCommand{Consumer: consumer, SourceTopic: topic.Name, Partition: partition, MaxRecords: maxRecords, NowMS: store.NowMS()}
+		result, err := b.processRetryBatchScoped(ctx, req)
 		if err != nil {
 			return movedTotal, err
 		}

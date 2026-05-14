@@ -87,6 +87,72 @@ func TestBrokerTenantDirectAndRequestReplyAreIsolated(t *testing.T) {
 	}
 }
 
+func TestBrokerTenantRetryAndDLQAreScoped(t *testing.T) {
+	b := newTestBroker(t)
+	ctxA := tenantContext("tenant-a")
+	ctxB := tenantContext("tenant-b")
+	createTopic(ctxA, t, b, retryTopic("tenant-orders", 1))
+	createTopic(ctxB, t, b, retryTopic("tenant-orders", 1))
+	_, err := b.Publish(ctxA, "tenant-orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0}, nil, false, []byte("a1"))
+	requireNoError(t, err)
+
+	lastErr := "failed"
+	retried, err := b.Nack(ctxA, "c1", "tenant-orders", 0, 0, &lastErr)
+	requireNoError(t, err)
+	if retried.RetryTopic != "__retry.tenant-orders" {
+		t.Fatalf("expected visible retry topic, got %#v", retried)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	processed, err := b.ProcessRetryBatch(ctxA, "retry-worker", "tenant-orders", 0, 10)
+	requireNoError(t, err)
+	if processed.RetryTopic != "__retry.tenant-orders" || processed.MovedToDeadLetter != 1 {
+		t.Fatalf("unexpected retry processing result: %#v", processed)
+	}
+	dlqA, err := b.Fetch(ctxA, "dlq-reader", "__dlq.tenant-orders", 0, nil, 1)
+	requireNoError(t, err)
+	if len(dlqA.Records) != 1 || string(dlqA.Records[0].Payload) != "a1" {
+		t.Fatalf("unexpected tenant-a dlq records: %#v", dlqA.Records)
+	}
+	dlqB, err := b.Fetch(ctxB, "dlq-reader", "__dlq.tenant-orders", 0, nil, 1)
+	if err != nil && store.ErrorCode(err) != store.CodeTopicNotFound {
+		requireNoError(t, err)
+	}
+	if err == nil && len(dlqB.Records) != 0 {
+		t.Fatalf("expected tenant-b dlq to stay empty, got %#v", dlqB.Records)
+	}
+}
+
+func TestBrokerTenantDelayIsScoped(t *testing.T) {
+	b := newTestBroker(t)
+	ctxA := tenantContext("tenant-a")
+	ctxB := tenantContext("tenant-b")
+	createTopic(ctxA, t, b, store.NewTopicConfig("orders"))
+	createTopic(ctxB, t, b, store.NewTopicConfig("orders"))
+
+	scheduled, err := b.ScheduleDelay(ctxA, "orders", 0, []byte("a-delayed"), store.NowMS())
+	requireNoError(t, err)
+	if scheduled.DelayTopic != "__delay.orders" {
+		t.Fatalf("expected visible delay topic, got %#v", scheduled)
+	}
+	moved, err := b.ProcessDueDelayedOnce(context.Background(), "__delay_scheduler", 10)
+	requireNoError(t, err)
+	if moved != 1 {
+		t.Fatalf("expected one delayed tenant record to move, moved %d", moved)
+	}
+
+	pollA, err := b.Fetch(ctxA, "delay-reader", "orders", 0, nil, 10)
+	requireNoError(t, err)
+	if len(pollA.Records) != 1 || string(pollA.Records[0].Payload) != "a-delayed" {
+		t.Fatalf("unexpected tenant-a delayed records: %#v", pollA.Records)
+	}
+	pollB, err := b.Fetch(ctxB, "delay-reader", "orders", 0, nil, 10)
+	requireNoError(t, err)
+	if len(pollB.Records) != 0 {
+		t.Fatalf("expected tenant-b topic to stay empty, got %#v", pollB.Records)
+	}
+}
+
 func TestBrokerAuthxAuthorizerCanDenyProduce(t *testing.T) {
 	authorizer := authx.AuthorizerFunc(func(_ context.Context, input authx.AuthorizationModel) (authx.Decision, error) {
 		if input.Action == "produce" {

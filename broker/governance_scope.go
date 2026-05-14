@@ -10,21 +10,57 @@ import (
 
 func (b *Broker) scopedTopicConfig(ctx context.Context, topic store.TopicConfig) (Identity, store.TopicConfig) {
 	identity := b.identity(ctx)
-	topic.Name = scopedName(identity, "topic", topic.Name)
+	topic.Name = scopedTopicName(identity, topic.Name)
 	if topic.DeadLetterTopic != nil {
-		value := scopedName(identity, "topic", *topic.DeadLetterTopic)
+		value := scopedTopicName(identity, *topic.DeadLetterTopic)
 		topic.DeadLetterTopic = &value
 	}
 	return identity, topic
 }
 
 func (b *Broker) visibleTopicConfig(identity Identity, topic store.TopicConfig) store.TopicConfig {
-	topic.Name = visibleName(identity, "topic", topic.Name)
+	topic.Name = visibleTopicName(identity, topic.Name)
 	if topic.DeadLetterTopic != nil {
-		value := visibleName(identity, "topic", *topic.DeadLetterTopic)
+		value := visibleTopicName(identity, *topic.DeadLetterTopic)
 		topic.DeadLetterTopic = &value
 	}
 	return topic
+}
+
+func scopedTopicName(identity Identity, name string) string {
+	identity = normalizeIdentity(identity)
+	name = strings.TrimSpace(name)
+	if defaultScope(identity) {
+		return name
+	}
+	prefix, source, ok := splitAuxTopicName(name)
+	if ok {
+		return prefix + "." + scopedName(identity, "topic", source)
+	}
+	return scopedName(identity, "topic", name)
+}
+
+func visibleTopicName(identity Identity, name string) string {
+	identity = normalizeIdentity(identity)
+	name = strings.TrimSpace(name)
+	if defaultScope(identity) {
+		return name
+	}
+	prefix, source, ok := splitAuxTopicName(name)
+	if ok {
+		return prefix + "." + visibleName(identity, "topic", source)
+	}
+	return visibleName(identity, "topic", name)
+}
+
+func splitAuxTopicName(name string) (string, string, bool) {
+	for _, prefix := range []string{internalRetryTopicPrefix, internalDelayTopicPrefix, internalDLQTopicPrefix} {
+		source, ok := strings.CutPrefix(name, prefix+".")
+		if ok {
+			return prefix, source, true
+		}
+	}
+	return "", "", false
 }
 
 func scopedName(identity Identity, kind, name string) string {

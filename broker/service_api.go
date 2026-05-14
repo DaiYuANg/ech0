@@ -46,7 +46,7 @@ func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning P
 	if err := b.checkQuota(ctx, QuotaRequest{Identity: identity, Action: QuotaActionProduce, Topic: topic, Records: 1, Bytes: len(record.Payload)}); err != nil {
 		return ProduceResult{}, err
 	}
-	return b.publishRecordScoped(ctx, scopedName(identity, "topic", topic), partitioning, record)
+	return b.publishRecordScoped(ctx, scopedTopicName(identity, topic), partitioning, record)
 }
 
 func (b *Broker) publishRecordScoped(ctx context.Context, topic string, partitioning PublishPartitioning, record store.RecordAppend) (ProduceResult, error) {
@@ -78,7 +78,7 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning Pu
 	}); err != nil {
 		return ProduceBatchResult{}, err
 	}
-	return b.publishBatchScoped(ctx, scopedName(identity, "topic", topic), partitioning, records)
+	return b.publishBatchScoped(ctx, scopedTopicName(identity, topic), partitioning, records)
 }
 
 func (b *Broker) publishBatchScoped(ctx context.Context, topic string, partitioning PublishPartitioning, records []store.RecordAppend) (ProduceBatchResult, error) {
@@ -110,7 +110,7 @@ func (b *Broker) publishBatches(ctx context.Context, requests []produceBatchComm
 			}); err != nil {
 				return produceBatchesResult{}, err
 			}
-			request.Topic = scopedName(identity, "topic", request.Topic)
+			request.Topic = scopedTopicName(identity, request.Topic)
 		}
 		scopedRequests.Add(request)
 	}
@@ -130,7 +130,7 @@ func (b *Broker) Fetch(ctx context.Context, consumer, topic string, partition ui
 	if err := b.checkQuota(ctx, QuotaRequest{Identity: identity, Action: QuotaActionConsume, Topic: topic, Records: maxRecords}); err != nil {
 		return store.PollResult{}, err
 	}
-	return b.fetchScoped(ctx, scopedName(identity, "consumer", consumer), scopedName(identity, "topic", topic), partition, offset, maxRecords)
+	return b.fetchScoped(ctx, scopedName(identity, "consumer", consumer), scopedTopicName(identity, topic), partition, offset, maxRecords)
 }
 
 func (b *Broker) fetchScoped(ctx context.Context, consumer, topic string, partition uint32, offset *uint64, maxRecords int) (poll store.PollResult, err error) {
@@ -156,11 +156,11 @@ func (b *Broker) CommitOffset(ctx context.Context, consumer, topic string, parti
 	if err := b.authorize(ctx, identity, ACLActionCommit, topicResource(identity, topic)); err != nil {
 		return err
 	}
-	req := commitOffsetCommand{Consumer: scopedName(identity, "consumer", consumer), Topic: scopedName(identity, "topic", topic), Partition: partition, NextOffset: nextOffset}
+	req := commitOffsetCommand{Consumer: scopedName(identity, "consumer", consumer), Topic: scopedTopicName(identity, topic), Partition: partition, NextOffset: nextOffset}
 	if b.usesClusterCommandRouter() {
 		return b.proposeCommitOffsetCoalesced(ctx, req)
 	}
-	_, err := routePartitionCommand(ctx, b, exactPartitionCommandTarget(topic, partition), raftCommandCommitOffset, req, b.applyCommitOffset)
+	_, err := routePartitionCommand(ctx, b, exactPartitionCommandTarget(req.Topic, partition), raftCommandCommitOffset, req, b.applyCommitOffset)
 	return err
 }
 

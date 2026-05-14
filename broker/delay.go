@@ -11,8 +11,21 @@ import (
 )
 
 func (b *Broker) ScheduleDelay(ctx context.Context, topic string, partition uint32, payload []byte, deliverAtMS uint64) (DelayScheduleResult, error) {
-	req := scheduleDelayCommand{Topic: topic, Partition: partition, Payload: append([]byte(nil), payload...), DeliverAtMS: deliverAtMS}
-	return routePartitionCommand(ctx, b, exactPartitionCommandTarget(delayTopicName(topic), partition), raftCommandScheduleDelay, req, b.applyScheduleDelay)
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionProduce, topicResource(identity, topic)); err != nil {
+		return DelayScheduleResult{}, err
+	}
+	if err := b.checkQuota(ctx, QuotaRequest{Identity: identity, Action: QuotaActionProduce, Topic: topic, Records: 1, Bytes: len(payload)}); err != nil {
+		return DelayScheduleResult{}, err
+	}
+	scopedTopic := scopedTopicName(identity, topic)
+	req := scheduleDelayCommand{Topic: scopedTopic, Partition: partition, Payload: append([]byte(nil), payload...), DeliverAtMS: deliverAtMS}
+	result, err := routePartitionCommand(ctx, b, exactPartitionCommandTarget(delayTopicName(scopedTopic), partition), raftCommandScheduleDelay, req, b.applyScheduleDelay)
+	if err != nil {
+		return DelayScheduleResult{}, err
+	}
+	result.DelayTopic = visibleTopicName(identity, result.DelayTopic)
+	return result, nil
 }
 
 func (b *Broker) ProcessDueDelayedOnce(ctx context.Context, consumerPrefix string, maxRecordsPerPartition int) (int, error) {

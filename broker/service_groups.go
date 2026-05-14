@@ -17,7 +17,7 @@ func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, 
 		if err := b.authorize(ctx, identity, ACLActionConsume, topicResource(identity, topic)); err != nil {
 			return store.ConsumerGroupMember{}, err
 		}
-		scopedTopics.Add(scopedName(identity, "topic", topic))
+		scopedTopics.Add(scopedTopicName(identity, topic))
 	}
 	req := joinGroupCommand{Group: scopedName(identity, "group", group), MemberID: memberID, Topics: scopedTopics.Values(), SessionTimeoutMS: sessionTimeoutMS}
 	member, err := routeMetadataCommand(ctx, b, raftCommandJoinGroup, req, b.applyJoinGroup)
@@ -95,7 +95,7 @@ func (b *Broker) FetchConsumerGroupWithIsolation(
 	if err := b.authorize(ctx, identity, ACLActionConsume, groupResource(identity, group)); err != nil {
 		return store.PollResult{}, err
 	}
-	return b.fetchWithIsolationScoped(ctx, groupConsumer(scopedName(identity, "group", group)), scopedName(identity, "topic", topic), partition, offset, maxRecords, isolation)
+	return b.fetchWithIsolationScoped(ctx, groupConsumer(scopedName(identity, "group", group)), scopedTopicName(identity, topic), partition, offset, maxRecords, isolation)
 }
 
 func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, nextOffset uint64) error {
@@ -107,7 +107,7 @@ func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID 
 	}
 	req := commitOffsetCommand{
 		Consumer:   groupConsumer(scopedName(identity, "group", group)),
-		Topic:      scopedName(identity, "topic", topic),
+		Topic:      scopedTopicName(identity, topic),
 		Partition:  partition,
 		NextOffset: nextOffset,
 	}
@@ -121,7 +121,7 @@ func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID 
 func (b *Broker) visibleGroupMember(identity Identity, member store.ConsumerGroupMember) store.ConsumerGroupMember {
 	member.Group = visibleName(identity, "group", member.Group)
 	for index := range member.Topics {
-		member.Topics[index] = visibleName(identity, "topic", member.Topics[index])
+		member.Topics[index] = visibleTopicName(identity, member.Topics[index])
 	}
 	return member
 }
@@ -129,7 +129,7 @@ func (b *Broker) visibleGroupMember(identity Identity, member store.ConsumerGrou
 func (b *Broker) visibleGroupAssignment(identity Identity, assignment store.ConsumerGroupAssignment) store.ConsumerGroupAssignment {
 	assignment.Group = visibleName(identity, "group", assignment.Group)
 	for index := range assignment.Assignments {
-		assignment.Assignments[index].Topic = visibleName(identity, "topic", assignment.Assignments[index].Topic)
+		assignment.Assignments[index].Topic = visibleTopicName(identity, assignment.Assignments[index].Topic)
 	}
 	return assignment
 }

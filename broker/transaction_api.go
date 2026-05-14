@@ -33,7 +33,7 @@ func (b *Broker) PublishTransactionalRecord(
 	if err := b.checkQuota(ctx, QuotaRequest{Identity: scope, Action: QuotaActionProduce, Topic: topic, Records: 1, Bytes: len(record.Payload)}); err != nil {
 		return TransactionPublishResult{}, err
 	}
-	scopedTopic := scopedName(scope, "topic", topic)
+	scopedTopic := scopedTopicName(scope, topic)
 	partition, err := b.selectTransactionPartition(scopedTopic, partitioning, record.Key)
 	if err != nil {
 		return TransactionPublishResult{}, err
@@ -67,7 +67,7 @@ func (b *Broker) PublishTransactionalBatch(
 	for _, record := range records {
 		copied.Add(cloneAppend(record))
 	}
-	scopedTopic := scopedName(scope, "topic", topic)
+	scopedTopic := scopedTopicName(scope, topic)
 	partition, err := b.selectTransactionPartition(scopedTopic, partitioning, firstRecordKey(copied.Values()))
 	if err != nil {
 		return TransactionPublishBatchResult{}, err
@@ -97,7 +97,7 @@ func (b *Broker) CommitTransactionOffset(
 		Group:      scopedName(identityScope, "group", offset.Group),
 		MemberID:   offset.MemberID,
 		Generation: offset.Generation,
-		Topic:      scopedName(identityScope, "topic", offset.Topic),
+		Topic:      scopedTopicName(identityScope, offset.Topic),
 		Partition:  offset.Partition,
 		NextOffset: offset.NextOffset,
 	}

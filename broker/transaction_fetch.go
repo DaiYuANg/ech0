@@ -24,7 +24,7 @@ func (b *Broker) FetchWithIsolation(
 	if err := b.checkQuota(ctx, QuotaRequest{Identity: identity, Action: QuotaActionConsume, Topic: topic, Records: maxRecords}); err != nil {
 		return store.PollResult{}, err
 	}
-	return b.fetchWithIsolationScoped(ctx, scopedName(identity, "consumer", consumer), scopedName(identity, "topic", topic), partition, offset, maxRecords, isolation)
+	return b.fetchWithIsolationScoped(ctx, scopedName(identity, "consumer", consumer), scopedTopicName(identity, topic), partition, offset, maxRecords, isolation)
 }
 
 func (b *Broker) fetchWithIsolationScoped(
