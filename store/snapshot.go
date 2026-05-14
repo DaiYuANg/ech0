@@ -19,6 +19,7 @@ type Snapshot struct {
 	Members           collectionlist.List[ConsumerGroupMember]     `json:"members"`
 	Assignments       collectionlist.List[ConsumerGroupAssignment] `json:"assignments"`
 	Transactions      collectionlist.List[TransactionState]        `json:"transactions"`
+	ACLPolicies       collectionlist.List[ACLPolicy]               `json:"acl_policies"`
 	NextTransactionID uint64                                       `json:"next_transaction_id,omitempty"`
 	BrokerState       *BrokerState                                 `json:"broker_state,omitempty"`
 }
@@ -35,6 +36,7 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		Members:           *collectionlist.NewListWithCapacity[ConsumerGroupMember](s.members.Len()),
 		Assignments:       *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](s.assignments.Len()),
 		Transactions:      *collectionlist.NewListWithCapacity[TransactionState](s.transactions.Len()),
+		ACLPolicies:       *collectionlist.NewListWithCapacity[ACLPolicy](s.aclPolicies.Len()),
 		NextTransactionID: s.nextTxID,
 	}
 	topics := s.topics.Values()
@@ -76,6 +78,10 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		snap.Transactions.Add(cloneTransactionState(state))
 		return true
 	})
+	aclPolicies := sortACLPolicies(s.aclPolicies.Values())
+	for i := range aclPolicies {
+		snap.ACLPolicies.Add(cloneACLPolicy(aclPolicies[i]))
+	}
 	if s.brokerState != nil {
 		cp := *s.brokerState
 		snap.BrokerState = &cp
@@ -99,6 +105,7 @@ func (s *MemoryStore) Restore(snapshot Snapshot) error {
 	s.members = state.members
 	s.assignments = state.assignments
 	s.transactions = state.transactions
+	s.aclPolicies = state.aclPolicies
 	s.nextTxID = state.nextTxID
 	s.brokerState = state.brokerState
 	return nil
@@ -114,6 +121,7 @@ type memoryRestoreState struct {
 	members      *collectionmapping.Map[string, ConsumerGroupMember]
 	assignments  *collectionmapping.Map[string, ConsumerGroupAssignment]
 	transactions *collectionmapping.Map[uint64, TransactionState]
+	aclPolicies  *collectionmapping.Map[string, ACLPolicy]
 	nextTxID     uint64
 	brokerState  *BrokerState
 }
@@ -136,6 +144,7 @@ func buildMemoryRestoreState(snapshot Snapshot) (memoryRestoreState, error) {
 		members:      restoreMemoryMembers(snapshot.Members),
 		assignments:  restoreMemoryAssignments(snapshot.Assignments),
 		transactions: restoreMemoryTransactions(snapshot.Transactions),
+		aclPolicies:  restoreMemoryACLPolicies(snapshot.ACLPolicies),
 		nextTxID:     restoreMemoryNextTransactionID(snapshot),
 		brokerState:  cloneBrokerState(snapshot.BrokerState),
 	}, nil
@@ -246,18 +255,6 @@ func restoreMemoryNextTransactionID(snapshot Snapshot) uint64 {
 		return true
 	})
 	return next
-}
-
-func cloneRecords(records []Record) []Record {
-	copied := collectionlist.NewListWithCapacity[Record](len(records))
-	for _, record := range records {
-		copied.Add(cloneRecord(record))
-	}
-	return copied.Values()
-}
-
-func cloneGroupPartitionAssignments(assignments []GroupPartitionAssignment) []GroupPartitionAssignment {
-	return collectionlist.NewList(assignments...).Values()
 }
 
 func cloneBrokerState(state *BrokerState) *BrokerState {

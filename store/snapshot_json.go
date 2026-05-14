@@ -19,6 +19,7 @@ type snapshotJSON struct {
 	Members           json.RawMessage `json:"members"`
 	Assignments       json.RawMessage `json:"assignments"`
 	Transactions      json.RawMessage `json:"transactions"`
+	ACLPolicies       json.RawMessage `json:"acl_policies"`
 	NextTransactionID uint64          `json:"next_transaction_id,omitempty"`
 	BrokerState       *BrokerState    `json:"broker_state,omitempty"`
 }
@@ -32,57 +33,45 @@ type snapshotCollections struct {
 	members      *collectionlist.List[ConsumerGroupMember]
 	assignments  *collectionlist.List[ConsumerGroupAssignment]
 	transactions *collectionlist.List[TransactionState]
+	aclPolicies  *collectionlist.List[ACLPolicy]
 }
 
 func (s Snapshot) MarshalJSON() ([]byte, error) {
-	topics, err := marshalSnapshotCollection(&s.Topics, "topics")
+	wire, err := s.snapshotJSON()
 	if err != nil {
 		return nil, err
 	}
-	records, err := marshalSnapshotCollection(&s.Records, "records")
-	if err != nil {
-		return nil, err
-	}
-	logOffsets, err := marshalSnapshotCollection(&s.LogOffsets, "log_offsets")
-	if err != nil {
-		return nil, err
-	}
-	offsets, err := marshalSnapshotCollection(&s.Offsets, "offsets")
-	if err != nil {
-		return nil, err
-	}
-	placements, err := marshalSnapshotCollection(&s.Placements, "shard placements")
-	if err != nil {
-		return nil, err
-	}
-	members, err := marshalSnapshotCollection(&s.Members, "members")
-	if err != nil {
-		return nil, err
-	}
-	assignments, err := marshalSnapshotCollection(&s.Assignments, "assignments")
-	if err != nil {
-		return nil, err
-	}
-	transactions, err := marshalSnapshotCollection(&s.Transactions, "transactions")
-	if err != nil {
-		return nil, err
-	}
-	raw, err := json.Marshal(snapshotJSON{
-		Topics:            topics,
-		Records:           records,
-		LogOffsets:        logOffsets,
-		Offsets:           offsets,
-		Placements:        placements,
-		Members:           members,
-		Assignments:       assignments,
-		Transactions:      transactions,
-		NextTransactionID: s.NextTransactionID,
-		BrokerState:       s.BrokerState,
-	})
+	raw, err := json.Marshal(wire)
 	if err != nil {
 		return nil, fmt.Errorf("marshal snapshot json: %w", err)
 	}
 	return raw, nil
+}
+
+func (s Snapshot) snapshotJSON() (snapshotJSON, error) {
+	wire := snapshotJSON{NextTransactionID: s.NextTransactionID, BrokerState: s.BrokerState}
+	for _, item := range []struct {
+		target *json.RawMessage
+		value  json.Marshaler
+		field  string
+	}{
+		{&wire.Topics, &s.Topics, "topics"},
+		{&wire.Records, &s.Records, "records"},
+		{&wire.LogOffsets, &s.LogOffsets, "log_offsets"},
+		{&wire.Offsets, &s.Offsets, "offsets"},
+		{&wire.Placements, &s.Placements, "shard placements"},
+		{&wire.Members, &s.Members, "members"},
+		{&wire.Assignments, &s.Assignments, "assignments"},
+		{&wire.Transactions, &s.Transactions, "transactions"},
+		{&wire.ACLPolicies, &s.ACLPolicies, "acl policies"},
+	} {
+		raw, err := marshalSnapshotCollection(item.value, item.field)
+		if err != nil {
+			return snapshotJSON{}, err
+		}
+		*item.target = raw
+	}
+	return wire, nil
 }
 
 func (s *Snapshot) UnmarshalJSON(data []byte) error {
@@ -106,6 +95,7 @@ func (s *Snapshot) UnmarshalJSON(data []byte) error {
 		Members:           *collections.members,
 		Assignments:       *collections.assignments,
 		Transactions:      *collections.transactions,
+		ACLPolicies:       *collections.aclPolicies,
 		NextTransactionID: wire.NextTransactionID,
 		BrokerState:       wire.BrokerState,
 	}
@@ -122,6 +112,7 @@ func unmarshalSnapshotCollections(wire snapshotJSON) (snapshotCollections, error
 		members:      collectionlist.NewList[ConsumerGroupMember](),
 		assignments:  collectionlist.NewList[ConsumerGroupAssignment](),
 		transactions: collectionlist.NewList[TransactionState](),
+		aclPolicies:  collectionlist.NewList[ACLPolicy](),
 	}
 	for _, item := range []struct {
 		data   json.RawMessage
@@ -136,6 +127,7 @@ func unmarshalSnapshotCollections(wire snapshotJSON) (snapshotCollections, error
 		{wire.Members, collections.members, "members"},
 		{wire.Assignments, collections.assignments, "assignments"},
 		{wire.Transactions, collections.transactions, "transactions"},
+		{wire.ACLPolicies, collections.aclPolicies, "acl policies"},
 	} {
 		if err := unmarshalSnapshotCollection(item.data, item.target, item.field); err != nil {
 			return snapshotCollections{}, err

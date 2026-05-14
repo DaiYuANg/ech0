@@ -21,6 +21,7 @@ type MemoryStore struct {
 	members      *collectionmapping.Map[string, ConsumerGroupMember]
 	assignments  *collectionmapping.Map[string, ConsumerGroupAssignment]
 	transactions *collectionmapping.Map[uint64, TransactionState]
+	aclPolicies  *collectionmapping.Map[string, ACLPolicy]
 	nextTxID     uint64
 	brokerState  *BrokerState
 }
@@ -36,6 +37,7 @@ func NewMemoryStore() *MemoryStore {
 		members:      collectionmapping.NewMap[string, ConsumerGroupMember](),
 		assignments:  collectionmapping.NewMap[string, ConsumerGroupAssignment](),
 		transactions: collectionmapping.NewMap[uint64, TransactionState](),
+		aclPolicies:  collectionmapping.NewMap[string, ACLPolicy](),
 		nextTxID:     1,
 	}
 }

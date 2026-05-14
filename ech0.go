@@ -25,6 +25,7 @@ type metadataStore interface {
 	store.ConsumerGroupStore
 	store.BrokerStateStore
 	store.TransactionStore
+	store.ACLPolicyStore
 }
 
 func Open(ctx context.Context, opts Options) (*Broker, error) {

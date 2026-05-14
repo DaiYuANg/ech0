@@ -27,6 +27,7 @@ func TestStorxStoresPersistLogAndMetadata(t *testing.T) {
 	requirePersistedRecord(t, logStore)
 	requirePersistedOffset(t, metaStore)
 	requirePersistedTopic(t, metaStore)
+	requirePersistedACLPolicy(t, metaStore)
 }
 
 func TestStorxLogStorePersistsTransactionMetadata(t *testing.T) {
@@ -77,6 +78,17 @@ func persistOrderState(t *testing.T, logStore *store.StorxLogStore, metaStore *s
 	topic := persistLogRecord(t, logStore)
 	requireNoError(t, metaStore.SaveTopicConfig(topic))
 	requireNoError(t, metaStore.SaveConsumerOffset("c1", store.NewTopicPartition("orders", 0), 1))
+	requireNoError(t, metaStore.SaveACLPolicy(store.ACLPolicy{
+		PolicyID:     "tenant-a-orders-produce",
+		Tenant:       "tenant-a",
+		Namespace:    "default",
+		Principal:    "svc-a",
+		ResourceType: "topic",
+		ResourceName: "orders",
+		Actions:      []string{"produce"},
+		Effect:       store.ACLPolicyEffectAllow,
+		Priority:     1,
+	}))
 }
 
 func persistLogRecord(t *testing.T, logStore *store.StorxLogStore) store.TopicConfig {
@@ -115,6 +127,15 @@ func requirePersistedTopic(t *testing.T, metaStore *store.StorxMetadataStore) {
 	requireNoError(t, err)
 	if len(topics) != 1 || topics[0].Name != "orders" {
 		t.Fatalf("unexpected topics after reopen: %#v", topics)
+	}
+}
+
+func requirePersistedACLPolicy(t *testing.T, metaStore *store.StorxMetadataStore) {
+	t.Helper()
+	policies, err := metaStore.ListACLPolicies(store.ACLPolicyFilter{Tenant: "tenant-a"})
+	requireNoError(t, err)
+	if len(policies) != 1 || policies[0].PolicyID != "tenant-a-orders-produce" || len(policies[0].Actions) != 1 {
+		t.Fatalf("unexpected acl policies after reopen: %#v", policies)
 	}
 }
 

@@ -64,6 +64,13 @@ type TransactionStore interface {
 	ListTransactions() ([]TransactionState, error)
 }
 
+type ACLPolicyStore interface {
+	SaveACLPolicy(policy ACLPolicy) error
+	LoadACLPolicy(policyID string) (*ACLPolicy, error)
+	ListACLPolicies(filter ACLPolicyFilter) ([]ACLPolicy, error)
+	DeleteACLPolicy(policyID string) error
+}
+
 type Snapshotter interface {
 	Snapshot() (Snapshot, error)
 	Restore(snapshot Snapshot) error

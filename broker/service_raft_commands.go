@@ -72,6 +72,7 @@ func (b *Broker) raftCommandHandlers() *collectionmapping.Map[string, raftComman
 	b.registerDirectRaftHandlers(handlers)
 	b.registerGroupRaftHandlers(handlers)
 	b.registerRetryDelayRaftHandlers(handlers)
+	b.registerGovernanceRaftHandlers(handlers)
 	return handlers
 }
 
@@ -109,6 +110,11 @@ func (b *Broker) registerRetryDelayRaftHandlers(handlers *collectionmapping.Map[
 	setRaftHandler(handlers, raftCommandProcessRetry, b.applyProcessRetryBatch, "decode process retry command")
 	setRaftHandler(handlers, raftCommandScheduleDelay, b.applyScheduleDelay, "decode schedule delay command")
 	setRaftHandler(handlers, raftCommandProcessDelay, b.applyProcessDelayPartition, "decode process delay command")
+}
+
+func (b *Broker) registerGovernanceRaftHandlers(handlers *collectionmapping.Map[string, raftCommandHandler]) {
+	setRaftHandler(handlers, raftCommandUpsertACLPolicy, b.applyUpsertACLPolicy, "decode upsert acl policy command")
+	setRaftHandler(handlers, raftCommandDeleteACLPolicy, b.applyDeleteACLPolicy, "decode delete acl policy command")
 }
 
 func decodeRaftCommand[R any, T any](

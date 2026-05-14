@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ech0 ACL Policies</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
+  <header class="border-b border-zinc-200 bg-white">
+    <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <strong class="text-sm font-semibold tracking-normal">ech0</strong>
+      <nav class="flex items-center gap-4 text-sm text-zinc-500">
+        <a class="hover:text-emerald-700" href="/ui">Dashboard</a>
+        <a class="hover:text-emerald-700" href="/ui/topics">Topics</a>
+        <a class="hover:text-emerald-700" href="/ui/acls">ACL</a>
+        <a class="hover:text-emerald-700" href="/docs">OpenAPI</a>
+        <a class="hover:text-emerald-700" href="/metrics">Metrics</a>
+      </nav>
+    </div>
+  </header>
+  <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+    <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <h1 class="text-2xl font-semibold tracking-normal">ACL Policies</h1>
+      <form class="flex flex-wrap items-center gap-2 text-sm" method="get" action="/ui/acls">
+        <input class="h-9 rounded-md border border-zinc-300 bg-white px-3" name="tenant" placeholder="tenant" value="{{.Tenant}}">
+        <input class="h-9 rounded-md border border-zinc-300 bg-white px-3" name="namespace" placeholder="namespace" value="{{.Namespace}}">
+        <input class="h-9 rounded-md border border-zinc-300 bg-white px-3" name="principal" placeholder="principal" value="{{.Principal}}">
+        <button class="h-9 rounded-md bg-zinc-900 px-3 font-medium text-white hover:bg-zinc-800" type="submit">Filter</button>
+      </form>
+    </div>
+    {{if .Error}}<p class="mb-3 text-sm font-semibold text-amber-700">{{.Error}}</p>{{end}}
+    <section class="mb-6 rounded-md border border-zinc-200 bg-white p-4">
+      <form class="grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-4" method="post" action="/api/acl/policies">
+        <input class="h-9 rounded-md border border-zinc-300 px-3" name="policy_id" placeholder="policy id">
+        <input class="h-9 rounded-md border border-zinc-300 px-3" name="tenant" placeholder="tenant">
+        <input class="h-9 rounded-md border border-zinc-300 px-3" name="namespace" placeholder="namespace">
+        <input class="h-9 rounded-md border border-zinc-300 px-3" name="principal" placeholder="principal or *">
+        <select class="h-9 rounded-md border border-zinc-300 px-3" name="resource_type">
+          <option value="topic">topic</option>
+          <option value="consumer_group">consumer_group</option>
+          <option value="transactional_id">transactional_id</option>
+          <option value="direct_inbox">direct_inbox</option>
+          <option value="admin">admin</option>
+          <option value="*">*</option>
+        </select>
+        <input class="h-9 rounded-md border border-zinc-300 px-3" name="resource_name" placeholder="resource or *">
+        <input class="h-9 rounded-md border border-zinc-300 px-3" name="actions" placeholder="produce,consume">
+        <select class="h-9 rounded-md border border-zinc-300 px-3" name="effect">
+          <option value="allow">allow</option>
+          <option value="deny">deny</option>
+        </select>
+        <input class="h-9 rounded-md border border-zinc-300 px-3" name="priority" placeholder="priority">
+        <button class="h-9 rounded-md bg-emerald-700 px-3 font-medium text-white hover:bg-emerald-800" type="submit">Save</button>
+      </form>
+    </section>
+    <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+      <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Policy</th><th class="px-3 py-2">Scope</th><th class="px-3 py-2">Principal</th><th class="px-3 py-2">Resource</th><th class="px-3 py-2">Actions</th><th class="px-3 py-2">Effect</th><th class="px-3 py-2">Priority</th><th class="px-3 py-2">Manage</th></tr></thead>
+        <tbody class="divide-y divide-zinc-200">
+        {{range .Policies}}
+          <tr>
+            <td class="px-3 py-2 font-mono text-xs">{{.PolicyID}}</td>
+            <td class="px-3 py-2">{{.Tenant}}/{{.Namespace}}</td>
+            <td class="px-3 py-2">{{.Principal}}</td>
+            <td class="px-3 py-2">{{.ResourceType}}/{{.ResourceName}}</td>
+            <td class="px-3 py-2">{{aclActions .Actions}}</td>
+            <td class="px-3 py-2 font-semibold {{if eq .Effect "deny"}}text-rose-700{{else}}text-emerald-700{{end}}">{{.Effect}}</td>
+            <td class="px-3 py-2">{{.Priority}}</td>
+            <td class="px-3 py-2">
+              <form method="post" action="/api/acl/policies/delete">
+                <input type="hidden" name="policy_id" value="{{.PolicyID}}">
+                <input type="hidden" name="tenant" value="{{.Tenant}}">
+                <input type="hidden" name="namespace" value="{{.Namespace}}">
+                <button class="font-medium text-rose-700 hover:text-rose-800" type="submit">delete</button>
+              </form>
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="8" class="px-3 py-4 text-zinc-500">No ACL policies</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

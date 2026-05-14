@@ -20,6 +20,7 @@ const (
 	bucketPlacements          = "shard_placements"
 	bucketTransactions        = "transactions"
 	bucketTransactionCounters = "transaction_counters"
+	bucketACLPolicies         = "acl_policies"
 	brokerStateKey            = "current"
 	transactionCounterNext    = "next"
 )
@@ -37,6 +38,7 @@ type StorxMetadataStore struct {
 	placements          *bboltx.Bucket[string, ShardPlacement]
 	transactions        *bboltx.Bucket[string, TransactionState]
 	transactionCounters *bboltx.Bucket[string, uint64]
+	aclPolicies         *bboltx.Bucket[string, ACLPolicy]
 	txMu                sync.Mutex
 }
 
@@ -244,6 +246,10 @@ func (s *StorxMetadataStore) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	aclPolicies, err := s.ListACLPolicies(ACLPolicyFilter{})
+	if err != nil {
+		return Snapshot{}, err
+	}
 	nextTransactionID, err := s.loadNextTransactionID()
 	if err != nil {
 		return Snapshot{}, err
@@ -255,6 +261,7 @@ func (s *StorxMetadataStore) Snapshot() (Snapshot, error) {
 		Members:           *collectionlist.NewListWithCapacity[ConsumerGroupMember](len(members), members...),
 		Assignments:       *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](len(assignments), assignments...),
 		Transactions:      *collectionlist.NewListWithCapacity[TransactionState](len(transactions), transactions...),
+		ACLPolicies:       *collectionlist.NewListWithCapacity[ACLPolicy](len(aclPolicies), aclPolicies...),
 		NextTransactionID: nextTransactionID,
 		BrokerState:       state,
 	}, nil
@@ -276,19 +283,4 @@ func (s *StorxMetadataStore) listAllMembers() ([]ConsumerGroupMember, error) {
 			return cmp.Compare(left.Group, right.Group)
 		}).
 		Values(), err
-}
-
-type bucketClearer[K any, V any] struct {
-	bucket *bboltx.Bucket[K, V]
-}
-
-func (c bucketClearer[K, V]) Clear(ctx context.Context) error {
-	keys, err := c.bucket.Keys(ctx)
-	if err != nil {
-		return wrapExternal(err, "list bucket keys")
-	}
-	if err := c.bucket.DeleteMany(ctx, keys...); err != nil {
-		return wrapExternal(err, "delete bucket keys")
-	}
-	return nil
 }

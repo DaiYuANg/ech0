@@ -44,6 +44,7 @@ func WithAuthEngine(engine *authx.Engine) Option {
 	return func(b *Broker) {
 		if engine != nil {
 			b.auth = engine
+			b.aclAuthorizerConfigured = true
 		}
 	}
 }
@@ -71,6 +72,7 @@ func WithACLAuthorizer(authorizer authx.Authorizer) Option {
 				b.auth = newDefaultAuthEngine(b.logger)
 			}
 			b.auth.SetAuthorizer(authorizer)
+			b.aclAuthorizerConfigured = true
 		}
 	}
 }

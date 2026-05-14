@@ -94,6 +94,37 @@ func TestAdminTopicsRespectTenantQuery(t *testing.T) {
 	}
 }
 
+func TestAdminACLPoliciesUIAndAPI(t *testing.T) {
+	ctx := context.Background()
+	cfg := broker.DefaultConfig()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BindAddr = freeTCPAddr(t)
+	b := newTestBroker(t)
+	policy, err := b.UpsertACLPolicy(context.Background(), broker.ACLPolicy{
+		Tenant:       "tenant-a",
+		Namespace:    "default",
+		Principal:    "svc-a",
+		ResourceType: broker.ACLResourceTopic,
+		ResourceName: "orders",
+		Actions:      []broker.ACLAction{broker.ACLActionProduce},
+		Effect:       broker.ACLPolicyEffectAllow,
+	})
+	requireNoError(t, err)
+	server := broker.NewAdminServer(cfg, b, nil, nil)
+
+	requireNoError(t, server.Start(ctx))
+	defer stopAdminServer(t, server)
+
+	body := getAdminPage(t, cfg.Admin.BindAddr, "/api/acl/policies")
+	if !strings.Contains(body, policy.PolicyID) || !strings.Contains(body, "svc-a") {
+		t.Fatalf("admin acl api did not return policy: %s", body)
+	}
+	body = getAdminPage(t, cfg.Admin.BindAddr, "/ui/acls")
+	if !strings.Contains(body, "ACL Policies") || !strings.Contains(body, policy.PolicyID) {
+		t.Fatalf("admin acl ui did not render policy: %s", body)
+	}
+}
+
 func getAdminPage(t *testing.T, addr, path string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

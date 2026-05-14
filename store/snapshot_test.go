@@ -31,6 +31,17 @@ func TestMemorySnapshotRoundTripsJSONWithCollectionLists(t *testing.T) {
 		},
 	}))
 	requireNoError(t, st.SaveShardPlacement(store.NewShardPlacement("orders", 0, 2)))
+	requireNoError(t, st.SaveACLPolicy(store.ACLPolicy{
+		PolicyID:     "tenant-a-orders-produce",
+		Tenant:       "tenant-a",
+		Namespace:    "default",
+		Principal:    "svc-a",
+		ResourceType: "topic",
+		ResourceName: "orders",
+		Actions:      []string{"produce"},
+		Effect:       store.ACLPolicyEffectAllow,
+		Priority:     1,
+	}))
 	snapshot, err := st.Snapshot()
 	requireNoError(t, err)
 	raw, err := json.Marshal(snapshot)
@@ -40,24 +51,59 @@ func TestMemorySnapshotRoundTripsJSONWithCollectionLists(t *testing.T) {
 
 	restored := store.NewMemoryStore()
 	requireNoError(t, restored.Restore(decoded))
+	requireRestoredMemorySnapshot(t, restored)
+}
+
+func requireRestoredMemorySnapshot(t *testing.T, restored *store.MemoryStore) {
+	t.Helper()
+	requireRestoredRecords(t, restored)
+	requireRestoredMembers(t, restored)
+	requireRestoredAssignment(t, restored)
+	requireRestoredShardPlacement(t, restored)
+	requireRestoredACLPolicies(t, restored)
+}
+
+func requireRestoredRecords(t *testing.T, restored *store.MemoryStore) {
+	t.Helper()
 	records, err := restored.ReadFrom(store.NewTopicPartition("orders", 0), 0, 10)
 	requireNoError(t, err)
 	if len(records) != 1 || string(records[0].Payload) != "m1" {
 		t.Fatalf("unexpected restored records: %#v", records)
 	}
+}
+
+func requireRestoredMembers(t *testing.T, restored *store.MemoryStore) {
+	t.Helper()
 	members, err := restored.ListGroupMembers("workers")
 	requireNoError(t, err)
 	if len(members) != 1 || members[0].MemberID != "worker-1" || len(members[0].Topics) != 1 {
 		t.Fatalf("unexpected restored members: %#v", members)
 	}
+}
+
+func requireRestoredAssignment(t *testing.T, restored *store.MemoryStore) {
+	t.Helper()
 	assignment, err := restored.LoadGroupAssignment("workers")
 	requireNoError(t, err)
 	if assignment == nil || len(assignment.Assignments) != 1 {
 		t.Fatalf("unexpected restored assignment: %#v", assignment)
 	}
+}
+
+func requireRestoredShardPlacement(t *testing.T, restored *store.MemoryStore) {
+	t.Helper()
 	placement, err := restored.LoadShardPlacement(store.NewTopicPartition("orders", 0))
 	requireNoError(t, err)
 	if placement == nil || placement.ShardID != 2 {
 		t.Fatalf("unexpected restored shard placement: %#v", placement)
+	}
+}
+
+func requireRestoredACLPolicies(t *testing.T, restored *store.MemoryStore) {
+	t.Helper()
+	policies, err := restored.ListACLPolicies(store.ACLPolicyFilter{Tenant: "tenant-a"})
+	requireNoError(t, err)
+	if len(policies) != 1 || policies[0].PolicyID != "tenant-a-orders-produce" || len(policies[0].Actions) != 1 {
+		t.Fatalf("unexpected restored acl policies: %#v", policies)
 	}
 }

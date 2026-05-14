@@ -70,5 +70,6 @@ func newStorxMetadataStore(db *bboltx.DB) *StorxMetadataStore {
 		placements:          bboltx.NewBucketWithDB(db, bucketPlacements, keyCodec, codec.JSON[ShardPlacement]()),
 		transactions:        bboltx.NewBucketWithDB(db, bucketTransactions, keyCodec, codec.JSON[TransactionState]()),
 		transactionCounters: bboltx.NewBucketWithDB(db, bucketTransactionCounters, keyCodec, codec.JSON[uint64]()),
+		aclPolicies:         bboltx.NewBucketWithDB(db, bucketACLPolicies, keyCodec, codec.JSON[ACLPolicy]()),
 	}
 }

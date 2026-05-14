@@ -29,6 +29,9 @@ func (s *StorxMetadataStore) Restore(snapshot Snapshot) error {
 	if err := s.restoreMetadataTransactions(snapshot); err != nil {
 		return err
 	}
+	if err := s.restoreMetadataACLPolicies(snapshot.ACLPolicies); err != nil {
+		return err
+	}
 	return s.restoreMetadataBrokerState(snapshot.BrokerState)
 }
 
@@ -42,6 +45,7 @@ func (s *StorxMetadataStore) clearMetadataBuckets() error {
 		bucketClearer[string, ShardPlacement]{s.placements},
 		bucketClearer[string, TransactionState]{s.transactions},
 		bucketClearer[string, uint64]{s.transactionCounters},
+		bucketClearer[string, ACLPolicy]{s.aclPolicies},
 	} {
 		if err := bucket.Clear(context.Background()); err != nil {
 			return wrapExternal(err, "clear metadata bucket")
@@ -117,4 +121,15 @@ func (s *StorxMetadataStore) restoreMetadataBrokerState(state *BrokerState) erro
 		return nil
 	}
 	return s.SaveBrokerState(*state)
+}
+
+func (s *StorxMetadataStore) restoreMetadataACLPolicies(policies collectionlist.List[ACLPolicy]) error {
+	entries := collectionlist.NewListWithCapacity[bboltx.Entry[string, ACLPolicy]](policies.Len())
+	policies.Range(func(_ int, policy ACLPolicy) bool {
+		if validateACLPolicy(policy) == nil {
+			entries.Add(bboltx.Entry[string, ACLPolicy]{Key: policy.PolicyID, Value: cloneACLPolicy(policy)})
+		}
+		return true
+	})
+	return wrapExternal(s.aclPolicies.PutMany(context.Background(), entries.Values()...), "restore acl policies")
 }

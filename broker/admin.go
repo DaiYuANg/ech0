@@ -114,6 +114,7 @@ func (s *AdminServer) registerRoutes() {
 	s.app.Get("/", s.redirectRoot)
 	s.app.Get("/ui", s.uiDashboard)
 	s.app.Get("/ui/topics", s.uiTopics)
+	s.app.Get("/ui/acls", s.uiACLPolicies)
 	s.app.Get("/ui/topics/:topic/messages", s.uiTopicMessages)
 	s.app.Get("/ui/groups/:group", s.uiGroup)
 
@@ -127,6 +128,9 @@ func (s *AdminServer) registerRoutes() {
 	s.app.Get("/api/groups/:group/lag", s.apiGroupLag)
 	s.app.Post("/api/groups/:group/rebalance", s.apiGroupRebalance)
 	s.app.Get("/api/groups/:group/rebalance-explain", s.apiGroupRebalanceExplain)
+	s.app.Get("/api/acl/policies", s.apiACLPolicies)
+	s.app.Post("/api/acl/policies", s.apiACLPolicyUpsert)
+	s.app.Post("/api/acl/policies/delete", s.apiACLPolicyDelete)
 }
 
 func (s *AdminServer) apiRuntimeEventsStream(ctx context.Context, _ *struct{}, send httpx.SSESender) {
@@ -205,6 +209,14 @@ type dashboardView struct {
 type topicsView struct {
 	Topics []TopicSummary
 	Error  string
+}
+
+type aclPoliciesView struct {
+	Policies  []ACLPolicy
+	Error     string
+	Tenant    string
+	Namespace string
+	Principal string
 }
 
 type topicMessagesView struct {

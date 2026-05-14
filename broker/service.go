@@ -18,23 +18,24 @@ import (
 type Option func(*Broker)
 
 type Broker struct {
-	cfg        Config
-	log        store.MessageLogStore
-	meta       metadataStore
-	queue      messageRuntime
-	direct     *direct.Runtime
-	router     *partitionRouter
-	events     eventx.BusRuntime
-	discovery  discovery.Provider
-	logger     *slog.Logger
-	metrics    *MetricsRuntime
-	auth       *authx.Engine
-	quota      QuotaLimiter
-	topicCache *ristretto.Cache[string, store.TopicConfig]
-	commands   brokerCommandRouter
-	shards     *brokerShardResolver
-	shardSpecs []dataShardSpec
-	dataShards dataShardRuntime
+	cfg                     Config
+	log                     store.MessageLogStore
+	meta                    metadataStore
+	queue                   messageRuntime
+	direct                  *direct.Runtime
+	router                  *partitionRouter
+	events                  eventx.BusRuntime
+	discovery               discovery.Provider
+	logger                  *slog.Logger
+	metrics                 *MetricsRuntime
+	auth                    *authx.Engine
+	quota                   QuotaLimiter
+	topicCache              *ristretto.Cache[string, store.TopicConfig]
+	commands                brokerCommandRouter
+	shards                  *brokerShardResolver
+	shardSpecs              []dataShardSpec
+	dataShards              dataShardRuntime
+	aclAuthorizerConfigured bool
 
 	raftMu sync.RWMutex
 	raft   *raftNode
@@ -59,6 +60,7 @@ type metadataStore interface {
 	store.ConsumerGroupStore
 	store.BrokerStateStore
 	store.TransactionStore
+	store.ACLPolicyStore
 }
 
 func New(cfg Config, opts ...Option) (*Broker, error) {
@@ -125,6 +127,9 @@ func (b *Broker) applyRuntimeDefaults() {
 	}
 	if b.auth == nil {
 		b.auth = newDefaultAuthEngine(b.logger)
+	}
+	if !b.aclAuthorizerConfigured {
+		b.auth.SetAuthorizer(newMetadataACLAuthorizer(b))
 	}
 	if b.quota == nil {
 		b.quota = UnlimitedQuotaLimiter{}
