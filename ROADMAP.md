@@ -47,7 +47,7 @@ The first implementation cut should keep the public mental model small: existing
 - Done: pause and resume partition consumption for consumers and consumer groups.
 - Done: offset commit metadata for direct consumers, consumer groups, transactions, binary protocol, and persisted snapshots.
 - Done: replay by offset, timestamp, and cursor without advancing consumer offsets.
-- Stronger `read_committed` correctness tests.
+- Done: stronger `read_committed` correctness tests for open transaction boundaries, control markers, and aborted batches.
 
 ## Phase 3: Consumer Group Maturity
 
