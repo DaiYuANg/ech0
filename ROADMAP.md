@@ -46,7 +46,7 @@ The first implementation cut should keep the public mental model small: existing
 - Done: seek by offset and seek by timestamp for consumers and consumer groups.
 - Done: pause and resume partition consumption for consumers and consumer groups.
 - Done: offset commit metadata for direct consumers, consumer groups, transactions, binary protocol, and persisted snapshots.
-- Replay by offset, timestamp, and cursor.
+- Done: replay by offset, timestamp, and cursor without advancing consumer offsets.
 - Stronger `read_committed` correctness tests.
 
 ## Phase 3: Consumer Group Maturity
