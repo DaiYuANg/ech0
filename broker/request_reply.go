@@ -23,9 +23,13 @@ func (b *Broker) Request(ctx context.Context, subject string, payload []byte, op
 }
 
 func (b *Broker) StartRequest(ctx context.Context, subject string, payload []byte, opts RequestOptions) (PendingRequest, error) {
+	identity := b.identity(ctx)
 	subject = strings.TrimSpace(subject)
 	if subject == "" {
 		return PendingRequest{}, brokerStoreError(store.CodeInvalidArgument, "request subject is required")
+	}
+	if err := b.checkQuota(ctx, QuotaRequest{Identity: identity, Action: QuotaActionRequest, Topic: subject, Records: 1, Bytes: len(payload)}); err != nil {
+		return PendingRequest{}, err
 	}
 	normalized, err := normalizeRequestOptions(opts)
 	if err != nil {

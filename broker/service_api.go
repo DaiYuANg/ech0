@@ -14,12 +14,16 @@ func (b *Broker) CreateTopic(ctx context.Context, topic store.TopicConfig) (stor
 	if err := b.authorize(ctx, identity, ACLActionCreate, topicResource(identity, topic.Name)); err != nil {
 		return store.TopicConfig{}, err
 	}
-	if err := b.checkQuota(ctx, QuotaRequest{
+	quotaReq := QuotaRequest{
 		Identity:   identity,
 		Action:     QuotaActionCreateTopic,
 		Topic:      topic.Name,
 		Partitions: topic.Partitions,
-	}); err != nil {
+	}
+	if err := b.populateTopicQuotaUsage(identity, &quotaReq); err != nil {
+		return store.TopicConfig{}, err
+	}
+	if err := b.checkQuota(ctx, quotaReq); err != nil {
 		return store.TopicConfig{}, err
 	}
 	created, err := routeMetadataCommand(ctx, b, raftCommandCreateTopic, scopedTopic, b.applyCreateTopic)

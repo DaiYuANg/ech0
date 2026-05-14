@@ -183,6 +183,43 @@ func TestBrokerQuotaLimiterCanDenyProduce(t *testing.T) {
 	}
 }
 
+func TestBrokerConfigQuotaEnforcesTenantTopicLimit(t *testing.T) {
+	cfg := broker.DefaultConfig()
+	cfg.Governance.Quota.MaxTopics = 1
+	b, err := broker.New(cfg)
+	requireNoError(t, err)
+	ctxA := tenantContext("tenant-a")
+	ctxB := tenantContext("tenant-b")
+
+	createTopic(ctxA, t, b, store.NewTopicConfig("orders"))
+	_, err = b.CreateTopic(ctxA, store.NewTopicConfig("payments"))
+	if err == nil {
+		t.Fatal("expected tenant-a topic quota to be exceeded")
+	}
+	createTopic(ctxB, t, b, store.NewTopicConfig("orders"))
+}
+
+func TestBrokerConfigQuotaEnforcesMessageAndRateLimits(t *testing.T) {
+	cfg := broker.DefaultConfig()
+	cfg.Governance.Quota.MaxMessageBytes = 2
+	cfg.Governance.Quota.ProduceRateLimitPerSecond = 1
+	b, err := broker.New(cfg)
+	requireNoError(t, err)
+	ctx := context.Background()
+	createTopic(ctx, t, b, store.NewTopicConfig("orders"))
+
+	_, err = b.Publish(ctx, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0}, nil, false, []byte("abc"))
+	if err == nil {
+		t.Fatal("expected message byte quota to be exceeded")
+	}
+	_, err = b.Publish(ctx, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0}, nil, false, []byte("a"))
+	requireNoError(t, err)
+	_, err = b.Publish(ctx, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0}, nil, false, []byte("b"))
+	if err == nil {
+		t.Fatal("expected produce rate quota to be exceeded")
+	}
+}
+
 func tenantContext(tenant string) context.Context {
 	ctx := broker.WithTenant(context.Background(), tenant)
 	ctx = broker.WithNamespace(ctx, "default")

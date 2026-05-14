@@ -86,7 +86,7 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		router:         newPartitionRouter(),
 		logger:         slog.Default(),
 		auth:           newDefaultAuthEngine(slog.Default()),
-		quota:          UnlimitedQuotaLimiter{},
+		quota:          newConfiguredQuotaLimiter(cfg.Governance.Quota),
 		topicCache:     topicCache,
 		produceBatcher: newRaftProduceBatcher(),
 		commitBatcher:  newRaftCommitBatcher(),

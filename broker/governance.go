@@ -95,12 +95,14 @@ const (
 )
 
 type QuotaRequest struct {
-	Identity   Identity
-	Action     QuotaAction
-	Topic      string
-	Partitions uint32
-	Records    int
-	Bytes      int
+	Identity          Identity
+	Action            QuotaAction
+	Topic             string
+	Partitions        uint32
+	Records           int
+	Bytes             int
+	CurrentTopics     int
+	CurrentPartitions int
 }
 
 type QuotaLimiter interface {
