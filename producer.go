@@ -90,7 +90,7 @@ func (b *Broker) topicPartitions(ctx context.Context, topic string) (uint32, err
 		return 0, producerWrap("producer_topic_context_done", ctx.Err(), "load producer topic")
 	default:
 	}
-	topics, err := b.broker.ListTopics()
+	topics, err := b.broker.ListTopicsFor(ctx)
 	if err != nil {
 		return 0, producerWrap("producer_topic_list_failed", err, "list producer topics")
 	}

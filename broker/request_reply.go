@@ -141,7 +141,7 @@ func requestMessagesFromRecords(subject string, records []store.Record) ([]Reque
 }
 
 func (b *Broker) fetchReplyOnce(ctx context.Context, pending PendingRequest) (ReplyMessage, bool, error) {
-	inbox, err := b.FetchInbox(pending.ReplyTo, defaultReplyFetchRecords)
+	inbox, err := b.FetchInboxFor(ctx, pending.ReplyTo, defaultReplyFetchRecords)
 	if err != nil {
 		return ReplyMessage{}, false, err
 	}

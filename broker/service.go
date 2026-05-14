@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/arcgolabs/authx"
 	"github.com/arcgolabs/eventx"
 	"github.com/dgraph-io/ristretto/v2"
 	"github.com/lyonbrown4d/ech0/direct"
@@ -27,6 +28,8 @@ type Broker struct {
 	discovery  discovery.Provider
 	logger     *slog.Logger
 	metrics    *MetricsRuntime
+	auth       *authx.Engine
+	quota      QuotaLimiter
 	topicCache *ristretto.Cache[string, store.TopicConfig]
 	commands   brokerCommandRouter
 	shards     *brokerShardResolver
@@ -82,6 +85,8 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		meta:           metaStore,
 		router:         newPartitionRouter(),
 		logger:         slog.Default(),
+		auth:           newDefaultAuthEngine(slog.Default()),
+		quota:          UnlimitedQuotaLimiter{},
 		topicCache:     topicCache,
 		produceBatcher: newRaftProduceBatcher(),
 		commitBatcher:  newRaftCommitBatcher(),
@@ -118,6 +123,12 @@ func (b *Broker) applyRuntimeDefaults() {
 	if b.metrics == nil {
 		b.metrics = NewNoopMetricsRuntime(b.logger)
 	}
+	if b.auth == nil {
+		b.auth = newDefaultAuthEngine(b.logger)
+	}
+	if b.quota == nil {
+		b.quota = UnlimitedQuotaLimiter{}
+	}
 	if b.events == nil {
 		b.events = newBrokerEventBus(b.cfg, b.logger, b.metrics)
 	}
@@ -131,38 +142,6 @@ func (b *Broker) initMessageRuntime(logStore store.MessageLogStore, metaStore me
 	b.queue = runtime
 	b.direct = direct.New(logStore, metaStore)
 	return nil
-}
-
-func WithLogger(logger *slog.Logger) Option {
-	return func(b *Broker) {
-		if logger != nil {
-			b.logger = logger
-		}
-	}
-}
-
-func WithEventBus(events eventx.BusRuntime) Option {
-	return func(b *Broker) {
-		if events != nil {
-			b.events = events
-		}
-	}
-}
-
-func WithDiscoveryProvider(provider discovery.Provider) Option {
-	return func(b *Broker) {
-		if provider != nil {
-			b.discovery = provider
-		}
-	}
-}
-
-func WithMetrics(metrics *MetricsRuntime) Option {
-	return func(b *Broker) {
-		if metrics != nil {
-			b.metrics = metrics
-		}
-	}
 }
 
 func (b *Broker) Config() Config {

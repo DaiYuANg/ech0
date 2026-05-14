@@ -17,8 +17,27 @@ func (b *Broker) FetchWithIsolation(
 	maxRecords int,
 	isolation FetchIsolation,
 ) (poll store.PollResult, err error) {
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionConsume, topicResource(identity, topic)); err != nil {
+		return store.PollResult{}, err
+	}
+	if err := b.checkQuota(ctx, QuotaRequest{Identity: identity, Action: QuotaActionConsume, Topic: topic, Records: maxRecords}); err != nil {
+		return store.PollResult{}, err
+	}
+	return b.fetchWithIsolationScoped(ctx, scopedName(identity, "consumer", consumer), scopedName(identity, "topic", topic), partition, offset, maxRecords, isolation)
+}
+
+func (b *Broker) fetchWithIsolationScoped(
+	ctx context.Context,
+	consumer string,
+	topic string,
+	partition uint32,
+	offset *uint64,
+	maxRecords int,
+	isolation FetchIsolation,
+) (poll store.PollResult, err error) {
 	if isolation != FetchIsolationReadCommitted {
-		return b.Fetch(ctx, consumer, topic, partition, offset, maxRecords)
+		return b.fetchScoped(ctx, consumer, topic, partition, offset, maxRecords)
 	}
 	const operation = "fetch_read_committed"
 	totalStart := time.Now()

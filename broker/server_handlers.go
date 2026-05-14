@@ -49,15 +49,19 @@ var tcpFrameHandlers = map[uint16]frameHandler{
 	protocol.CmdFetchConsumerGroupBatchRequest:    (*TCPServer).handleFetchConsumerGroupBatchFrame,
 }
 
-func (s *TCPServer) handleHandshakeFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+func (s *TCPServer) handleHandshakeFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	var req protocol.HandshakeRequest
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
 	_ = req
+	identity := s.broker.identity(ctx)
 	return okFrame(protocol.CmdHandshakeResponse, protocol.HandshakeResponse{
 		ServerID:        fmt.Sprintf("%s-node-%d", s.broker.cfg.Broker.ClusterName, s.broker.cfg.Broker.NodeID),
 		ProtocolVersion: protocol.Version,
+		Tenant:          identity.Tenant,
+		Namespace:       identity.Namespace,
+		Principal:       identity.Principal,
 	})
 }
 
@@ -81,8 +85,8 @@ func (s *TCPServer) handleCreateTopicFrame(ctx context.Context, frame transport.
 	return okFrame(protocol.CmdCreateTopicResponse, protocol.CreateTopicResponse{Topic: created.Name, Partitions: created.Partitions})
 }
 
-func (s *TCPServer) handleListTopicsFrame(_ context.Context, _ transport.Frame) (transport.Frame, error) {
-	topics, err := s.broker.ListTopics()
+func (s *TCPServer) handleListTopicsFrame(ctx context.Context, _ transport.Frame) (transport.Frame, error) {
+	topics, err := s.broker.ListTopicsFor(ctx)
 	if err != nil {
 		return errorFromErr(err), nil
 	}

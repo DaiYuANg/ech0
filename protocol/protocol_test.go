@@ -9,7 +9,13 @@ import (
 )
 
 func TestHandshakeBinaryRoundTrip(t *testing.T) {
-	req := protocol.HandshakeRequest{ClientID: "client-1"}
+	req := protocol.HandshakeRequest{
+		ClientID:  "client-1",
+		Tenant:    "tenant-a",
+		Namespace: "payments",
+		Principal: "svc-a",
+		AuthToken: "token",
+	}
 	data, err := protocol.EncodeBody(protocol.CmdHandshakeRequest, req)
 	if err != nil {
 		t.Fatal(err)

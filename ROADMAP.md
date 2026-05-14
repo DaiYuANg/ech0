@@ -1,6 +1,6 @@
 # ech0 Roadmap
 
-This roadmap tracks the product and engine work needed to move ech0 from a working library-first MQ prototype toward a production-ready broker. It intentionally focuses on MQ functionality and excludes security and ops items such as auth, TLS, ACLs, and quotas unless they directly shape the feature model.
+This roadmap tracks the product and engine work needed to move ech0 from a working library-first MQ prototype toward a production-ready broker. It focuses on MQ functionality while treating multi-tenancy, auth, ACL, and quota as core broker semantics because they shape topic identity, resource ownership, and client behavior.
 
 ## Current Baseline
 
@@ -8,7 +8,36 @@ ech0 currently has a Go library API, a Cobra-based binary, a custom binary TCP p
 
 Recent Docker verification covered a three-node memberlist/Dragonboat cluster with successful TCP produce/fetch/commit traffic.
 
-## Phase 1: MQ Semantics
+## Phase 1: Multi-Tenant Governance
+
+Multi-tenancy should land before the next large MQ feature work because it changes the identity model used by topics, consumer groups, transactions, request/reply inboxes, metrics, admin queries, auth decisions, ACL checks, and quota enforcement.
+
+- Tenant and namespace model: tenant -> namespace -> topic.
+- Default tenant and namespace for embedded and single-binary usage.
+- Topic name scope isolation across tenants and namespaces.
+- Consumer group scope isolation across tenants and namespaces.
+- Transactional ID and producer ID scope isolation.
+- Internal topic scope for retry, delay, DLQ, and request/reply inboxes.
+- Tenant-aware metadata keys and storage paths.
+- Tenant-aware metrics for throughput, latency, storage, lag, and error rate.
+- Admin UI tenant and namespace views.
+- Tenant-level defaults for retention, retry, delay, and DLQ policies.
+- Auth identity model with principal, tenant, namespace, and optional client instance identity.
+- Pluggable auth provider interface with an allow-all default for embedded usage.
+- Binary/server auth configuration through configx and DIX.
+- TCP handshake authentication metadata.
+- Admin API authentication metadata.
+- ACL resource model for cluster, tenant, namespace, topic, consumer group, transactional ID, and admin operations.
+- ACL actions for create, describe, produce, consume, commit, alter, delete, transact, and admin.
+- ACL enforcement in broker service APIs and TCP handlers.
+- Quota model for tenant and principal scopes.
+- Quotas for topic count, partition count, message size, storage usage, connection count, produce rate, consume rate, request rate, and in-flight requests.
+- Quota enforcement in hot paths with low overhead.
+- Quota metrics and admin visibility.
+
+The first implementation cut should keep the public mental model small: existing APIs continue to work by using the default tenant, namespace, allow-all auth, and unlimited quotas, while advanced callers can opt into explicit tenant, namespace, principal, ACL, and quota configuration.
+
+## Phase 2: MQ Semantics
 
 - Idempotent producer with producer ID, epoch, per-topic-partition sequence, and broker-side dedupe window.
 - Transactional offset commit for consume-transform-produce workflows.
@@ -20,7 +49,7 @@ Recent Docker verification covered a three-node memberlist/Dragonboat cluster wi
 - Replay by offset, timestamp, and cursor.
 - Stronger `read_committed` correctness tests.
 
-## Phase 2: Consumer Group Maturity
+## Phase 3: Consumer Group Maturity
 
 - Static membership to avoid unnecessary full rebalances during short restarts.
 - Cooperative-sticky rebalance to reduce partition movement.
@@ -29,7 +58,7 @@ Recent Docker verification covered a three-node memberlist/Dragonboat cluster wi
 - Group health views for lag, members, assignments, and rebalance history.
 - Max poll interval and session timeout behavior.
 
-## Phase 3: Topic And Message Lifecycle
+## Phase 4: Topic And Message Lifecycle
 
 - Retention by time.
 - Retention by size.
@@ -39,7 +68,7 @@ Recent Docker verification covered a three-node memberlist/Dragonboat cluster wi
 - Partition high watermark, low watermark, and log start offset.
 - Per-message TTL with expire-or-DLQ policy.
 
-## Phase 4: Retry, Delay, And DLQ
+## Phase 5: Retry, Delay, And DLQ
 
 - Per-message delay and scheduled delivery.
 - Cron-like scheduled message support.
@@ -47,16 +76,6 @@ Recent Docker verification covered a three-node memberlist/Dragonboat cluster wi
 - DLQ replay by offset, time range, header filter, and error reason.
 - DLQ query indexes for original topic, partition, offset, error reason, and retry count.
 - Poison message handling: skip, isolate, inspect, and replay.
-
-## Phase 5: Multi-Tenant Isolation
-
-- Tenant and namespace model: tenant -> namespace -> topic.
-- Topic name scope isolation across tenants and namespaces.
-- Tenant-level limits for topic count, partition count, message size, storage usage, and connection count.
-- Tenant-level retention defaults and overrides.
-- Tenant metrics for throughput, latency, storage, lag, and error rate.
-- Admin UI tenant views.
-- Future integration points for ACL and auth without baking those concerns into the initial model.
 
 ## Phase 6: Routing And Bidirectional Messaging
 
@@ -116,10 +135,15 @@ Recent Docker verification covered a three-node memberlist/Dragonboat cluster wi
 
 ## Suggested Execution Order
 
-1. Idempotent producer.
-2. Transactional offset commit.
-3. Seek and replay.
-4. Multi-tenant namespace model.
-5. Static membership and cooperative-sticky consumer group rebalance.
-6. Retention, compaction, and partition watermarks.
-7. DLQ replay and delay queue productization.
+1. Multi-tenant namespace model.
+2. Auth identity and pluggable auth provider.
+3. ACL resource model and enforcement.
+4. Quota model and enforcement.
+5. Tenant-aware topic, group, transaction, and request/reply identities.
+6. Tenant-aware metrics and admin views.
+7. Idempotent producer.
+8. Transactional offset commit.
+9. Seek and replay.
+10. Static membership and cooperative-sticky consumer group rebalance.
+11. Retention, compaction, and partition watermarks.
+12. DLQ replay and delay queue productization.

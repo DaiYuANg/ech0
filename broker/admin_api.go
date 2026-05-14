@@ -51,8 +51,7 @@ func (s *AdminServer) apiHealth(ctx context.Context, _ *struct{}) (*healthOutput
 }
 
 func (s *AdminServer) apiTopics(ctx context.Context, _ *struct{}) (*topicsOutput, error) {
-	_ = ctx
-	topics, err := s.broker.TopicSummaries()
+	topics, err := s.broker.TopicSummariesFor(ctx)
 	if err != nil {
 		return nil, wrapBroker("list_topics_failed", err, "list topics")
 	}

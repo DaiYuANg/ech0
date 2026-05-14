@@ -9,7 +9,12 @@ import (
 )
 
 func (b *Broker) BeginTransaction(ctx context.Context, transactionalID string, timeoutMS uint64) (TransactionBeginResult, error) {
-	req := txBeginCommand{TransactionalID: strings.TrimSpace(transactionalID), TimeoutMS: timeoutMS}
+	identity := b.identity(ctx)
+	transactionalID = strings.TrimSpace(transactionalID)
+	if err := b.authorize(ctx, identity, ACLActionTransact, txResource(identity, transactionalID)); err != nil {
+		return TransactionBeginResult{}, err
+	}
+	req := txBeginCommand{TransactionalID: scopedName(identity, "tx", transactionalID), TimeoutMS: timeoutMS}
 	return routeMetadataCommand(ctx, b, raftCommandTxBegin, req, b.applyTxBegin)
 }
 
@@ -21,14 +26,22 @@ func (b *Broker) PublishTransactionalRecord(
 	partitioning PublishPartitioning,
 	record store.RecordAppend,
 ) (TransactionPublishResult, error) {
-	partition, err := b.selectTransactionPartition(topic, partitioning, record.Key)
+	scope := b.identity(ctx)
+	if err := b.authorize(ctx, scope, ACLActionProduce, topicResource(scope, topic)); err != nil {
+		return TransactionPublishResult{}, err
+	}
+	if err := b.checkQuota(ctx, QuotaRequest{Identity: scope, Action: QuotaActionProduce, Topic: topic, Records: 1, Bytes: len(record.Payload)}); err != nil {
+		return TransactionPublishResult{}, err
+	}
+	scopedTopic := scopedName(scope, "topic", topic)
+	partition, err := b.selectTransactionPartition(scopedTopic, partitioning, record.Key)
 	if err != nil {
 		return TransactionPublishResult{}, err
 	}
 	req := txPublishCommand{
 		Identity:  identity,
 		Sequence:  sequence,
-		Topic:     topic,
+		Topic:     scopedTopic,
 		Partition: partition,
 		Record:    cloneAppend(record),
 	}
@@ -43,18 +56,26 @@ func (b *Broker) PublishTransactionalBatch(
 	partitioning PublishPartitioning,
 	records []store.RecordAppend,
 ) (TransactionPublishBatchResult, error) {
+	scope := b.identity(ctx)
+	if err := b.authorize(ctx, scope, ACLActionProduce, topicResource(scope, topic)); err != nil {
+		return TransactionPublishBatchResult{}, err
+	}
+	if err := b.checkQuota(ctx, QuotaRequest{Identity: scope, Action: QuotaActionProduce, Topic: topic, Records: len(records), Bytes: batchPayloadBytes(records)}); err != nil {
+		return TransactionPublishBatchResult{}, err
+	}
 	copied := collectionlist.NewListWithCapacity[store.RecordAppend](len(records))
 	for _, record := range records {
 		copied.Add(cloneAppend(record))
 	}
-	partition, err := b.selectTransactionPartition(topic, partitioning, firstRecordKey(copied.Values()))
+	scopedTopic := scopedName(scope, "topic", topic)
+	partition, err := b.selectTransactionPartition(scopedTopic, partitioning, firstRecordKey(copied.Values()))
 	if err != nil {
 		return TransactionPublishBatchResult{}, err
 	}
 	req := txPublishBatchCommand{
 		Identity:     identity,
 		BaseSequence: baseSequence,
-		Topic:        topic,
+		Topic:        scopedTopic,
 		Partition:    partition,
 		Records:      copied.Values(),
 	}
@@ -66,13 +87,17 @@ func (b *Broker) CommitTransactionOffset(
 	identity TransactionIdentity,
 	offset TransactionOffsetCommit,
 ) (TransactionOffsetCommitResult, error) {
+	identityScope := b.identity(ctx)
+	if err := b.authorize(ctx, identityScope, ACLActionCommit, topicResource(identityScope, offset.Topic)); err != nil {
+		return TransactionOffsetCommitResult{}, err
+	}
 	req := txCommitOffsetCommand{
 		Identity:   identity,
-		Consumer:   offset.Consumer,
-		Group:      offset.Group,
+		Consumer:   scopedName(identityScope, "consumer", offset.Consumer),
+		Group:      scopedName(identityScope, "group", offset.Group),
 		MemberID:   offset.MemberID,
 		Generation: offset.Generation,
-		Topic:      offset.Topic,
+		Topic:      scopedName(identityScope, "topic", offset.Topic),
 		Partition:  offset.Partition,
 		NextOffset: offset.NextOffset,
 	}
@@ -80,10 +105,16 @@ func (b *Broker) CommitTransactionOffset(
 }
 
 func (b *Broker) CommitTransaction(ctx context.Context, identity TransactionIdentity) (TransactionBoundaryResult, error) {
+	if err := b.authorize(ctx, b.identity(ctx), ACLActionTransact, ACLResource{Type: ACLResourceTransactionalID}); err != nil {
+		return TransactionBoundaryResult{}, err
+	}
 	return routeMetadataCommand(ctx, b, raftCommandTxCommit, txBoundaryCommand{Identity: identity}, b.applyTxCommit)
 }
 
 func (b *Broker) AbortTransaction(ctx context.Context, identity TransactionIdentity) (TransactionBoundaryResult, error) {
+	if err := b.authorize(ctx, b.identity(ctx), ACLActionTransact, ACLResource{Type: ACLResourceTransactionalID}); err != nil {
+		return TransactionBoundaryResult{}, err
+	}
 	return routeMetadataCommand(ctx, b, raftCommandTxAbort, txBoundaryCommand{Identity: identity}, b.applyTxAbort)
 }
 

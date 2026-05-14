@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	github.com/HdrHistogram/hdrhistogram-go v1.2.0
+	github.com/arcgolabs/authx v0.3.0
 	github.com/arcgolabs/collectionx/list v0.8.0
 	github.com/arcgolabs/collectionx/mapping v0.8.0
 	github.com/arcgolabs/collectionx/set v0.8.0

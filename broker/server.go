@@ -186,14 +186,17 @@ func (s *TCPServer) handleConnFrame(ctx context.Context, conn net.Conn) bool {
 		s.logReadFrameError(err)
 		return false
 	}
-	s.registerConnectionHandshake(conn, frame)
+	frameCtx, authResponse := s.contextForConnectionFrame(ctx, conn, frame)
+	if authResponse != nil {
+		return s.writeResponseFrame(conn, *authResponse)
+	}
 	handleStart := time.Now()
-	response, err := s.HandleFrame(ctx, frame)
+	response, err := s.HandleFrame(frameCtx, frame)
 	if err != nil {
 		response = errorFrame("internal_error", err.Error())
 	}
-	s.metrics.RecordCommandDuration(ctx, frame.Header.Command, time.Since(handleStart), commandStatus(response))
-	s.recordCommandError(ctx, response)
+	s.metrics.RecordCommandDuration(frameCtx, frame.Header.Command, time.Since(handleStart), commandStatus(response))
+	s.recordCommandError(frameCtx, response)
 	return s.writeResponseFrame(conn, response)
 }
 

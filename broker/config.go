@@ -10,12 +10,13 @@ import (
 )
 
 type Config struct {
-	Broker    BrokerConfig    `json:"broker"    koanf:"broker"    mapstructure:"broker"    toml:"broker"`
-	Admin     AdminConfig     `json:"admin"     koanf:"admin"     mapstructure:"admin"     toml:"admin"`
-	Storage   StorageConfig   `json:"storage"   koanf:"storage"   mapstructure:"storage"   toml:"storage"`
-	Logging   LoggingConfig   `json:"logging"   koanf:"logging"   mapstructure:"logging"   toml:"logging"`
-	Raft      RaftConfig      `json:"raft"      koanf:"raft"      mapstructure:"raft"      toml:"raft"`
-	Discovery DiscoveryConfig `json:"discovery" koanf:"discovery" mapstructure:"discovery" toml:"discovery"`
+	Broker     BrokerConfig     `json:"broker"     koanf:"broker"     mapstructure:"broker"     toml:"broker"`
+	Admin      AdminConfig      `json:"admin"      koanf:"admin"      mapstructure:"admin"      toml:"admin"`
+	Storage    StorageConfig    `json:"storage"    koanf:"storage"    mapstructure:"storage"    toml:"storage"`
+	Logging    LoggingConfig    `json:"logging"    koanf:"logging"    mapstructure:"logging"    toml:"logging"`
+	Raft       RaftConfig       `json:"raft"       koanf:"raft"       mapstructure:"raft"       toml:"raft"`
+	Discovery  DiscoveryConfig  `json:"discovery"  koanf:"discovery"  mapstructure:"discovery"  toml:"discovery"`
+	Governance GovernanceConfig `json:"governance" koanf:"governance" mapstructure:"governance" toml:"governance"`
 }
 
 type ConfigSource struct {
@@ -112,6 +113,31 @@ type DiscoveryConfig struct {
 	BootstrapExpect int               `json:"bootstrap_expect" koanf:"bootstrap_expect" mapstructure:"bootstrap_expect" toml:"bootstrap_expect"`
 	JoinTimeoutMS   uint64            `json:"join_timeout_ms"  koanf:"join_timeout_ms"  mapstructure:"join_timeout_ms"  toml:"join_timeout_ms"`
 	SecretKey       string            `json:"secret_key"       koanf:"secret_key"       mapstructure:"secret_key"       toml:"secret_key"`
+}
+
+type GovernanceConfig struct {
+	DefaultTenant    string      `json:"default_tenant"    koanf:"default_tenant"    mapstructure:"default_tenant"    toml:"default_tenant"`
+	DefaultNamespace string      `json:"default_namespace" koanf:"default_namespace" mapstructure:"default_namespace" toml:"default_namespace"`
+	Auth             AuthConfig  `json:"auth"              koanf:"auth"              mapstructure:"auth"              toml:"auth"`
+	Quota            QuotaConfig `json:"quota"             koanf:"quota"             mapstructure:"quota"             toml:"quota"`
+}
+
+type AuthConfig struct {
+	Enabled        bool `json:"enabled"         koanf:"enabled"         mapstructure:"enabled"         toml:"enabled"`
+	AllowAnonymous bool `json:"allow_anonymous" koanf:"allow_anonymous" mapstructure:"allow_anonymous" toml:"allow_anonymous"`
+}
+
+type QuotaConfig struct {
+	MaxTopics                 int     `json:"max_topics"                    koanf:"max_topics"                    mapstructure:"max_topics"                    toml:"max_topics"`
+	MaxPartitions             int     `json:"max_partitions"                koanf:"max_partitions"                mapstructure:"max_partitions"                toml:"max_partitions"`
+	MaxMessageBytes           int     `json:"max_message_bytes"             koanf:"max_message_bytes"             mapstructure:"max_message_bytes"             toml:"max_message_bytes"`
+	MaxBatchBytes             int     `json:"max_batch_bytes"               koanf:"max_batch_bytes"               mapstructure:"max_batch_bytes"               toml:"max_batch_bytes"`
+	MaxConnections            int64   `json:"max_connections"               koanf:"max_connections"               mapstructure:"max_connections"               toml:"max_connections"`
+	ProduceRateLimitPerSecond float64 `json:"produce_rate_limit_per_second" koanf:"produce_rate_limit_per_second" mapstructure:"produce_rate_limit_per_second" toml:"produce_rate_limit_per_second"`
+	ConsumeRateLimitPerSecond float64 `json:"consume_rate_limit_per_second" koanf:"consume_rate_limit_per_second" mapstructure:"consume_rate_limit_per_second" toml:"consume_rate_limit_per_second"`
+	RequestRateLimitPerSecond float64 `json:"request_rate_limit_per_second" koanf:"request_rate_limit_per_second" mapstructure:"request_rate_limit_per_second" toml:"request_rate_limit_per_second"`
+	MaxInflightRequests       int64   `json:"max_inflight_requests"         koanf:"max_inflight_requests"         mapstructure:"max_inflight_requests"         toml:"max_inflight_requests"`
+	MaxStorageBytes           uint64  `json:"max_storage_bytes"             koanf:"max_storage_bytes"             mapstructure:"max_storage_bytes"             toml:"max_storage_bytes"`
 }
 
 type RaftPeerConfig struct {

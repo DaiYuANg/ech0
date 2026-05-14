@@ -2,6 +2,7 @@ package broker
 
 import (
 	"cmp"
+	"context"
 	"strconv"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
@@ -9,7 +10,11 @@ import (
 )
 
 func (b *Broker) TopicSummaries() ([]TopicSummary, error) {
-	topics, err := b.ListTopics()
+	return b.TopicSummariesFor(context.Background())
+}
+
+func (b *Broker) TopicSummariesFor(ctx context.Context) ([]TopicSummary, error) {
+	topics, err := b.ListTopicsFor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +81,11 @@ func (b *Broker) GroupLagSnapshot(group string) (*GroupLagSummary, error) {
 }
 
 func (b *Broker) StreamMetricsSnapshot() (StreamMetricsSnapshot, error) {
-	topics, err := b.TopicSummaries()
+	return b.StreamMetricsSnapshotFor(context.Background())
+}
+
+func (b *Broker) StreamMetricsSnapshotFor(ctx context.Context) (StreamMetricsSnapshot, error) {
+	topics, err := b.TopicSummariesFor(ctx)
 	if err != nil {
 		return StreamMetricsSnapshot{}, err
 	}

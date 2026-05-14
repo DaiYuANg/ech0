@@ -108,7 +108,7 @@ func (m *MetricsRuntime) RefreshStream(ctx context.Context, broker *Broker) erro
 	if m == nil || broker == nil {
 		return nil
 	}
-	snapshot, err := broker.StreamMetricsSnapshot()
+	snapshot, err := broker.StreamMetricsSnapshotFor(ctx)
 	if err != nil {
 		return err
 	}

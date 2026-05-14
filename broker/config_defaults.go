@@ -68,6 +68,13 @@ func DefaultConfig() Config {
 			BindAddr:      "127.0.0.1:7946",
 			JoinTimeoutMS: 10_000,
 		},
+		Governance: GovernanceConfig{
+			DefaultTenant:    DefaultTenant,
+			DefaultNamespace: DefaultNamespace,
+			Auth: AuthConfig{
+				AllowAnonymous: true,
+			},
+		},
 	}
 }
 
@@ -80,6 +87,7 @@ func normalizeConfig(cfg *Config) {
 	normalizeLoggingConfig(&cfg.Logging)
 	normalizeRaftConfig(&cfg.Raft, cfg.Broker)
 	normalizeDiscoveryConfig(&cfg.Discovery)
+	normalizeGovernanceConfig(&cfg.Governance)
 }
 
 func normalizeBrokerIdentity(cfg *BrokerConfig) {
@@ -162,6 +170,18 @@ func normalizeBrokerWorkers(cfg *BrokerConfig) {
 	}
 	if cfg.DelaySchedulerConsumerPrefix == "" {
 		cfg.DelaySchedulerConsumerPrefix = "__delay_scheduler"
+	}
+}
+
+func normalizeGovernanceConfig(cfg *GovernanceConfig) {
+	if cfg.DefaultTenant == "" {
+		cfg.DefaultTenant = DefaultTenant
+	}
+	if cfg.DefaultNamespace == "" {
+		cfg.DefaultNamespace = DefaultNamespace
+	}
+	if !cfg.Auth.Enabled {
+		cfg.Auth.AllowAnonymous = true
 	}
 }
 

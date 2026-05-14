@@ -25,12 +25,12 @@ func (s *TCPServer) handleSendDirectFrame(ctx context.Context, frame transport.F
 	})
 }
 
-func (s *TCPServer) handleFetchInboxFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+func (s *TCPServer) handleFetchInboxFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	var req protocol.FetchInboxRequest
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	result, err := s.broker.FetchInbox(req.Recipient, req.MaxRecords)
+	result, err := s.broker.FetchInboxFor(ctx, req.Recipient, req.MaxRecords)
 	if err != nil {
 		return errorFromErr(err), nil
 	}
@@ -102,12 +102,12 @@ func (s *TCPServer) handleRebalanceConsumerGroupFrame(ctx context.Context, frame
 	return okFrame(protocol.CmdRebalanceConsumerGroupResponse, response)
 }
 
-func (s *TCPServer) handleGetConsumerGroupAssignmentFrame(_ context.Context, frame transport.Frame) (transport.Frame, error) {
+func (s *TCPServer) handleGetConsumerGroupAssignmentFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	var req protocol.GetConsumerGroupAssignmentRequest
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	assignment, err := s.broker.GetConsumerGroupAssignment(req.Group)
+	assignment, err := s.broker.GetConsumerGroupAssignmentFor(ctx, req.Group)
 	if err != nil {
 		return errorFromErr(err), nil
 	}

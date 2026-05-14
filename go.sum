@@ -27,6 +27,8 @@ github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRF
 github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/andybalholm/brotli v1.2.1 h1:R+f5xP285VArJDRgowrfb9DqL18yVK0gKAW/F+eTWro=
 github.com/andybalholm/brotli v1.2.1/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
+github.com/arcgolabs/authx v0.3.0 h1:kANG6cmKa7zkdJLwdVksdnZP39EI8evQ0AHELZeq/2g=
+github.com/arcgolabs/authx v0.3.0/go.mod h1:hOI2UOhRxUMw7wu3Ueof1idC148lD3qj0ppMjtlKiao=
 github.com/arcgolabs/collectionx/graph v0.8.0 h1:6suvPNa02DvRD1mHAY2xL6bsuOKx8T0iivFd2rbtnBs=
 github.com/arcgolabs/collectionx/graph v0.8.0/go.mod h1:ed6tV9GiiLzvSajUwyaEYt4c5R2m8itI3FKfkHSRv80=
 github.com/arcgolabs/collectionx/list v0.8.0 h1:Nld94yYmNaIPRSSt4Hyb4p5bo8X3TcTrFVEnzoppPeo=
