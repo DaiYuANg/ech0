@@ -29,21 +29,30 @@ type groupRebalancePlan struct {
 }
 
 func (b *Broker) GroupRebalanceExplain(group string) (GroupRebalanceExplainSummary, error) {
+	return b.GroupRebalanceExplainFor(context.Background(), group)
+}
+
+func (b *Broker) GroupRebalanceExplainFor(ctx context.Context, group string) (GroupRebalanceExplainSummary, error) {
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionDescribe, groupResource(identity, group)); err != nil {
+		return GroupRebalanceExplainSummary{}, err
+	}
+	scopedGroup := scopedName(identity, "group", group)
 	now := store.NowMS()
-	members, err := b.activeGroupMembers(group, now)
+	members, err := b.activeGroupMembers(scopedGroup, now)
 	if err != nil {
 		return GroupRebalanceExplainSummary{}, err
 	}
-	previous, err := b.meta.LoadGroupAssignment(group)
+	previous, err := b.meta.LoadGroupAssignment(scopedGroup)
 	if err != nil {
 		return GroupRebalanceExplainSummary{}, wrapBrokerStore(err, "load group assignment")
 	}
-	plan, err := b.buildGroupRebalancePlan(group, now, previous, members)
+	plan, err := b.buildGroupRebalancePlan(scopedGroup, now, previous, members)
 	if err != nil {
 		return GroupRebalanceExplainSummary{}, err
 	}
 	return GroupRebalanceExplainSummary{
-		Group:             group,
+		Group:             visibleName(identity, "group", scopedGroup),
 		NextGeneration:    plan.Assignment.Generation,
 		Strategy:          string(plan.Strategy),
 		StickyAssignments: b.cfg.Broker.GroupStickyAssignments,

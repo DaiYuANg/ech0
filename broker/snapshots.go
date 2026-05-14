@@ -14,17 +14,24 @@ func (b *Broker) TopicSummaries() ([]TopicSummary, error) {
 }
 
 func (b *Broker) TopicSummariesFor(ctx context.Context) ([]TopicSummary, error) {
-	topics, err := b.ListTopicsFor(ctx)
-	if err != nil {
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionDescribe, ACLResource{Type: ACLResourceNamespace, Tenant: identity.Tenant, Namespace: identity.Namespace, Name: identity.Namespace}); err != nil {
 		return nil, err
+	}
+	topics, err := b.queue.ListTopics()
+	if err != nil {
+		return nil, wrapBroker("list_topics_failed", err, "list topics")
 	}
 	out := collectionlist.NewList[TopicSummary]()
 	for i := range topics {
+		if !nameInScope(identity, "topic", topics[i].Name) || isInternalTopicName(visibleTopicName(identity, topics[i].Name)) {
+			continue
+		}
 		summary, summaryErr := b.topicSummary(topics[i])
 		if summaryErr != nil {
 			return nil, summaryErr
 		}
-		out.Add(summary)
+		out.Add(visibleTopicSummary(identity, summary))
 	}
 	return out.Sort(func(left, right TopicSummary) int {
 		return cmp.Compare(left.Name, right.Name)
@@ -32,12 +39,21 @@ func (b *Broker) TopicSummariesFor(ctx context.Context) ([]TopicSummary, error) 
 }
 
 func (b *Broker) GroupMembersSnapshot(group string) ([]GroupMemberSummary, error) {
-	members, err := b.meta.ListGroupMembers(group)
+	return b.GroupMembersSnapshotFor(context.Background(), group)
+}
+
+func (b *Broker) GroupMembersSnapshotFor(ctx context.Context, group string) ([]GroupMemberSummary, error) {
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionDescribe, groupResource(identity, group)); err != nil {
+		return nil, err
+	}
+	members, err := b.meta.ListGroupMembers(scopedName(identity, "group", group))
 	if err != nil {
 		return nil, wrapBrokerStore(err, "list group members")
 	}
 	out := collectionlist.NewList[GroupMemberSummary]()
 	for _, member := range members {
+		member = b.visibleGroupMember(identity, member)
 		out.Add(GroupMemberSummary{
 			Group:            member.Group,
 			MemberID:         member.MemberID,
@@ -54,9 +70,13 @@ func (b *Broker) GroupMembersSnapshot(group string) ([]GroupMemberSummary, error
 }
 
 func (b *Broker) GroupAssignmentSnapshot(group string) (*GroupAssignmentSummary, error) {
-	assignment, err := b.meta.LoadGroupAssignment(group)
+	return b.GroupAssignmentSnapshotFor(context.Background(), group)
+}
+
+func (b *Broker) GroupAssignmentSnapshotFor(ctx context.Context, group string) (*GroupAssignmentSummary, error) {
+	assignment, err := b.GetConsumerGroupAssignmentFor(ctx, group)
 	if err != nil {
-		return nil, wrapBrokerStore(err, "load group assignment")
+		return nil, err
 	}
 	if assignment == nil {
 		return &GroupAssignmentSummary{Group: group}, nil
@@ -66,7 +86,15 @@ func (b *Broker) GroupAssignmentSnapshot(group string) (*GroupAssignmentSummary,
 }
 
 func (b *Broker) GroupLagSnapshot(group string) (*GroupLagSummary, error) {
-	assignment, err := b.meta.LoadGroupAssignment(group)
+	return b.GroupLagSnapshotFor(context.Background(), group)
+}
+
+func (b *Broker) GroupLagSnapshotFor(ctx context.Context, group string) (*GroupLagSummary, error) {
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionDescribe, groupResource(identity, group)); err != nil {
+		return nil, err
+	}
+	assignment, err := b.meta.LoadGroupAssignment(scopedName(identity, "group", group))
 	if err != nil {
 		return nil, wrapBrokerStore(err, "load group assignment")
 	}
@@ -77,6 +105,7 @@ func (b *Broker) GroupLagSnapshot(group string) (*GroupLagSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	summary = visibleGroupLagSummary(identity, summary)
 	return &summary, nil
 }
 
@@ -85,11 +114,20 @@ func (b *Broker) StreamMetricsSnapshot() (StreamMetricsSnapshot, error) {
 }
 
 func (b *Broker) StreamMetricsSnapshotFor(ctx context.Context) (StreamMetricsSnapshot, error) {
+	identity := b.identity(ctx)
 	topics, err := b.TopicSummariesFor(ctx)
 	if err != nil {
 		return StreamMetricsSnapshot{}, err
 	}
 	snapshot := StreamMetricsSnapshot{TopicCount: len(topics)}
+	accumulateTopicMetrics(&snapshot, topics)
+	if err := b.populateConsumerGroupMetrics(identity, &snapshot); err != nil {
+		return StreamMetricsSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+func accumulateTopicMetrics(snapshot *StreamMetricsSnapshot, topics []TopicSummary) {
 	for i := range topics {
 		topic := topics[i]
 		if topic.TotalBacklogRecords > 0 {
@@ -99,15 +137,21 @@ func (b *Broker) StreamMetricsSnapshotFor(ctx context.Context) (StreamMetricsSna
 		snapshot.MaxTopicBacklogRecords = max(snapshot.MaxTopicBacklogRecords, topic.TotalBacklogRecords)
 		snapshot.MaxPartitionBacklogRecords = max(snapshot.MaxPartitionBacklogRecords, topic.MaxPartitionBacklog)
 	}
+}
+
+func (b *Broker) populateConsumerGroupMetrics(identity Identity, snapshot *StreamMetricsSnapshot) error {
 	assignments, err := b.meta.ListGroupAssignments()
 	if err != nil {
-		return StreamMetricsSnapshot{}, wrapBrokerStore(err, "list group assignments")
+		return wrapBrokerStore(err, "list group assignments")
 	}
-	snapshot.ConsumerGroupCount = len(assignments)
 	for _, assignment := range assignments {
+		if !nameInScope(identity, "group", assignment.Group) {
+			continue
+		}
+		snapshot.ConsumerGroupCount++
 		lag, lagErr := b.groupLagFromAssignment(assignment)
 		if lagErr != nil {
-			return StreamMetricsSnapshot{}, lagErr
+			return lagErr
 		}
 		if lag.TotalLagRecords > 0 {
 			snapshot.ConsumerGroupsWithLag++
@@ -116,7 +160,7 @@ func (b *Broker) StreamMetricsSnapshotFor(ctx context.Context) (StreamMetricsSna
 		snapshot.TotalConsumerGroupLagRecords += lag.TotalLagRecords
 		snapshot.MaxConsumerGroupLagRecords = max(snapshot.MaxConsumerGroupLagRecords, lag.TotalLagRecords)
 	}
-	return snapshot, nil
+	return nil
 }
 
 func (b *Broker) topicSummary(topic store.TopicConfig) (TopicSummary, error) {
@@ -153,6 +197,15 @@ func (b *Broker) topicSummary(topic store.TopicConfig) (TopicSummary, error) {
 		summary.MaxPartitionBacklog = max(summary.MaxPartitionBacklog, backlog)
 	}
 	return summary, nil
+}
+
+func visibleTopicSummary(identity Identity, summary TopicSummary) TopicSummary {
+	summary.Name = visibleTopicName(identity, summary.Name)
+	if summary.DeadLetterTopic != nil {
+		value := visibleTopicName(identity, *summary.DeadLetterTopic)
+		summary.DeadLetterTopic = &value
+	}
+	return summary
 }
 
 func (b *Broker) groupLagFromAssignment(assignment store.ConsumerGroupAssignment) (GroupLagSummary, error) {
@@ -216,6 +269,14 @@ func groupAssignmentSummary(assignment store.ConsumerGroupAssignment) GroupAssig
 		}).Values(),
 		UpdatedAtMS: assignment.UpdatedAtMS,
 	}
+}
+
+func visibleGroupLagSummary(identity Identity, summary GroupLagSummary) GroupLagSummary {
+	summary.Group = visibleName(identity, "group", summary.Group)
+	for index := range summary.Partitions {
+		summary.Partitions[index].Topic = visibleTopicName(identity, summary.Partitions[index].Topic)
+	}
+	return summary
 }
 
 func displayUint64Ptr(value *uint64) string {

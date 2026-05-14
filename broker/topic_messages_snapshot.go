@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"strings"
@@ -11,10 +12,19 @@ import (
 )
 
 func (b *Broker) TopicMessagesSnapshot(topic string, partition uint32, offset uint64, limit int) (TopicMessagesPageSummary, error) {
+	return b.TopicMessagesSnapshotFor(context.Background(), topic, partition, offset, limit)
+}
+
+func (b *Broker) TopicMessagesSnapshotFor(ctx context.Context, topic string, partition uint32, offset uint64, limit int) (TopicMessagesPageSummary, error) {
 	if limit <= 0 || limit > b.cfg.Broker.MaxFetchRecords {
 		limit = b.cfg.Broker.MaxFetchRecords
 	}
-	tp := store.NewTopicPartition(topic, partition)
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionConsume, topicResource(identity, topic)); err != nil {
+		return TopicMessagesPageSummary{}, err
+	}
+	scopedTopic := scopedTopicName(identity, topic)
+	tp := store.NewTopicPartition(scopedTopic, partition)
 	records, err := b.queue.ReadFrom(tp, offset, limit)
 	if err != nil {
 		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_read_failed", err, "read topic messages")
@@ -30,7 +40,7 @@ func (b *Broker) TopicMessagesSnapshot(topic string, partition uint32, offset ui
 		nextOffset = record.Offset + 1
 	}
 	return TopicMessagesPageSummary{
-		Topic:         topic,
+		Topic:         visibleTopicName(identity, scopedTopic),
 		Partition:     partition,
 		Offset:        offset,
 		Limit:         limit,
@@ -42,13 +52,22 @@ func (b *Broker) TopicMessagesSnapshot(topic string, partition uint32, offset ui
 }
 
 func (b *Broker) TopicMessagesCursorSnapshot(topic string, partition uint32, cursor string, limit int) (TopicMessagesPageSummary, error) {
+	return b.TopicMessagesCursorSnapshotFor(context.Background(), topic, partition, cursor, limit)
+}
+
+func (b *Broker) TopicMessagesCursorSnapshotFor(ctx context.Context, topic string, partition uint32, cursor string, limit int) (TopicMessagesPageSummary, error) {
 	if limit <= 0 || limit > b.cfg.Broker.MaxFetchRecords {
 		limit = b.cfg.Broker.MaxFetchRecords
 	}
-	tp := store.NewTopicPartition(topic, partition)
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionConsume, topicResource(identity, topic)); err != nil {
+		return TopicMessagesPageSummary{}, err
+	}
+	scopedTopic := scopedTopicName(identity, topic)
+	tp := store.NewTopicPartition(scopedTopic, partition)
 	pager, ok := b.queue.(messagePageRuntime)
 	if !ok {
-		return b.TopicMessagesSnapshot(topic, partition, 0, limit)
+		return b.TopicMessagesSnapshotFor(ctx, topic, partition, 0, limit)
 	}
 	page, err := pager.ReadPage(tp, cursor, limit)
 	if err != nil {
@@ -69,7 +88,7 @@ func (b *Broker) TopicMessagesCursorSnapshot(topic string, partition uint32, cur
 		nextOffset = record.Offset + 1
 	}
 	return TopicMessagesPageSummary{
-		Topic:         topic,
+		Topic:         visibleTopicName(identity, scopedTopic),
 		Partition:     partition,
 		Offset:        offset,
 		Limit:         limit,

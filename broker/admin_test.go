@@ -11,6 +11,7 @@ import (
 
 	"github.com/arcgolabs/dix"
 	broker "github.com/lyonbrown4d/ech0/broker"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 func TestAdminUILoadsEmbeddedTailwindTemplates(t *testing.T) {
@@ -67,6 +68,29 @@ func TestAdminRuntimeEventsSSEDebugEndpoint(t *testing.T) {
 	body := getAdminStreamChunk(t, cfg.Admin.BindAddr, "/api/runtime/events/stream")
 	if !strings.Contains(body, "event: runtime_events") || !strings.Contains(body, "StartEvent") {
 		t.Fatalf("admin runtime events stream did not return recorder events: %s", body)
+	}
+}
+
+func TestAdminTopicsRespectTenantQuery(t *testing.T) {
+	ctx := context.Background()
+	cfg := broker.DefaultConfig()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BindAddr = freeTCPAddr(t)
+	b := newTestBroker(t)
+	createTopic(tenantContext("tenant-a"), t, b, store.NewTopicConfig("orders-a"))
+	createTopic(tenantContext("tenant-b"), t, b, store.NewTopicConfig("orders-b"))
+	server := broker.NewAdminServer(cfg, b, nil, nil)
+
+	requireNoError(t, server.Start(ctx))
+	defer stopAdminServer(t, server)
+
+	body := getAdminPage(t, cfg.Admin.BindAddr, "/api/topics?tenant=tenant-a&namespace=default&principal=admin")
+	if !strings.Contains(body, "orders-a") || strings.Contains(body, "orders-b") {
+		t.Fatalf("admin topics api did not respect tenant query: %s", body)
+	}
+	body = getAdminPage(t, cfg.Admin.BindAddr, "/ui/topics?tenant=tenant-b&namespace=default&principal=admin")
+	if !strings.Contains(body, "orders-b") || strings.Contains(body, "orders-a") {
+		t.Fatalf("admin topics ui did not respect tenant query: %s", body)
 	}
 }
 

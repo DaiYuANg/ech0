@@ -21,7 +21,7 @@ func (s *AdminServer) uiDashboard(c *fiber.Ctx) error {
 	if err := s.metrics.RefreshStream(c.UserContext(), s.broker); err != nil && s.logger != nil {
 		s.logger.Warn("refresh metrics failed", "error", err)
 	}
-	topics, err := s.broker.TopicSummaries()
+	topics, err := s.broker.TopicSummariesFor(c.UserContext())
 	view := dashboardView{
 		Health:  s.broker.RuntimeHealth(),
 		Metrics: s.metrics.Snapshot(),
@@ -44,7 +44,7 @@ func commandErrorRate(metrics MetricsSnapshot) string {
 }
 
 func (s *AdminServer) uiTopics(c *fiber.Ctx) error {
-	topics, err := s.broker.TopicSummaries()
+	topics, err := s.broker.TopicSummariesFor(c.UserContext())
 	view := topicsView{Topics: topics}
 	if err != nil {
 		view.Error = err.Error()
@@ -58,9 +58,9 @@ func (s *AdminServer) uiTopicMessages(c *fiber.Ctx) error {
 	offset := parseUint64Query(c, "offset")
 	limit := c.QueryInt("limit", 50)
 	cursor := c.Query("cursor")
-	page, err := s.broker.TopicMessagesSnapshot(topic, partition, offset, limit)
+	page, err := s.broker.TopicMessagesSnapshotFor(c.UserContext(), topic, partition, offset, limit)
 	if cursor != "" || offset == 0 {
-		page, err = s.broker.TopicMessagesCursorSnapshot(topic, partition, cursor, limit)
+		page, err = s.broker.TopicMessagesCursorSnapshotFor(c.UserContext(), topic, partition, cursor, limit)
 	}
 	view := topicMessagesView{
 		Page:       page,
@@ -82,10 +82,10 @@ func previousOffset(offset uint64, limit int) uint64 {
 
 func (s *AdminServer) uiGroup(c *fiber.Ctx) error {
 	group := c.Params("group")
-	explain, explainErr := s.broker.GroupRebalanceExplain(group)
-	members, membersErr := s.broker.GroupMembersSnapshot(group)
-	assignment, assignmentErr := s.broker.GroupAssignmentSnapshot(group)
-	lag, lagErr := s.broker.GroupLagSnapshot(group)
+	explain, explainErr := s.broker.GroupRebalanceExplainFor(c.UserContext(), group)
+	members, membersErr := s.broker.GroupMembersSnapshotFor(c.UserContext(), group)
+	assignment, assignmentErr := s.broker.GroupAssignmentSnapshotFor(c.UserContext(), group)
+	lag, lagErr := s.broker.GroupLagSnapshotFor(c.UserContext(), group)
 	view := groupView{
 		Group:      group,
 		Explain:    &explain,
@@ -101,7 +101,7 @@ func (s *AdminServer) uiGroup(c *fiber.Ctx) error {
 }
 
 func (s *AdminServer) apiGroupMembers(c *fiber.Ctx) error {
-	members, err := s.broker.GroupMembersSnapshot(c.Params("group"))
+	members, err := s.broker.GroupMembersSnapshotFor(c.UserContext(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
@@ -109,7 +109,7 @@ func (s *AdminServer) apiGroupMembers(c *fiber.Ctx) error {
 }
 
 func (s *AdminServer) apiGroupAssignment(c *fiber.Ctx) error {
-	assignment, err := s.broker.GroupAssignmentSnapshot(c.Params("group"))
+	assignment, err := s.broker.GroupAssignmentSnapshotFor(c.UserContext(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
@@ -117,7 +117,7 @@ func (s *AdminServer) apiGroupAssignment(c *fiber.Ctx) error {
 }
 
 func (s *AdminServer) apiGroupLag(c *fiber.Ctx) error {
-	lag, err := s.broker.GroupLagSnapshot(c.Params("group"))
+	lag, err := s.broker.GroupLagSnapshotFor(c.UserContext(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
@@ -133,7 +133,7 @@ func (s *AdminServer) apiGroupRebalance(c *fiber.Ctx) error {
 }
 
 func (s *AdminServer) apiGroupRebalanceExplain(c *fiber.Ctx) error {
-	explain, err := s.broker.GroupRebalanceExplain(c.Params("group"))
+	explain, err := s.broker.GroupRebalanceExplainFor(c.UserContext(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}

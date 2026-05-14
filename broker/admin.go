@@ -77,6 +77,7 @@ func (s *AdminServer) initApp() {
 		AppName: "ech0-admin",
 		Views:   adminTemplateEngine(),
 	})
+	s.app.Use(s.adminIdentityMiddleware)
 	s.registerRoutes()
 }
 
@@ -169,6 +170,28 @@ func (s *AdminServer) prometheusMetrics(c *fiber.Ctx) error {
 		return wrapBroker("admin_metrics_refresh_failed", c.Status(fiber.StatusInternalServerError).SendString(err.Error()), "write metrics refresh error")
 	}
 	return wrapBroker("admin_metrics_write_failed", fiberadaptor.HTTPHandler(s.metrics.Handler())(c), "write prometheus metrics")
+}
+
+func (s *AdminServer) adminIdentityMiddleware(c *fiber.Ctx) error {
+	identity := identityFromContext(c.UserContext())
+	identity.Tenant = adminIdentityValue(c, "X-Ech0-Tenant", "tenant", identity.Tenant)
+	identity.Namespace = adminIdentityValue(c, "X-Ech0-Namespace", "namespace", identity.Namespace)
+	identity.Principal = adminIdentityValue(c, "X-Ech0-Principal", "principal", identity.Principal)
+	identity.ClientID = adminIdentityValue(c, "X-Ech0-Client-Id", "client_id", identity.ClientID)
+	c.SetUserContext(WithIdentity(c.UserContext(), identity))
+	return wrapBroker("admin_identity_middleware_failed", c.Next(), "run admin identity middleware")
+}
+
+func adminIdentityValue(c *fiber.Ctx, header, query, fallback string) string {
+	value := strings.TrimSpace(c.Get(header))
+	if value != "" {
+		return value
+	}
+	value = strings.TrimSpace(c.Query(query))
+	if value != "" {
+		return value
+	}
+	return fallback
 }
 
 type dashboardView struct {
