@@ -56,7 +56,7 @@ The first implementation cut should keep the public mental model small: existing
 - Done: assignment versioning rejects stale group fetches, offset commits, seeks, pauses, and transactional group offset commits.
 - Done: embedded consumer group sessions expose revoke and assign callback semantics around rebalance.
 - Done: group health views aggregate lag, members, assignments, rebalance explain, and recent rebalance history.
-- Max poll interval and session timeout behavior.
+- Done: max poll interval and session timeout behavior.
 
 ## Phase 4: Topic And Message Lifecycle
 

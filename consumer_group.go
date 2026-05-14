@@ -1,12 +1,11 @@
 package ech0
 
 import (
-	"cmp"
 	"context"
 	"time"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
-	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	internalbroker "github.com/lyonbrown4d/ech0/broker"
 	"github.com/lyonbrown4d/ech0/store"
 	"github.com/samber/oops"
 )
@@ -22,6 +21,7 @@ type ConsumerGroup struct {
 	memberID       string
 	topics         []string
 	sessionTimeout time.Duration
+	maxPoll        time.Duration
 	callbacks      ConsumerGroupCallbacks
 
 	generation  uint64
@@ -46,6 +46,7 @@ type ConsumerGroupOption func(*consumerGroupOptions)
 
 type consumerGroupOptions struct {
 	sessionTimeout time.Duration
+	maxPoll        time.Duration
 	callbacks      ConsumerGroupCallbacks
 }
 
@@ -63,10 +64,21 @@ func ConsumerGroupSessionTimeout(timeout time.Duration) ConsumerGroupOption {
 	}
 }
 
+func ConsumerGroupMaxPollInterval(interval time.Duration) ConsumerGroupOption {
+	return func(opts *consumerGroupOptions) {
+		if interval > 0 {
+			opts.maxPoll = interval
+		}
+	}
+}
+
 func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, topics []string, opts ...ConsumerGroupOption) (*ConsumerGroup, error) {
 	options := normalizeConsumerGroupOptions(opts)
 	joinedTopics := collectionlist.NewList(topics...).Values()
-	_, err := b.broker.JoinConsumerGroup(ctx, group, memberID, joinedTopics, durationMillis(options.sessionTimeout))
+	_, err := b.broker.JoinConsumerGroupWithOptions(ctx, group, memberID, joinedTopics, internalbroker.ConsumerGroupLeaseOptions{
+		SessionTimeoutMS:  durationMillis(options.sessionTimeout),
+		MaxPollIntervalMS: durationMillis(options.maxPoll),
+	})
 	if err != nil {
 		return nil, oops.In("embedded").Code("consumer_group_join_failed").With("group", group, "member_id", memberID).Wrapf(err, "join consumer group")
 	}
@@ -76,6 +88,7 @@ func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, 
 		memberID:       memberID,
 		topics:         joinedTopics,
 		sessionTimeout: options.sessionTimeout,
+		maxPoll:        options.maxPoll,
 		callbacks:      options.callbacks,
 	}
 	if _, err := session.Rebalance(ctx); err != nil {
@@ -85,7 +98,7 @@ func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, 
 }
 
 func normalizeConsumerGroupOptions(opts []ConsumerGroupOption) consumerGroupOptions {
-	options := consumerGroupOptions{sessionTimeout: 30 * time.Second}
+	options := consumerGroupOptions{sessionTimeout: 30 * time.Second, maxPoll: 5 * time.Minute}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&options)
@@ -124,7 +137,12 @@ func (g *ConsumerGroup) Heartbeat(ctx context.Context) error {
 		value := durationMillis(g.sessionTimeout)
 		timeoutMS = &value
 	}
-	_, err := g.broker.broker.HeartbeatConsumerGroup(ctx, g.group, g.memberID, timeoutMS)
+	var maxPollMS *uint64
+	if g.maxPoll > 0 {
+		value := durationMillis(g.maxPoll)
+		maxPollMS = &value
+	}
+	_, err := g.broker.broker.HeartbeatConsumerGroupWithOptions(ctx, g.group, g.memberID, timeoutMS, maxPollMS)
 	return oops.In("embedded").Code("consumer_group_heartbeat_failed").With("group", g.group, "member_id", g.memberID).Wrapf(err, "heartbeat consumer group")
 }
 
@@ -234,52 +252,4 @@ func (g *ConsumerGroup) ensureReady() error {
 		return oops.In("embedded").Code("consumer_group_nil").Wrap(store.E(store.CodeInvalidArgument, "consumer group is nil"))
 	}
 	return nil
-}
-
-func groupOwnedTopicPartitions(assignment store.ConsumerGroupAssignment, memberID string) []TopicPartition {
-	out := collectionlist.NewList[TopicPartition]()
-	for _, item := range assignment.Assignments {
-		if item.MemberID == memberID {
-			out.Add(TopicPartition{Topic: item.Topic, Partition: item.Partition})
-		}
-	}
-	return sortTopicPartitions(out.Values())
-}
-
-type topicPartitionKey struct {
-	topic     string
-	partition uint32
-}
-
-func partitionDiff(left, right []TopicPartition) []TopicPartition {
-	rightIndex := topicPartitionIndex(right)
-	out := collectionlist.NewList[TopicPartition]()
-	for _, item := range left {
-		if _, ok := rightIndex.Get(topicPartitionKey{topic: item.Topic, partition: item.Partition}); !ok {
-			out.Add(item)
-		}
-	}
-	return sortTopicPartitions(out.Values())
-}
-
-func topicPartitionIndex(partitions []TopicPartition) *collectionmapping.Map[topicPartitionKey, TopicPartition] {
-	index := collectionmapping.NewMapWithCapacity[topicPartitionKey, TopicPartition](len(partitions))
-	for _, item := range partitions {
-		index.Set(topicPartitionKey{topic: item.Topic, partition: item.Partition}, item)
-	}
-	return index
-}
-
-func cloneTopicPartitions(partitions []TopicPartition) []TopicPartition {
-	return collectionlist.NewList(partitions...).Values()
-}
-
-func sortTopicPartitions(partitions []TopicPartition) []TopicPartition {
-	return collectionlist.NewList(partitions...).
-		Sort(func(left, right TopicPartition) int {
-			if left.Topic == right.Topic {
-				return cmp.Compare(left.Partition, right.Partition)
-			}
-			return cmp.Compare(left.Topic, right.Topic)
-		}).Values()
 }

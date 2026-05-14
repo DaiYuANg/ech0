@@ -7,7 +7,16 @@ import (
 	"github.com/lyonbrown4d/ech0/store"
 )
 
+type ConsumerGroupLeaseOptions struct {
+	SessionTimeoutMS  uint64
+	MaxPollIntervalMS uint64
+}
+
 func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, topics []string, sessionTimeoutMS uint64) (store.ConsumerGroupMember, error) {
+	return b.JoinConsumerGroupWithOptions(ctx, group, memberID, topics, ConsumerGroupLeaseOptions{SessionTimeoutMS: sessionTimeoutMS})
+}
+
+func (b *Broker) JoinConsumerGroupWithOptions(ctx context.Context, group, memberID string, topics []string, options ConsumerGroupLeaseOptions) (store.ConsumerGroupMember, error) {
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionAlter, groupResource(identity, group)); err != nil {
 		return store.ConsumerGroupMember{}, err
@@ -19,7 +28,13 @@ func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, 
 		}
 		scopedTopics.Add(scopedTopicName(identity, topic))
 	}
-	req := joinGroupCommand{Group: scopedName(identity, "group", group), MemberID: memberID, Topics: scopedTopics.Values(), SessionTimeoutMS: sessionTimeoutMS}
+	req := joinGroupCommand{
+		Group:             scopedName(identity, "group", group),
+		MemberID:          memberID,
+		Topics:            scopedTopics.Values(),
+		SessionTimeoutMS:  options.SessionTimeoutMS,
+		MaxPollIntervalMS: options.MaxPollIntervalMS,
+	}
 	member, err := routeMetadataCommand(ctx, b, raftCommandJoinGroup, req, b.applyJoinGroup)
 	if err != nil {
 		return store.ConsumerGroupMember{}, err
@@ -28,11 +43,21 @@ func (b *Broker) JoinConsumerGroup(ctx context.Context, group, memberID string, 
 }
 
 func (b *Broker) HeartbeatConsumerGroup(ctx context.Context, group, memberID string, sessionTimeoutMS *uint64) (store.ConsumerGroupMember, error) {
+	return b.HeartbeatConsumerGroupWithOptions(ctx, group, memberID, sessionTimeoutMS, nil)
+}
+
+func (b *Broker) HeartbeatConsumerGroupWithOptions(
+	ctx context.Context,
+	group string,
+	memberID string,
+	sessionTimeoutMS *uint64,
+	maxPollIntervalMS *uint64,
+) (store.ConsumerGroupMember, error) {
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionAlter, groupResource(identity, group)); err != nil {
 		return store.ConsumerGroupMember{}, err
 	}
-	req := heartbeatGroupCommand{Group: scopedName(identity, "group", group), MemberID: memberID, SessionTimeoutMS: sessionTimeoutMS}
+	req := heartbeatGroupCommand{Group: scopedName(identity, "group", group), MemberID: memberID, SessionTimeoutMS: sessionTimeoutMS, MaxPollIntervalMS: maxPollIntervalMS}
 	member, err := routeMetadataCommand(ctx, b, raftCommandHeartbeatGroup, req, b.applyHeartbeatGroup)
 	if err != nil {
 		return store.ConsumerGroupMember{}, err
@@ -98,7 +123,14 @@ func (b *Broker) FetchConsumerGroupWithIsolation(
 	if err := b.validateConsumerGroupLease(scopedGroup, memberID, generation, store.NewTopicPartition(scopedTopic, partition)); err != nil {
 		return store.PollResult{}, err
 	}
-	return b.fetchWithIsolationScoped(ctx, groupConsumer(scopedGroup), scopedTopic, partition, offset, maxRecords, isolation)
+	poll, err := b.fetchWithIsolationScoped(ctx, groupConsumer(scopedGroup), scopedTopic, partition, offset, maxRecords, isolation)
+	if err != nil {
+		return store.PollResult{}, err
+	}
+	if err := b.recordConsumerGroupPoll(ctx, scopedGroup, memberID); err != nil {
+		return store.PollResult{}, err
+	}
+	return poll, nil
 }
 
 func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, nextOffset uint64) error {
@@ -147,6 +179,12 @@ func (b *Broker) ConsumerGroupCommittedOffset(ctx context.Context, group, topic 
 		return nil, wrapBrokerStore(err, "load group committed offset")
 	}
 	return visibleGroupOffsetState(identity, state), nil
+}
+
+func (b *Broker) recordConsumerGroupPoll(ctx context.Context, scopedGroup, memberID string) error {
+	req := pollGroupCommand{Group: scopedGroup, MemberID: memberID, PollAtMS: store.NowMS()}
+	_, err := routeMetadataCommand(ctx, b, raftCommandPollGroup, req, b.applyPollGroup)
+	return err
 }
 
 func (b *Broker) visibleGroupMember(identity Identity, member store.ConsumerGroupMember) store.ConsumerGroupMember {

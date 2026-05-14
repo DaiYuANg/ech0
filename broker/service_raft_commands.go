@@ -104,6 +104,7 @@ func (b *Broker) registerDirectRaftHandlers(handlers *collectionmapping.Map[stri
 func (b *Broker) registerGroupRaftHandlers(handlers *collectionmapping.Map[string, raftCommandHandler]) {
 	setRaftHandler(handlers, raftCommandJoinGroup, b.applyJoinGroup, "decode join group command")
 	setRaftHandler(handlers, raftCommandHeartbeatGroup, b.applyHeartbeatGroup, "decode heartbeat group command")
+	setRaftHandler(handlers, raftCommandPollGroup, b.applyPollGroup, "decode poll group command")
 	setRaftHandler(handlers, raftCommandRebalanceGroup, b.applyRebalanceGroup, "decode rebalance group command")
 }
 

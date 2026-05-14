@@ -58,7 +58,10 @@ func (s *TCPServer) handleJoinConsumerGroupFrame(ctx context.Context, frame tran
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	member, err := s.broker.JoinConsumerGroup(ctx, req.Group, req.MemberID, req.Topics, req.SessionTimeoutMS)
+	member, err := s.broker.JoinConsumerGroupWithOptions(ctx, req.Group, req.MemberID, req.Topics, ConsumerGroupLeaseOptions{
+		SessionTimeoutMS:  req.SessionTimeoutMS,
+		MaxPollIntervalMS: req.MaxPollIntervalMS,
+	})
 	if err != nil {
 		return errorFromErr(err), nil
 	}
@@ -74,7 +77,7 @@ func (s *TCPServer) handleHeartbeatConsumerGroupFrame(ctx context.Context, frame
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	member, err := s.broker.HeartbeatConsumerGroup(ctx, req.Group, req.MemberID, req.SessionTimeoutMS)
+	member, err := s.broker.HeartbeatConsumerGroupWithOptions(ctx, req.Group, req.MemberID, req.SessionTimeoutMS, req.MaxPollIntervalMS)
 	if err != nil {
 		return errorFromErr(err), nil
 	}

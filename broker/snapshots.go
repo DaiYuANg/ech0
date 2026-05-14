@@ -55,13 +55,16 @@ func (b *Broker) GroupMembersSnapshotFor(ctx context.Context, group string) ([]G
 	for _, member := range members {
 		member = b.visibleGroupMember(identity, member)
 		out.Add(GroupMemberSummary{
-			Group:            member.Group,
-			MemberID:         member.MemberID,
-			Topics:           collectionlist.NewList(member.Topics...).Values(),
-			SessionTimeoutMS: member.SessionTimeoutMS,
-			JoinedAtMS:       member.JoinedAtMS,
-			LastHeartbeatMS:  member.LastHeartbeatMS,
-			ExpiresAtMS:      member.ExpiresAtMS(),
+			Group:             member.Group,
+			MemberID:          member.MemberID,
+			Topics:            collectionlist.NewList(member.Topics...).Values(),
+			SessionTimeoutMS:  member.SessionTimeoutMS,
+			MaxPollIntervalMS: member.MaxPollIntervalMS,
+			JoinedAtMS:        member.JoinedAtMS,
+			LastHeartbeatMS:   member.LastHeartbeatMS,
+			LastPollMS:        member.LastPollMS,
+			ExpiresAtMS:       member.ExpiresAtMS(),
+			PollExpiresAtMS:   member.PollExpiresAtMS(),
 		})
 	}
 	return out.Sort(func(left, right GroupMemberSummary) int {

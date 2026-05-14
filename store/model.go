@@ -222,12 +222,14 @@ type RecordPage struct {
 }
 
 type ConsumerGroupMember struct {
-	Group            string   `json:"group"`
-	MemberID         string   `json:"member_id"`
-	Topics           []string `json:"topics"`
-	SessionTimeoutMS uint64   `json:"session_timeout_ms"`
-	JoinedAtMS       uint64   `json:"joined_at_ms"`
-	LastHeartbeatMS  uint64   `json:"last_heartbeat_ms"`
+	Group             string   `json:"group"`
+	MemberID          string   `json:"member_id"`
+	Topics            []string `json:"topics"`
+	SessionTimeoutMS  uint64   `json:"session_timeout_ms"`
+	MaxPollIntervalMS uint64   `json:"max_poll_interval_ms"`
+	JoinedAtMS        uint64   `json:"joined_at_ms"`
+	LastHeartbeatMS   uint64   `json:"last_heartbeat_ms"`
+	LastPollMS        uint64   `json:"last_poll_ms"`
 }
 
 func (m ConsumerGroupMember) ExpiresAtMS() uint64 {
@@ -238,8 +240,29 @@ func (m ConsumerGroupMember) ExpiresAtMS() uint64 {
 	return m.LastHeartbeatMS + timeout
 }
 
+func (m ConsumerGroupMember) PollExpiresAtMS() uint64 {
+	timeout := m.MaxPollIntervalMS
+	if timeout == 0 {
+		timeout = m.SessionTimeoutMS
+	}
+	if timeout == 0 {
+		timeout = 1
+	}
+	return m.lastPollMS() + timeout
+}
+
 func (m ConsumerGroupMember) ExpiredAt(nowMS uint64) bool {
-	return nowMS >= m.ExpiresAtMS()
+	return nowMS >= m.ExpiresAtMS() || nowMS >= m.PollExpiresAtMS()
+}
+
+func (m ConsumerGroupMember) lastPollMS() uint64 {
+	if m.LastPollMS != 0 {
+		return m.LastPollMS
+	}
+	if m.LastHeartbeatMS != 0 {
+		return m.LastHeartbeatMS
+	}
+	return m.JoinedAtMS
 }
 
 type GroupPartitionAssignment struct {
@@ -258,34 +281,6 @@ type ConsumerGroupAssignment struct {
 type BrokerState struct {
 	NodeID string `json:"node_id"`
 	Epoch  uint64 `json:"epoch"`
-}
-
-type ACLPolicyEffect string
-
-const (
-	ACLPolicyEffectAllow ACLPolicyEffect = "allow"
-	ACLPolicyEffectDeny  ACLPolicyEffect = "deny"
-)
-
-type ACLPolicy struct {
-	PolicyID     string          `json:"policy_id"`
-	Tenant       string          `json:"tenant"`
-	Namespace    string          `json:"namespace"`
-	Principal    string          `json:"principal"`
-	ResourceType string          `json:"resource_type"`
-	ResourceName string          `json:"resource_name"`
-	Actions      []string        `json:"actions"`
-	Effect       ACLPolicyEffect `json:"effect"`
-	Priority     int             `json:"priority"`
-	UpdatedAtMS  uint64          `json:"updated_at_ms"`
-}
-
-type ACLPolicyFilter struct {
-	Tenant       string
-	Namespace    string
-	Principal    string
-	ResourceType string
-	ResourceName string
 }
 
 func NowMS() uint64 {

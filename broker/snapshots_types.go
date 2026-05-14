@@ -45,13 +45,16 @@ type TopicMessagesPageSummary struct {
 }
 
 type GroupMemberSummary struct {
-	Group            string   `json:"group"`
-	MemberID         string   `json:"member_id"`
-	Topics           []string `json:"topics"`
-	SessionTimeoutMS uint64   `json:"session_timeout_ms"`
-	JoinedAtMS       uint64   `json:"joined_at_ms"`
-	LastHeartbeatMS  uint64   `json:"last_heartbeat_ms"`
-	ExpiresAtMS      uint64   `json:"expires_at_ms"`
+	Group             string   `json:"group"`
+	MemberID          string   `json:"member_id"`
+	Topics            []string `json:"topics"`
+	SessionTimeoutMS  uint64   `json:"session_timeout_ms"`
+	MaxPollIntervalMS uint64   `json:"max_poll_interval_ms"`
+	JoinedAtMS        uint64   `json:"joined_at_ms"`
+	LastHeartbeatMS   uint64   `json:"last_heartbeat_ms"`
+	LastPollMS        uint64   `json:"last_poll_ms"`
+	ExpiresAtMS       uint64   `json:"expires_at_ms"`
+	PollExpiresAtMS   uint64   `json:"poll_expires_at_ms"`
 }
 
 type GroupPartitionOwnerSummary struct {

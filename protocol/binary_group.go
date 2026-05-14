@@ -12,6 +12,7 @@ func encodeJoinConsumerGroupRequest(value any) ([]byte, error) {
 			return err
 		}
 		writer.writeU64(req.SessionTimeoutMS)
+		writer.writeU64(req.MaxPollIntervalMS)
 		return nil
 	})
 }
@@ -31,7 +32,11 @@ func decodeJoinConsumerGroupRequest(data []byte, target any) error {
 			return JoinConsumerGroupRequest{}, err
 		}
 		timeout, err := reader.readU64()
-		return JoinConsumerGroupRequest{Group: group, MemberID: memberID, Topics: topics, SessionTimeoutMS: timeout}, err
+		if err != nil {
+			return JoinConsumerGroupRequest{}, err
+		}
+		maxPollInterval, err := reader.readU64()
+		return JoinConsumerGroupRequest{Group: group, MemberID: memberID, Topics: topics, SessionTimeoutMS: timeout, MaxPollIntervalMS: maxPollInterval}, err
 	})
 }
 
@@ -57,6 +62,7 @@ func encodeHeartbeatConsumerGroupRequest(value any) ([]byte, error) {
 			return err
 		}
 		writer.writeOptionalU64(req.SessionTimeoutMS)
+		writer.writeOptionalU64(req.MaxPollIntervalMS)
 		return nil
 	})
 }
@@ -72,7 +78,11 @@ func decodeHeartbeatConsumerGroupRequest(data []byte, target any) error {
 			return HeartbeatConsumerGroupRequest{}, err
 		}
 		timeout, err := reader.readOptionalU64()
-		return HeartbeatConsumerGroupRequest{Group: group, MemberID: memberID, SessionTimeoutMS: timeout}, err
+		if err != nil {
+			return HeartbeatConsumerGroupRequest{}, err
+		}
+		maxPollInterval, err := reader.readOptionalU64()
+		return HeartbeatConsumerGroupRequest{Group: group, MemberID: memberID, SessionTimeoutMS: timeout, MaxPollIntervalMS: maxPollInterval}, err
 	})
 }
 
@@ -100,9 +110,12 @@ func writeLease(writer *binaryWriter, lease ConsumerGroupMemberLease) error {
 		return err
 	}
 	writer.writeU64(lease.SessionTimeoutMS)
+	writer.writeU64(lease.MaxPollIntervalMS)
 	writer.writeU64(lease.JoinedAtMS)
 	writer.writeU64(lease.LastHeartbeatMS)
+	writer.writeU64(lease.LastPollMS)
 	writer.writeU64(lease.ExpiresAtMS)
+	writer.writeU64(lease.PollExpiresAtMS)
 	return nil
 }
 
@@ -120,19 +133,30 @@ func readLease(reader *binaryReader) (ConsumerGroupMemberLease, error) {
 		return ConsumerGroupMemberLease{}, err
 	}
 	lease := ConsumerGroupMemberLease{Group: group, MemberID: memberID, Topics: topics}
-	if lease.SessionTimeoutMS, err = reader.readU64(); err != nil {
+	fields, err := readLeaseTimingFields(reader)
+	if err != nil {
 		return ConsumerGroupMemberLease{}, err
 	}
-	if lease.JoinedAtMS, err = reader.readU64(); err != nil {
-		return ConsumerGroupMemberLease{}, err
-	}
-	if lease.LastHeartbeatMS, err = reader.readU64(); err != nil {
-		return ConsumerGroupMemberLease{}, err
-	}
-	if lease.ExpiresAtMS, err = reader.readU64(); err != nil {
-		return ConsumerGroupMemberLease{}, err
-	}
+	lease.SessionTimeoutMS = fields[0]
+	lease.MaxPollIntervalMS = fields[1]
+	lease.JoinedAtMS = fields[2]
+	lease.LastHeartbeatMS = fields[3]
+	lease.LastPollMS = fields[4]
+	lease.ExpiresAtMS = fields[5]
+	lease.PollExpiresAtMS = fields[6]
 	return lease, nil
+}
+
+func readLeaseTimingFields(reader *binaryReader) ([7]uint64, error) {
+	var fields [7]uint64
+	for index := range fields {
+		value, err := reader.readU64()
+		if err != nil {
+			return fields, err
+		}
+		fields[index] = value
+	}
+	return fields, nil
 }
 
 func encodeRebalanceConsumerGroupRequest(value any) ([]byte, error) {

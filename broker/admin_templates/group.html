@@ -61,12 +61,12 @@
     <h2 class="mb-3 mt-6 text-base font-semibold tracking-normal">Members</h2>
     <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
       <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
-        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Member</th><th class="px-3 py-2">Topics</th><th class="px-3 py-2">Session Timeout</th><th class="px-3 py-2">Last Heartbeat</th><th class="px-3 py-2">Expires</th></tr></thead>
+        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Member</th><th class="px-3 py-2">Topics</th><th class="px-3 py-2">Session Timeout</th><th class="px-3 py-2">Max Poll</th><th class="px-3 py-2">Last Heartbeat</th><th class="px-3 py-2">Last Poll</th><th class="px-3 py-2">Session Expires</th><th class="px-3 py-2">Poll Expires</th></tr></thead>
         <tbody class="divide-y divide-zinc-200">
         {{range .Members}}
-          <tr><td class="px-3 py-2">{{.MemberID}}</td><td class="px-3 py-2">{{range .Topics}}{{.}} {{end}}</td><td class="px-3 py-2">{{.SessionTimeoutMS}}</td><td class="px-3 py-2">{{.LastHeartbeatMS}}</td><td class="px-3 py-2">{{.ExpiresAtMS}}</td></tr>
+          <tr><td class="px-3 py-2">{{.MemberID}}</td><td class="px-3 py-2">{{range .Topics}}{{.}} {{end}}</td><td class="px-3 py-2">{{.SessionTimeoutMS}}</td><td class="px-3 py-2">{{.MaxPollIntervalMS}}</td><td class="px-3 py-2">{{.LastHeartbeatMS}}</td><td class="px-3 py-2">{{.LastPollMS}}</td><td class="px-3 py-2">{{.ExpiresAtMS}}</td><td class="px-3 py-2">{{.PollExpiresAtMS}}</td></tr>
         {{else}}
-          <tr><td colspan="5" class="px-3 py-4 text-zinc-500">No active members</td></tr>
+          <tr><td colspan="8" class="px-3 py-4 text-zinc-500">No active members</td></tr>
         {{end}}
         </tbody>
       </table>

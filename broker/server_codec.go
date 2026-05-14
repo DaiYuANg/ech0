@@ -253,6 +253,7 @@ func leaseFromStore(member store.ConsumerGroupMember) (protocol.ConsumerGroupMem
 		return protocol.ConsumerGroupMemberLease{}, fmt.Errorf("map consumer group member lease: %w", err)
 	}
 	out.ExpiresAtMS = member.ExpiresAtMS()
+	out.PollExpiresAtMS = member.PollExpiresAtMS()
 	return out, nil
 }
 

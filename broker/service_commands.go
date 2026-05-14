@@ -125,16 +125,24 @@ type ackDirectCommand struct {
 }
 
 type joinGroupCommand struct {
-	Group            string
-	MemberID         string
-	Topics           []string
-	SessionTimeoutMS uint64
+	Group             string
+	MemberID          string
+	Topics            []string
+	SessionTimeoutMS  uint64
+	MaxPollIntervalMS uint64
 }
 
 type heartbeatGroupCommand struct {
-	Group            string
-	MemberID         string
-	SessionTimeoutMS *uint64
+	Group             string
+	MemberID          string
+	SessionTimeoutMS  *uint64
+	MaxPollIntervalMS *uint64
+}
+
+type pollGroupCommand struct {
+	Group    string
+	MemberID string
+	PollAtMS uint64
 }
 
 type rebalanceGroupCommand struct {

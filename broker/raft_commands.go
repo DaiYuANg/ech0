@@ -19,6 +19,7 @@ const (
 	raftCommandDirectAck       = "direct_ack"
 	raftCommandJoinGroup       = "join_group"
 	raftCommandHeartbeatGroup  = "heartbeat_group"
+	raftCommandPollGroup       = "poll_group"
 	raftCommandRebalanceGroup  = "rebalance_group"
 	raftCommandUpsertACLPolicy = "upsert_acl_policy"
 	raftCommandDeleteACLPolicy = "delete_acl_policy"

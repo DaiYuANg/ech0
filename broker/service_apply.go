@@ -1,12 +1,10 @@
 package broker
 
 import (
-	"cmp"
 	"context"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
-	collectionset "github.com/arcgolabs/collectionx/set"
 	"github.com/lyonbrown4d/ech0/direct"
 	"github.com/lyonbrown4d/ech0/store"
 )
@@ -195,105 +193,4 @@ func (b *Broker) applyDirectSend(ctx context.Context, req directCommand) (direct
 func (b *Broker) applyDirectAck(ctx context.Context, req ackDirectCommand) (struct{}, error) {
 	_ = ctx
 	return struct{}{}, wrapBroker("direct_ack_failed", b.direct.AckInbox(req.Recipient, req.NextOffset), "ack direct inbox")
-}
-
-func (b *Broker) applyJoinGroup(ctx context.Context, req joinGroupCommand) (store.ConsumerGroupMember, error) {
-	_ = ctx
-	if req.Group == "" || req.MemberID == "" {
-		return store.ConsumerGroupMember{}, brokerStoreError(store.CodeInvalidArgument, "group and member_id are required")
-	}
-	member := groupMemberFromCommand(req)
-	if err := b.meta.SaveGroupMember(member); err != nil {
-		return store.ConsumerGroupMember{}, wrapBrokerStore(err, "save group member")
-	}
-	return member, nil
-}
-
-func groupMemberFromCommand(req joinGroupCommand) store.ConsumerGroupMember {
-	now := store.NowMS()
-	sessionTimeout := req.SessionTimeoutMS
-	if sessionTimeout == 0 {
-		sessionTimeout = 30000
-	}
-	return store.ConsumerGroupMember{
-		Group:            req.Group,
-		MemberID:         req.MemberID,
-		Topics:           collectionlist.NewList(req.Topics...).Values(),
-		SessionTimeoutMS: sessionTimeout,
-		JoinedAtMS:       now,
-		LastHeartbeatMS:  now,
-	}
-}
-
-func (b *Broker) applyHeartbeatGroup(ctx context.Context, req heartbeatGroupCommand) (store.ConsumerGroupMember, error) {
-	_ = ctx
-	member, err := b.meta.LoadGroupMember(req.Group, req.MemberID)
-	if err != nil {
-		return store.ConsumerGroupMember{}, wrapBrokerStore(err, "load group member")
-	}
-	if member == nil {
-		return store.ConsumerGroupMember{}, brokerStoreError(store.CodeInvalidArgument, "group member %s/%s not found", req.Group, req.MemberID)
-	}
-	if req.SessionTimeoutMS != nil && *req.SessionTimeoutMS > 0 {
-		member.SessionTimeoutMS = *req.SessionTimeoutMS
-	}
-	member.LastHeartbeatMS = store.NowMS()
-	if err := b.meta.SaveGroupMember(*member); err != nil {
-		return store.ConsumerGroupMember{}, wrapBrokerStore(err, "save group member heartbeat")
-	}
-	return *member, nil
-}
-
-func (b *Broker) applyRebalanceGroup(ctx context.Context, req rebalanceGroupCommand) (store.ConsumerGroupAssignment, error) {
-	now := store.NowMS()
-	if _, err := b.meta.DeleteExpiredGroupMembers(now); err != nil {
-		return store.ConsumerGroupAssignment{}, wrapBrokerStore(err, "delete expired group members")
-	}
-	active, err := b.activeGroupMembers(req.Group, now)
-	if err != nil {
-		return store.ConsumerGroupAssignment{}, err
-	}
-	previous, err := b.meta.LoadGroupAssignment(req.Group)
-	if err != nil {
-		return store.ConsumerGroupAssignment{}, wrapBrokerStore(err, "load group assignment")
-	}
-	plan, err := b.buildGroupRebalancePlan(req.Group, now, previous, active)
-	if err != nil {
-		return store.ConsumerGroupAssignment{}, err
-	}
-	if err := b.meta.SaveGroupAssignment(plan.Assignment); err != nil {
-		return store.ConsumerGroupAssignment{}, wrapBrokerStore(err, "save group assignment")
-	}
-	recordRebalanceMetrics(ctx, b.metrics, plan)
-	b.recordGroupRebalanceHistory(plan)
-	return plan.Assignment, nil
-}
-
-func (b *Broker) groupPartitions(members []store.ConsumerGroupMember) ([]store.TopicPartition, error) {
-	wanted := collectionset.NewSet[string]()
-	for _, member := range members {
-		wanted.Add(member.Topics...)
-	}
-	topics, err := b.meta.ListTopics()
-	if err != nil {
-		return nil, wrapBrokerStore(err, "list topics for group partitions")
-	}
-	out := collectionlist.NewList[store.TopicPartition]()
-	for i := range topics {
-		topic := topics[i]
-		if !wanted.Contains(topic.Name) {
-			continue
-		}
-		for partition := range topic.Partitions {
-			out.Add(store.NewTopicPartition(topic.Name, partition))
-		}
-	}
-	return out.
-		Sort(func(left, right store.TopicPartition) int {
-			if left.Topic == right.Topic {
-				return cmp.Compare(left.Partition, right.Partition)
-			}
-			return cmp.Compare(left.Topic, right.Topic)
-		}).
-		Values(), nil
 }

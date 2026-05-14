@@ -109,7 +109,7 @@ func groupHealthSummary(
 func accumulateGroupHealthMembers(summary *GroupHealthSummary, members []GroupMemberSummary) {
 	now := store.NowMS()
 	for _, member := range members {
-		if member.ExpiresAtMS <= now {
+		if member.ExpiresAtMS <= now || member.PollExpiresAtMS <= now {
 			summary.ExpiredMembers++
 			continue
 		}
