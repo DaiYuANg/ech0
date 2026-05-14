@@ -44,15 +44,15 @@ docker compose -f docker-compose.cluster.release.yml up
 Override the image tag with `ECH0_IMAGE`, for example:
 
 ```sh
-ECH0_IMAGE=ghcr.io/daiyuang/ech0:v0.1.0 docker compose -f docker-compose.single.release.yml up
+ECH0_IMAGE=ghcr.io/lyonbrown4d/ech0:v0.1.0 docker compose -f docker-compose.single.release.yml up
 ```
 
 Release images are published in two runtime variants:
 
-- `ghcr.io/daiyuang/ech0:v0.1.0` and `ghcr.io/daiyuang/ech0:v0.1.0-alpine` use Alpine.
-- `ghcr.io/daiyuang/ech0:v0.1.0-debian` uses Debian slim.
+- `ghcr.io/lyonbrown4d/ech0:v0.1.0` and `ghcr.io/lyonbrown4d/ech0:v0.1.0-alpine` use Alpine.
+- `ghcr.io/lyonbrown4d/ech0:v0.1.0-debian` uses Debian slim.
 
-The plain version tag and `latest` point to the Alpine image. Use `ECH0_IMAGE=ghcr.io/daiyuang/ech0:latest-debian` when Debian runtime behavior is preferred.
+The plain version tag and `latest` point to the Alpine image. Use `ECH0_IMAGE=ghcr.io/lyonbrown4d/ech0:latest-debian` when Debian runtime behavior is preferred.
 
 ## Endpoints
 

@@ -73,7 +73,7 @@ nfpms:
     package_name: ech0
     file_name_template: "{{ .ConventionalFileName }}"
     vendor: DaiYuANg
-    homepage: https://github.com/DaiYuANg/ech0
+    homepage: https://github.com/lyonbrown4d/ech0
     maintainer: DaiYuANg
     description: Embedded library-first message broker with standalone and Raft cluster modes.
     license: UNLICENSED
@@ -111,7 +111,7 @@ dockers_v2:
       - ech0-linux
     dockerfile: Dockerfile.release
     images:
-      - '{{ envOrDefault "IMAGE_REPOSITORY" "ghcr.io/daiyuang/ech0" }}'
+      - '{{ envOrDefault "IMAGE_REPOSITORY" "ghcr.io/lyonbrown4d/ech0" }}'
     tags:
       - "{{ .Tag }}"
       - "{{ .Version }}"
@@ -136,7 +136,7 @@ dockers_v2:
       - ech0-linux
     dockerfile: Dockerfile.release.debian
     images:
-      - '{{ envOrDefault "IMAGE_REPOSITORY" "ghcr.io/daiyuang/ech0" }}'
+      - '{{ envOrDefault "IMAGE_REPOSITORY" "ghcr.io/lyonbrown4d/ech0" }}'
     tags:
       - "{{ .Tag }}-debian"
       - "{{ .Version }}-debian"
