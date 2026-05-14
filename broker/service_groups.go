@@ -99,6 +99,19 @@ func (b *Broker) FetchConsumerGroupWithIsolation(
 }
 
 func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, nextOffset uint64) error {
+	return b.CommitConsumerGroupOffsetWithMetadata(ctx, group, memberID, generation, topic, partition, nextOffset, "")
+}
+
+func (b *Broker) CommitConsumerGroupOffsetWithMetadata(
+	ctx context.Context,
+	group string,
+	memberID string,
+	generation uint64,
+	topic string,
+	partition uint32,
+	nextOffset uint64,
+	metadata string,
+) error {
 	_ = memberID
 	_ = generation
 	identity := b.identity(ctx)
@@ -106,12 +119,28 @@ func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID 
 		return err
 	}
 	req := commitOffsetCommand{
-		Consumer:   groupConsumer(scopedName(identity, "group", group)),
-		Topic:      scopedTopicName(identity, topic),
-		Partition:  partition,
-		NextOffset: nextOffset,
+		Consumer:    groupConsumer(scopedName(identity, "group", group)),
+		Topic:       scopedTopicName(identity, topic),
+		Partition:   partition,
+		NextOffset:  nextOffset,
+		Metadata:    metadata,
+		UpdatedAtMS: store.NowMS(),
 	}
 	return b.routeCommitOffset(ctx, req)
+}
+
+func (b *Broker) ConsumerGroupCommittedOffset(ctx context.Context, group, topic string, partition uint32) (*store.ConsumerOffsetState, error) {
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionDescribe, groupResource(identity, group)); err != nil {
+		return nil, err
+	}
+	consumer := groupConsumer(scopedName(identity, "group", group))
+	tp := store.NewTopicPartition(scopedTopicName(identity, topic), partition)
+	state, err := b.meta.LoadConsumerOffsetState(consumer, tp)
+	if err != nil {
+		return nil, wrapBrokerStore(err, "load group committed offset")
+	}
+	return visibleGroupOffsetState(identity, state), nil
 }
 
 func (b *Broker) visibleGroupMember(identity Identity, member store.ConsumerGroupMember) store.ConsumerGroupMember {

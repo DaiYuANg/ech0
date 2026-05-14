@@ -123,6 +123,59 @@ func TestFetchIsolationBinaryRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCommitOffsetMetadataBinaryRoundTrip(t *testing.T) {
+	req := protocol.CommitOffsetRequest{
+		Consumer: "c1", Topic: "orders", Partition: 0, NextOffset: 7, Metadata: "checkpoint=42",
+	}
+	data, err := protocol.EncodeBody(protocol.CmdCommitOffsetRequest, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got protocol.CommitOffsetRequest
+	if err := protocol.DecodeBody(protocol.CmdCommitOffsetRequest, data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != req {
+		t.Fatalf("got %#v, want %#v", got, req)
+	}
+}
+
+func TestCommitConsumerGroupOffsetMetadataBinaryRoundTrip(t *testing.T) {
+	req := protocol.CommitConsumerGroupOffsetRequest{
+		Group: "workers", MemberID: "member-1", Generation: 2,
+		Topic: "orders", Partition: 0, NextOffset: 7, Metadata: "checkpoint=42",
+	}
+	data, err := protocol.EncodeBody(protocol.CmdCommitConsumerGroupOffsetRequest, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got protocol.CommitConsumerGroupOffsetRequest
+	if err := protocol.DecodeBody(protocol.CmdCommitConsumerGroupOffsetRequest, data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != req {
+		t.Fatalf("got %#v, want %#v", got, req)
+	}
+}
+
+func TestTransactionCommitOffsetMetadataBinaryRoundTrip(t *testing.T) {
+	req := protocol.TxCommitOffsetRequest{
+		Identity: protocol.TransactionIdentity{TxID: 10, ProducerID: 20, ProducerEpoch: 2},
+		Consumer: "c1", Topic: "orders", Partition: 0, NextOffset: 7, Metadata: "checkpoint=42",
+	}
+	data, err := protocol.EncodeBody(protocol.CmdTxCommitOffsetRequest, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got protocol.TxCommitOffsetRequest
+	if err := protocol.DecodeBody(protocol.CmdTxCommitOffsetRequest, data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != req {
+		t.Fatalf("got %#v, want %#v", got, req)
+	}
+}
+
 func TestCommandIDsAreUnique(t *testing.T) {
 	commands := protocol.CommandIDs()
 	seen := collectionset.NewSet[uint16]()

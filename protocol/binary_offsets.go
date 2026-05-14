@@ -13,7 +13,7 @@ func writeCommitOffsetRequest(writer *binaryWriter, req CommitOffsetRequest) err
 	}
 	writer.writeU32(req.Partition)
 	writer.writeU64(req.NextOffset)
-	return nil
+	return writer.writeString(req.Metadata)
 }
 
 func decodeCommitOffsetRequest(data []byte, target any) error {
@@ -34,6 +34,9 @@ func readCommitOffsetRequest(reader *binaryReader) (CommitOffsetRequest, error) 
 		return CommitOffsetRequest{}, err
 	}
 	if req.NextOffset, err = reader.readU64(); err != nil {
+		return CommitOffsetRequest{}, err
+	}
+	if req.Metadata, err = reader.readString(); err != nil {
 		return CommitOffsetRequest{}, err
 	}
 	return req, nil

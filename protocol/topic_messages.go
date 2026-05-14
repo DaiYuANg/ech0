@@ -198,6 +198,7 @@ type CommitOffsetRequest struct {
 	Topic      string `json:"topic"`
 	Partition  uint32 `json:"partition"`
 	NextOffset uint64 `json:"next_offset"`
+	Metadata   string `json:"metadata,omitempty"`
 }
 
 type CommitOffsetResponse struct {
@@ -205,6 +206,7 @@ type CommitOffsetResponse struct {
 	Topic      string `json:"topic"`
 	Partition  uint32 `json:"partition"`
 	NextOffset uint64 `json:"next_offset"`
+	Metadata   string `json:"metadata,omitempty"`
 }
 
 type TopicMetadata struct {

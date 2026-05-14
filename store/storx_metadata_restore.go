@@ -36,6 +36,7 @@ func (s *StorxMetadataStore) clearMetadataBuckets() error {
 	for _, bucket := range []interface{ Clear(context.Context) error }{
 		bucketClearer[string, TopicConfig]{s.topics},
 		bucketClearer[string, uint64]{s.offsets},
+		bucketClearer[string, ConsumerOffsetState]{s.offsetStates},
 		bucketClearer[string, ConsumerPauseState]{s.consumerPauses},
 		bucketClearer[string, ConsumerGroupMember]{s.members.Repository().Bucket()},
 		bucketClearer[string, ConsumerGroupAssignment]{s.assignments},
@@ -74,7 +75,21 @@ func (s *StorxMetadataStore) restoreMetadataOffsets(snapshot Snapshot) error {
 		entries.Add(bboltx.Entry[string, uint64]{Key: key, Value: offset})
 		return true
 	})
-	return wrapExternal(s.offsets.PutMany(context.Background(), entries.Values()...), "restore consumer offsets")
+	if err := s.offsets.PutMany(context.Background(), entries.Values()...); err != nil {
+		return wrapExternal(err, "restore consumer offsets")
+	}
+	return s.restoreMetadataOffsetStates(snapshot)
+}
+
+func (s *StorxMetadataStore) restoreMetadataOffsetStates(snapshot Snapshot) error {
+	states := restoreMemoryOffsetStates(snapshot.OffsetStates, snapshot.Offsets).Values()
+	entries := collectionlist.NewListWithCapacity[bboltx.Entry[string, ConsumerOffsetState]](len(states))
+	for _, state := range states {
+		if validateConsumerOffsetState(state) == nil {
+			entries.Add(bboltx.Entry[string, ConsumerOffsetState]{Key: offsetKey(state.Consumer, state.TopicPartition()), Value: state})
+		}
+	}
+	return wrapExternal(s.offsetStates.PutMany(context.Background(), entries.Values()...), "restore consumer offset states")
 }
 
 func (s *StorxMetadataStore) restoreMetadataConsumerPauses(pauses collectionlist.List[ConsumerPauseState]) error {

@@ -31,10 +31,12 @@ type produceBatchesResult struct {
 }
 
 type commitOffsetCommand struct {
-	Consumer   string
-	Topic      string
-	Partition  uint32
-	NextOffset uint64
+	Consumer    string
+	Topic       string
+	Partition   uint32
+	NextOffset  uint64
+	Metadata    string
+	UpdatedAtMS uint64
 }
 
 type commitOffsetsCommand struct {
@@ -99,6 +101,7 @@ type txCommitOffsetCommand struct {
 	Topic      string
 	Partition  uint32
 	NextOffset uint64
+	Metadata   string
 }
 
 type txBoundaryCommand struct {

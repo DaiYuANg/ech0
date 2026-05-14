@@ -23,6 +23,7 @@ func (s *StorxMetadataStore) Snapshot() (Snapshot, error) {
 type storxSnapshotCatalog struct {
 	topics         []TopicConfig
 	offsets        *collectionmapping.Map[string, uint64]
+	offsetStates   []ConsumerOffsetState
 	consumerPauses []ConsumerPauseState
 	placements     []ShardPlacement
 	members        []ConsumerGroupMember
@@ -54,6 +55,10 @@ func (s *StorxMetadataStore) snapshotCatalogMetadata() (storxSnapshotCatalog, er
 	if err != nil {
 		return storxSnapshotCatalog{}, err
 	}
+	offsetStates, err := s.ListConsumerOffsetStates()
+	if err != nil {
+		return storxSnapshotCatalog{}, err
+	}
 	consumerPauses, err := s.ListConsumerPauses()
 	if err != nil {
 		return storxSnapshotCatalog{}, err
@@ -65,6 +70,7 @@ func (s *StorxMetadataStore) snapshotCatalogMetadata() (storxSnapshotCatalog, er
 	return storxSnapshotCatalog{
 		topics:         topics,
 		offsets:        offsets,
+		offsetStates:   offsetStates,
 		consumerPauses: consumerPauses,
 		placements:     placements,
 		members:        members,
@@ -118,6 +124,7 @@ func buildStorxSnapshot(catalog storxSnapshotCatalog, runtime storxSnapshotRunti
 	return Snapshot{
 		Topics:            *collectionlist.NewListWithCapacity[TopicConfig](len(catalog.topics), catalog.topics...),
 		Offsets:           *catalog.offsets,
+		OffsetStates:      *collectionlist.NewListWithCapacity[ConsumerOffsetState](len(catalog.offsetStates), catalog.offsetStates...),
 		ConsumerPauses:    *collectionlist.NewListWithCapacity[ConsumerPauseState](len(catalog.consumerPauses), catalog.consumerPauses...),
 		Placements:        *collectionlist.NewListWithCapacity[ShardPlacement](len(catalog.placements), catalog.placements...),
 		Members:           *collectionlist.NewListWithCapacity[ConsumerGroupMember](len(catalog.members), catalog.members...),

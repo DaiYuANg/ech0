@@ -108,6 +108,7 @@ func (s *TCPServer) handleTxCommitOffsetFrame(ctx context.Context, frame transpo
 		Topic:      req.Topic,
 		Partition:  req.Partition,
 		NextOffset: req.NextOffset,
+		Metadata:   req.Metadata,
 	})
 	if err != nil {
 		return errorFromErr(err), nil
@@ -119,6 +120,7 @@ func (s *TCPServer) handleTxCommitOffsetFrame(ctx context.Context, frame transpo
 		Topic:      result.Offset.Topic,
 		Partition:  result.Offset.Partition,
 		NextOffset: result.Offset.NextOffset,
+		Metadata:   result.Offset.Metadata,
 	})
 }
 

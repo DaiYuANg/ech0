@@ -41,6 +41,7 @@ type TransactionOffsetCommit struct {
 	Topic      string
 	Partition  uint32
 	NextOffset uint64
+	Metadata   string
 }
 
 type TransactionOffsetCommitResult struct {

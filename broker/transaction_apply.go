@@ -132,6 +132,7 @@ func (b *Broker) applyTxCommitOffset(_ context.Context, req txCommitOffsetComman
 		Topic:      req.Topic,
 		Partition:  req.Partition,
 		NextOffset: req.NextOffset,
+		Metadata:   req.Metadata,
 	}
 	if transactionOffsetConsumer(offset) == "" {
 		return TransactionOffsetCommitResult{}, brokerStoreError(store.CodeInvalidArgument, "transactional offset commit requires consumer or group")
@@ -154,7 +155,15 @@ func (b *Broker) applyTxCommit(_ context.Context, req txBoundaryCommand) (Transa
 	}
 	for _, offset := range state.OffsetCommits {
 		consumer := transactionOffsetConsumer(offset)
-		if err := b.queue.Ack(consumer, offset.Topic, offset.Partition, offset.NextOffset); err != nil {
+		offsetState := store.ConsumerOffsetState{
+			Consumer:    consumer,
+			Topic:       offset.Topic,
+			Partition:   offset.Partition,
+			NextOffset:  offset.NextOffset,
+			Metadata:    offset.Metadata,
+			UpdatedAtMS: store.NowMS(),
+		}
+		if err := b.meta.SaveConsumerOffsetState(offsetState); err != nil {
 			return TransactionBoundaryResult{}, wrapBroker("tx_commit_offset_failed", err, "commit transactional offset")
 		}
 	}

@@ -150,7 +150,7 @@ func (s *TCPServer) handleCommitConsumerGroupOffsetFrame(ctx context.Context, fr
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	err := s.broker.CommitConsumerGroupOffset(ctx, req.Group, req.MemberID, req.Generation, req.Topic, req.Partition, req.NextOffset)
+	err := s.broker.CommitConsumerGroupOffsetWithMetadata(ctx, req.Group, req.MemberID, req.Generation, req.Topic, req.Partition, req.NextOffset, req.Metadata)
 	if err != nil {
 		return errorFromErr(err), nil
 	}

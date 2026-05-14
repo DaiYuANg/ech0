@@ -164,6 +164,7 @@ type TransactionOffsetCommit struct {
 	Topic      string `json:"topic"`
 	Partition  uint32 `json:"partition"`
 	NextOffset uint64 `json:"next_offset"`
+	Metadata   string `json:"metadata,omitempty"`
 }
 
 type TransactionPublishedBatch struct {

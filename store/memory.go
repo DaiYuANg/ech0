@@ -17,6 +17,7 @@ type MemoryStore struct {
 	records         *collectionmapping.Map[TopicPartition, []Record]
 	nextOffsets     *collectionmapping.Map[TopicPartition, uint64]
 	offsets         *collectionmapping.Map[string, uint64]
+	offsetStates    *collectionmapping.Map[string, ConsumerOffsetState]
 	consumerPauses  *collectionmapping.Map[string, ConsumerPauseState]
 	placements      *collectionmapping.Map[TopicPartition, ShardPlacement]
 	members         *collectionmapping.Map[string, ConsumerGroupMember]
@@ -35,6 +36,7 @@ func NewMemoryStore() *MemoryStore {
 		records:         collectionmapping.NewMap[TopicPartition, []Record](),
 		nextOffsets:     collectionmapping.NewMap[TopicPartition, uint64](),
 		offsets:         collectionmapping.NewMap[string, uint64](),
+		offsetStates:    collectionmapping.NewMap[string, ConsumerOffsetState](),
 		consumerPauses:  collectionmapping.NewMap[string, ConsumerPauseState](),
 		placements:      collectionmapping.NewMap[TopicPartition, ShardPlacement](),
 		members:         collectionmapping.NewMap[string, ConsumerGroupMember](),
@@ -223,18 +225,22 @@ func (s *MemoryStore) LastOffset(topicPartition TopicPartition) (*uint64, error)
 }
 
 func (s *MemoryStore) SaveConsumerOffset(consumer string, topicPartition TopicPartition, nextOffset uint64) error {
-	if consumer == "" {
-		return E(CodeInvalidArgument, "consumer is required")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.offsets.Set(offsetKey(consumer, topicPartition), nextOffset)
-	return nil
+	return s.SaveConsumerOffsetState(ConsumerOffsetState{
+		Consumer:    consumer,
+		Topic:       topicPartition.Topic,
+		Partition:   topicPartition.Partition,
+		NextOffset:  nextOffset,
+		UpdatedAtMS: NowMS(),
+	})
 }
 
 func (s *MemoryStore) LoadConsumerOffset(consumer string, topicPartition TopicPartition) (*uint64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	state, ok := s.offsetStates.Get(offsetKey(consumer, topicPartition))
+	if ok {
+		return &state.NextOffset, nil
+	}
 	value, ok := s.offsets.Get(offsetKey(consumer, topicPartition))
 	if !ok {
 		var absent *uint64

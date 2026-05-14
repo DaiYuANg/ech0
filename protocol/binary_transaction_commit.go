@@ -23,7 +23,7 @@ func writeTxCommitOffsetFields(writer *binaryWriter, req TxCommitOffsetRequest) 
 	}
 	writer.writeU32(req.Partition)
 	writer.writeU64(req.NextOffset)
-	return nil
+	return writer.writeString(req.Metadata)
 }
 
 func decodeTxCommitOffsetRequest(data []byte, target any) error {
@@ -60,6 +60,9 @@ func readTxCommitOffsetFields(reader *binaryReader, req TxCommitOffsetRequest) (
 	if req.NextOffset, err = reader.readU64(); err != nil {
 		return TxCommitOffsetRequest{}, err
 	}
+	if req.Metadata, err = reader.readString(); err != nil {
+		return TxCommitOffsetRequest{}, err
+	}
 	return req, nil
 }
 
@@ -77,7 +80,7 @@ func encodeTxCommitOffsetResponse(value any) ([]byte, error) {
 		}
 		writer.writeU32(resp.Partition)
 		writer.writeU64(resp.NextOffset)
-		return nil
+		return writer.writeString(resp.Metadata)
 	})
 }
 
@@ -107,6 +110,9 @@ func readTxCommitOffsetResponseTail(reader *binaryReader, resp TxCommitOffsetRes
 		return TxCommitOffsetResponse{}, err
 	}
 	if resp.NextOffset, err = reader.readU64(); err != nil {
+		return TxCommitOffsetResponse{}, err
+	}
+	if resp.Metadata, err = reader.readString(); err != nil {
 		return TxCommitOffsetResponse{}, err
 	}
 	return resp, nil

@@ -160,12 +160,35 @@ func (b *Broker) fetchScoped(ctx context.Context, consumer, topic string, partit
 }
 
 func (b *Broker) CommitOffset(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64) error {
+	return b.CommitOffsetWithMetadata(ctx, consumer, topic, partition, nextOffset, "")
+}
+
+func (b *Broker) CommitOffsetWithMetadata(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64, metadata string) error {
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionCommit, topicResource(identity, topic)); err != nil {
 		return err
 	}
-	req := commitOffsetCommand{Consumer: scopedName(identity, "consumer", consumer), Topic: scopedTopicName(identity, topic), Partition: partition, NextOffset: nextOffset}
+	req := commitOffsetCommand{
+		Consumer:    scopedName(identity, "consumer", consumer),
+		Topic:       scopedTopicName(identity, topic),
+		Partition:   partition,
+		NextOffset:  nextOffset,
+		Metadata:    metadata,
+		UpdatedAtMS: store.NowMS(),
+	}
 	return b.routeCommitOffset(ctx, req)
+}
+
+func (b *Broker) CommittedOffset(ctx context.Context, consumer, topic string, partition uint32) (*store.ConsumerOffsetState, error) {
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionDescribe, topicResource(identity, topic)); err != nil {
+		return nil, err
+	}
+	state, err := b.meta.LoadConsumerOffsetState(scopedName(identity, "consumer", consumer), store.NewTopicPartition(scopedTopicName(identity, topic), partition))
+	if err != nil {
+		return nil, wrapBrokerStore(err, "load committed offset")
+	}
+	return visibleConsumerOffsetState(identity, state), nil
 }
 
 func (b *Broker) ListTopics() ([]store.TopicConfig, error) {

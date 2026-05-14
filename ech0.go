@@ -21,6 +21,7 @@ type Broker struct {
 
 type metadataStore interface {
 	store.OffsetStore
+	store.OffsetMetadataStore
 	store.ConsumerPauseStore
 	store.TopicCatalogStore
 	store.ConsumerGroupStore

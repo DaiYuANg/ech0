@@ -122,7 +122,18 @@ func (b *Broker) recordBatchProduce(ctx context.Context, req produceBatchCommand
 
 func (b *Broker) applyCommitOffset(ctx context.Context, req commitOffsetCommand) (struct{}, error) {
 	_ = ctx
-	return struct{}{}, wrapBroker("commit_offset_failed", b.queue.Ack(req.Consumer, req.Topic, req.Partition, req.NextOffset), "commit offset")
+	state := store.ConsumerOffsetState{
+		Consumer:    req.Consumer,
+		Topic:       req.Topic,
+		Partition:   req.Partition,
+		NextOffset:  req.NextOffset,
+		Metadata:    req.Metadata,
+		UpdatedAtMS: req.UpdatedAtMS,
+	}
+	if state.UpdatedAtMS == 0 {
+		state.UpdatedAtMS = store.NowMS()
+	}
+	return struct{}{}, wrapBrokerStore(b.meta.SaveConsumerOffsetState(state), "commit offset")
 }
 
 type commitOffsetApplyKey struct {
@@ -154,7 +165,7 @@ func compactCommitOffsetCommands(commands []commitOffsetCommand) *collectionmapp
 	for _, command := range commands {
 		key := commitOffsetKey(command)
 		existing, ok := compacted.Get(key)
-		if !ok || command.NextOffset > existing.NextOffset {
+		if !ok || command.NextOffset >= existing.NextOffset {
 			compacted.Set(key, command)
 		}
 	}

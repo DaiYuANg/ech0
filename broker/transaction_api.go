@@ -100,6 +100,7 @@ func (b *Broker) CommitTransactionOffset(
 		Topic:      scopedTopicName(identityScope, offset.Topic),
 		Partition:  offset.Partition,
 		NextOffset: offset.NextOffset,
+		Metadata:   offset.Metadata,
 	}
 	return routeMetadataCommand(ctx, b, raftCommandTxCommitOffset, req, b.applyTxCommitOffset)
 }

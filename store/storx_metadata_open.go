@@ -63,6 +63,7 @@ func newStorxMetadataStore(db *bboltx.DB) *StorxMetadataStore {
 		db:                  db,
 		topics:              bboltx.NewBucketWithDB(db, bucketTopics, keyCodec, codec.JSON[TopicConfig]()),
 		offsets:             bboltx.NewBucketWithDB(db, bucketOffsets, keyCodec, codec.JSON[uint64]()),
+		offsetStates:        bboltx.NewBucketWithDB(db, bucketOffsetStates, keyCodec, codec.JSON[ConsumerOffsetState]()),
 		consumerPauses:      bboltx.NewBucketWithDB(db, bucketConsumerPauses, keyCodec, codec.JSON[ConsumerPauseState]()),
 		members:             members,
 		membersByGroup:      membersByGroup,

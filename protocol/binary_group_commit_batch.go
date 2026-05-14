@@ -4,7 +4,7 @@ func encodeCommitConsumerGroupOffsetRequest(value any) ([]byte, error) {
 	return encodeWith(value, func(writer *binaryWriter, req CommitConsumerGroupOffsetRequest) error {
 		return writeGroupOffset(writer, groupOffsetFields{
 			group: req.Group, memberID: req.MemberID, generation: req.Generation,
-			topic: req.Topic, partition: req.Partition, nextOffset: req.NextOffset,
+			topic: req.Topic, partition: req.Partition, nextOffset: req.NextOffset, metadata: req.Metadata,
 		})
 	})
 }
@@ -14,7 +14,7 @@ func decodeCommitConsumerGroupOffsetRequest(data []byte, target any) error {
 		fields, err := readGroupOffset(reader)
 		return CommitConsumerGroupOffsetRequest{
 			Group: fields.group, MemberID: fields.memberID, Generation: fields.generation,
-			Topic: fields.topic, Partition: fields.partition, NextOffset: fields.nextOffset,
+			Topic: fields.topic, Partition: fields.partition, NextOffset: fields.nextOffset, Metadata: fields.metadata,
 		}, err
 	})
 }
@@ -23,7 +23,7 @@ func encodeCommitConsumerGroupOffsetResponse(value any) ([]byte, error) {
 	return encodeWith(value, func(writer *binaryWriter, resp CommitConsumerGroupOffsetResponse) error {
 		return writeGroupOffset(writer, groupOffsetFields{
 			group: resp.Group, memberID: resp.MemberID, generation: resp.Generation,
-			topic: resp.Topic, partition: resp.Partition, nextOffset: resp.NextOffset,
+			topic: resp.Topic, partition: resp.Partition, nextOffset: resp.NextOffset, metadata: resp.Metadata,
 		})
 	})
 }
@@ -33,7 +33,7 @@ func decodeCommitConsumerGroupOffsetResponse(data []byte, target any) error {
 		fields, err := readGroupOffset(reader)
 		return CommitConsumerGroupOffsetResponse{
 			Group: fields.group, MemberID: fields.memberID, Generation: fields.generation,
-			Topic: fields.topic, Partition: fields.partition, NextOffset: fields.nextOffset,
+			Topic: fields.topic, Partition: fields.partition, NextOffset: fields.nextOffset, Metadata: fields.metadata,
 		}, err
 	})
 }
@@ -45,6 +45,7 @@ type groupOffsetFields struct {
 	topic      string
 	partition  uint32
 	nextOffset uint64
+	metadata   string
 }
 
 func writeGroupOffset(writer *binaryWriter, fields groupOffsetFields) error {
@@ -60,7 +61,7 @@ func writeGroupOffset(writer *binaryWriter, fields groupOffsetFields) error {
 	}
 	writer.writeU32(fields.partition)
 	writer.writeU64(fields.nextOffset)
-	return nil
+	return writer.writeString(fields.metadata)
 }
 
 func readGroupOffset(reader *binaryReader) (groupOffsetFields, error) {
@@ -89,9 +90,14 @@ func readGroupOffsetTail(reader *binaryReader, fields groupOffsetFields) (groupO
 		return groupOffsetFields{}, err
 	}
 	nextOffset, err := reader.readU64()
+	if err != nil {
+		return groupOffsetFields{}, err
+	}
+	metadata, err := reader.readString()
 	fields.topic = topic
 	fields.partition = partition
 	fields.nextOffset = nextOffset
+	fields.metadata = metadata
 	return fields, err
 }
 

@@ -111,6 +111,10 @@ func (tx *Transaction) PublishBatch(ctx context.Context, topic string, payloads 
 }
 
 func (tx *Transaction) CommitOffset(ctx context.Context, consumer string, msg Message) error {
+	return tx.CommitOffsetWithMetadata(ctx, consumer, msg, "")
+}
+
+func (tx *Transaction) CommitOffsetWithMetadata(ctx context.Context, consumer string, msg Message, metadata string) error {
 	if err := tx.ensureOpen(); err != nil {
 		return err
 	}
@@ -119,6 +123,7 @@ func (tx *Transaction) CommitOffset(ctx context.Context, consumer string, msg Me
 		Topic:      msg.Topic,
 		Partition:  msg.Partition,
 		NextOffset: msg.NextOffset,
+		Metadata:   metadata,
 	})
 	return oops.In("embedded").Code("transaction_offset_failed").With("consumer", consumer, "topic", msg.Topic).Wrapf(err, "stage transaction offset")
 }

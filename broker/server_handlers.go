@@ -224,7 +224,7 @@ func (s *TCPServer) handleCommitOffsetFrame(ctx context.Context, frame transport
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	if err := s.broker.CommitOffset(ctx, req.Consumer, req.Topic, req.Partition, req.NextOffset); err != nil {
+	if err := s.broker.CommitOffsetWithMetadata(ctx, req.Consumer, req.Topic, req.Partition, req.NextOffset, req.Metadata); err != nil {
 		return errorFromErr(err), nil
 	}
 	return okFrame(protocol.CmdCommitOffsetResponse, protocol.CommitOffsetResponse(req))

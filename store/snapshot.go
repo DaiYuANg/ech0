@@ -11,6 +11,7 @@ type Snapshot struct {
 	Records           collectionmapping.Map[string, []Record]      `json:"records"`
 	LogOffsets        collectionmapping.Map[string, uint64]        `json:"log_offsets"`
 	Offsets           collectionmapping.Map[string, uint64]        `json:"offsets"`
+	OffsetStates      collectionlist.List[ConsumerOffsetState]     `json:"offset_states"`
 	ConsumerPauses    collectionlist.List[ConsumerPauseState]      `json:"consumer_pauses"`
 	Placements        collectionlist.List[ShardPlacement]          `json:"shard_placements"`
 	Members           collectionlist.List[ConsumerGroupMember]     `json:"members"`
@@ -30,6 +31,7 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		Records:           *collectionmapping.NewMapWithCapacity[string, []Record](s.records.Len()),
 		LogOffsets:        *collectionmapping.NewMapWithCapacity[string, uint64](s.nextOffsets.Len()),
 		Offsets:           *collectionmapping.NewMapWithCapacity[string, uint64](s.offsets.Len()),
+		OffsetStates:      *collectionlist.NewListWithCapacity[ConsumerOffsetState](s.offsetStates.Len()),
 		ConsumerPauses:    *collectionlist.NewListWithCapacity[ConsumerPauseState](s.consumerPauses.Len()),
 		Placements:        *collectionlist.NewListWithCapacity[ShardPlacement](s.placements.Len()),
 		Members:           *collectionlist.NewListWithCapacity[ConsumerGroupMember](s.members.Len()),
@@ -56,6 +58,9 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		snap.Offsets.Set(key, value)
 		return true
 	})
+	for _, state := range sortConsumerOffsetStates(s.offsetStates.Values()) {
+		snap.OffsetStates.Add(state)
+	}
 	for _, state := range sortConsumerPauses(s.consumerPauses.Values()) {
 		snap.ConsumerPauses.Add(state)
 	}
@@ -107,6 +112,7 @@ func (s *MemoryStore) Restore(snapshot Snapshot) error {
 	s.records = state.records
 	s.nextOffsets = state.nextOffsets
 	s.offsets = state.offsets
+	s.offsetStates = state.offsetStates
 	s.consumerPauses = state.consumerPauses
 	s.placements = state.placements
 	s.members = state.members
@@ -125,6 +131,7 @@ type memoryRestoreState struct {
 	records         *collectionmapping.Map[TopicPartition, []Record]
 	nextOffsets     *collectionmapping.Map[TopicPartition, uint64]
 	offsets         *collectionmapping.Map[string, uint64]
+	offsetStates    *collectionmapping.Map[string, ConsumerOffsetState]
 	consumerPauses  *collectionmapping.Map[string, ConsumerPauseState]
 	placements      *collectionmapping.Map[TopicPartition, ShardPlacement]
 	members         *collectionmapping.Map[string, ConsumerGroupMember]
@@ -150,6 +157,7 @@ func buildMemoryRestoreState(snapshot Snapshot) (memoryRestoreState, error) {
 		records:         records,
 		nextOffsets:     restoreMemoryLogOffsets(snapshot.LogOffsets, records),
 		offsets:         restoreMemoryOffsets(snapshot.Offsets),
+		offsetStates:    restoreMemoryOffsetStates(snapshot.OffsetStates, snapshot.Offsets),
 		consumerPauses:  restoreMemoryConsumerPauses(snapshot.ConsumerPauses),
 		placements:      restoreMemoryShardPlacements(snapshot.Placements),
 		members:         restoreMemoryMembers(snapshot.Members),

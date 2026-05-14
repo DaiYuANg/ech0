@@ -12,6 +12,7 @@ import (
 const (
 	bucketTopics              = "topics"
 	bucketOffsets             = "offsets"
+	bucketOffsetStates        = "offset_states"
 	bucketConsumerPauses      = "consumer_pauses"
 	bucketMembers             = "group_members"
 	bucketMembersGroup        = "group_members_by_group"
@@ -32,6 +33,7 @@ type StorxMetadataStore struct {
 	db                  *bboltx.DB
 	topics              *bboltx.Bucket[string, TopicConfig]
 	offsets             *bboltx.Bucket[string, uint64]
+	offsetStates        *bboltx.Bucket[string, ConsumerOffsetState]
 	consumerPauses      *bboltx.Bucket[string, ConsumerPauseState]
 	members             *bboltx.ModelStore[string, ConsumerGroupMember]
 	membersByGroup      *bboltx.SecondaryIndexMany[string, ConsumerGroupMember, string]
@@ -87,6 +89,13 @@ func (s *StorxMetadataStore) ListTopics() ([]TopicConfig, error) {
 }
 
 func (s *StorxMetadataStore) LoadConsumerOffset(consumer string, topicPartition TopicPartition) (*uint64, error) {
+	state, err := s.LoadConsumerOffsetState(consumer, topicPartition)
+	if err != nil {
+		return nil, err
+	}
+	if state != nil {
+		return &state.NextOffset, nil
+	}
 	value, ok, err := s.offsets.Get(context.Background(), offsetKey(consumer, topicPartition))
 	if err != nil {
 		return nil, wrapExternal(err, "load consumer offset")
@@ -99,10 +108,13 @@ func (s *StorxMetadataStore) LoadConsumerOffset(consumer string, topicPartition 
 }
 
 func (s *StorxMetadataStore) SaveConsumerOffset(consumer string, topicPartition TopicPartition, nextOffset uint64) error {
-	if consumer == "" {
-		return E(CodeInvalidArgument, "consumer is required")
-	}
-	return wrapExternal(s.offsets.Put(context.Background(), offsetKey(consumer, topicPartition), nextOffset), "save consumer offset")
+	return s.SaveConsumerOffsetState(ConsumerOffsetState{
+		Consumer:    consumer,
+		Topic:       topicPartition.Topic,
+		Partition:   topicPartition.Partition,
+		NextOffset:  nextOffset,
+		UpdatedAtMS: NowMS(),
+	})
 }
 
 func (s *StorxMetadataStore) SaveGroupMember(member ConsumerGroupMember) error {

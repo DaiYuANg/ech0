@@ -208,7 +208,7 @@ func compactTransactionOffsetCommits(offsets []store.TransactionOffsetCommit) []
 	for _, offset := range offsets {
 		key := commitOffsetApplyKey{consumer: transactionOffsetConsumer(offset), topic: offset.Topic, partition: offset.Partition}
 		existing, ok := compacted.Get(key)
-		if !ok || offset.NextOffset > existing.NextOffset {
+		if !ok || offset.NextOffset >= existing.NextOffset {
 			compacted.Set(key, offset)
 		}
 	}
@@ -231,5 +231,6 @@ func transactionOffsetCommitFromStore(offset store.TransactionOffsetCommit) Tran
 		Topic:      offset.Topic,
 		Partition:  offset.Partition,
 		NextOffset: offset.NextOffset,
+		Metadata:   offset.Metadata,
 	}
 }

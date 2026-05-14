@@ -45,7 +45,7 @@ The first implementation cut should keep the public mental model small: existing
 - Done: transaction recovery tests across restart and cluster failover.
 - Done: seek by offset and seek by timestamp for consumers and consumer groups.
 - Done: pause and resume partition consumption for consumers and consumer groups.
-- Offset commit metadata.
+- Done: offset commit metadata for direct consumers, consumer groups, transactions, binary protocol, and persisted snapshots.
 - Replay by offset, timestamp, and cursor.
 - Stronger `read_committed` correctness tests.
 
