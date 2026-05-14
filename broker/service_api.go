@@ -161,11 +161,7 @@ func (b *Broker) CommitOffset(ctx context.Context, consumer, topic string, parti
 		return err
 	}
 	req := commitOffsetCommand{Consumer: scopedName(identity, "consumer", consumer), Topic: scopedTopicName(identity, topic), Partition: partition, NextOffset: nextOffset}
-	if b.usesClusterCommandRouter() {
-		return b.proposeCommitOffsetCoalesced(ctx, req)
-	}
-	_, err := routePartitionCommand(ctx, b, exactPartitionCommandTarget(req.Topic, partition), raftCommandCommitOffset, req, b.applyCommitOffset)
-	return err
+	return b.routeCommitOffset(ctx, req)
 }
 
 func (b *Broker) ListTopics() ([]store.TopicConfig, error) {

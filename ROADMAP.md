@@ -43,7 +43,7 @@ The first implementation cut should keep the public mental model small: existing
 - Done: transactional offset commit for consume-transform-produce workflows.
 - Done: producer fencing and transaction timeout cleanup.
 - Done: transaction recovery tests across restart and cluster failover.
-- Seek by offset and seek by timestamp.
+- Done: seek by offset and seek by timestamp for consumers and consumer groups.
 - Pause and resume partition consumption.
 - Offset commit metadata.
 - Replay by offset, timestamp, and cursor.

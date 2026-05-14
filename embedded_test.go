@@ -52,6 +52,26 @@ func TestEmbeddedTransactionFlow(t *testing.T) {
 	}
 }
 
+func TestEmbeddedSeekOffset(t *testing.T) {
+	ctx := context.Background()
+	b := openEmbeddedBroker(ctx, t)
+	defer closeEmbeddedBroker(ctx, t, b)
+
+	requireNoError(t, b.CreateTopic(ctx, "orders"))
+	publishEmbedded(ctx, t, b, "orders", []byte("m1"))
+	publishEmbedded(ctx, t, b, "orders", []byte("m2"))
+
+	result, err := b.SeekOffset(ctx, "c1", "orders", 0, 1)
+	requireNoError(t, err)
+	if result.Offset != 1 || result.Topic != "orders" {
+		t.Fatalf("unexpected seek result: %#v", result)
+	}
+	fetched := fetchEmbedded(ctx, t, b, "orders")
+	if len(fetched.Messages) != 1 || string(fetched.Messages[0].Payload) != "m2" {
+		t.Fatalf("unexpected fetched messages after seek: %#v", fetched)
+	}
+}
+
 func openEmbeddedBroker(ctx context.Context, t *testing.T) *ech0.Broker {
 	t.Helper()
 	b, err := ech0.Open(ctx, ech0.Options{DataDir: t.TempDir()})

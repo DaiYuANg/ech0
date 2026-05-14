@@ -111,11 +111,7 @@ func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID 
 		Partition:  partition,
 		NextOffset: nextOffset,
 	}
-	if b.usesClusterCommandRouter() {
-		return b.proposeCommitOffsetCoalesced(ctx, req)
-	}
-	_, err := routePartitionCommand(ctx, b, exactPartitionCommandTarget(req.Topic, partition), raftCommandCommitOffset, req, b.applyCommitOffset)
-	return err
+	return b.routeCommitOffset(ctx, req)
 }
 
 func (b *Broker) visibleGroupMember(identity Identity, member store.ConsumerGroupMember) store.ConsumerGroupMember {
