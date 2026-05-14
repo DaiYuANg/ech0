@@ -2,8 +2,10 @@ package broker_test
 
 import (
 	"context"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
 	broker "github.com/lyonbrown4d/ech0/broker"
 	"github.com/lyonbrown4d/ech0/protocol"
@@ -115,6 +117,44 @@ func TestTCPTransactionProtocolCommitsReadCommittedRecords(t *testing.T) {
 	})
 	if len(afterCommit.Records) != 1 || string(afterCommit.Records[0].Payload) != "m1" {
 		t.Fatalf("expected committed transactional record, got %#v", afterCommit)
+	}
+}
+
+func TestTCPServerAcceptsConnectionsAfterStartContextCanceled(t *testing.T) {
+	b := newTestBroker(t)
+	cfg := broker.DefaultConfig()
+	cfg.Broker.BindAddr = "127.0.0.1:0"
+	server := broker.NewTCPServer(cfg, b, nil, nil)
+	startCtx, cancelStart := context.WithCancel(context.Background())
+	requireNoError(t, server.Start(startCtx))
+	cancelStart()
+	t.Cleanup(func() {
+		stopCtx, cancelStop := context.WithTimeout(context.Background(), time.Second)
+		defer cancelStop()
+		requireNoError(t, server.Stop(stopCtx))
+	})
+
+	addr := server.Addr()
+	if addr == nil {
+		t.Fatal("tcp server address is nil")
+	}
+	dialCtx, cancelDial := context.WithTimeout(context.Background(), time.Second)
+	defer cancelDial()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "tcp", addr.String())
+	requireNoError(t, err)
+	defer func() {
+		requireNoError(t, conn.Close())
+	}()
+
+	body, err := protocol.EncodeBody(protocol.CmdPingRequest, protocol.PingRequest{Nonce: 42})
+	requireNoError(t, err)
+	frame, err := transport.NewFrame(protocol.Version, protocol.CmdPingRequest, body)
+	requireNoError(t, err)
+	requireNoError(t, transport.WriteFrame(conn, frame))
+	response, err := transport.ReadFrame(conn)
+	requireNoError(t, err)
+	if response.Header.Command != protocol.CmdPingResponse {
+		t.Fatalf("unexpected response command %d", response.Header.Command)
 	}
 }
 

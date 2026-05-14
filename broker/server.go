@@ -29,6 +29,8 @@ type TCPServer struct {
 	metrics  *MetricsRuntime
 	listener net.Listener
 	group    *errgroup.Group
+	serveCtx context.Context
+	cancel   context.CancelFunc
 	connSem  *semaphore.Weighted
 	limiter  *rate.Limiter
 	clients  *tcpConnectionIndex
@@ -60,7 +62,10 @@ func (s *TCPServer) Start(ctx context.Context) error {
 	if s.logger != nil {
 		s.logger.Info("tcp broker listening", "addr", s.addr)
 	}
-	group, groupCtx := errgroup.WithContext(ctx)
+	serveCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	group, groupCtx := errgroup.WithContext(serveCtx)
+	s.serveCtx = serveCtx
+	s.cancel = cancel
 	s.group = group
 	group.Go(func() error {
 		return s.acceptLoop(groupCtx)
@@ -69,6 +74,9 @@ func (s *TCPServer) Start(ctx context.Context) error {
 }
 
 func (s *TCPServer) Stop(ctx context.Context) error {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	var closeErr error
 	if s.listener != nil {
 		closeErr = s.listener.Close()
@@ -94,6 +102,13 @@ func (s *TCPServer) Stop(ctx context.Context) error {
 			waitErr,
 		)
 	}
+}
+
+func (s *TCPServer) Addr() net.Addr {
+	if s == nil || s.listener == nil {
+		return nil
+	}
+	return s.listener.Addr()
 }
 
 func (s *TCPServer) acceptLoop(ctx context.Context) error {
