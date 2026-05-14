@@ -41,8 +41,8 @@ The first implementation cut should keep the public mental model small: existing
 
 - Done: idempotent producer with producer ID, epoch, per-topic-partition sequence, broker-side dedupe window, TCP/raft protocol fields, and default embedded producer IDs.
 - Done: transactional offset commit for consume-transform-produce workflows.
-- In progress: producer fencing and transaction timeout cleanup.
-- Transaction recovery tests across restart and cluster failover.
+- Done: producer fencing and transaction timeout cleanup.
+- Done: transaction recovery tests across restart and cluster failover.
 - Seek by offset and seek by timestamp.
 - Pause and resume partition consumption.
 - Offset commit metadata.

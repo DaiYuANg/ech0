@@ -35,6 +35,25 @@ func waitForLeader(t *testing.T, b *broker.Broker) {
 	t.Fatalf("raft leader not elected: %#v", b.RuntimeHealth())
 }
 
+func waitForAnyLeader(t *testing.T, brokers []*broker.Broker) *broker.Broker {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, b := range brokers {
+			if b == nil {
+				continue
+			}
+			health := b.RuntimeHealth()
+			if health.Raft != nil && health.Raft.LocalIsLeader {
+				return b
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("raft cluster leader not elected")
+	return nil
+}
+
 func stopBroker(t *testing.T, b *broker.Broker) {
 	t.Helper()
 	stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
