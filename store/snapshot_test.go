@@ -31,6 +31,13 @@ func TestMemorySnapshotRoundTripsJSONWithCollectionLists(t *testing.T) {
 		},
 	}))
 	requireNoError(t, st.SaveShardPlacement(store.NewShardPlacement("orders", 0, 2)))
+	requireNoError(t, st.SaveConsumerPause(store.ConsumerPauseState{
+		Consumer:    "c1",
+		Topic:       "orders",
+		Partition:   0,
+		Paused:      true,
+		UpdatedAtMS: 100,
+	}))
 	requireNoError(t, st.SaveACLPolicy(store.ACLPolicy{
 		PolicyID:     "tenant-a-orders-produce",
 		Tenant:       "tenant-a",
@@ -71,6 +78,7 @@ func requireRestoredMemorySnapshot(t *testing.T, restored *store.MemoryStore) {
 	requireRestoredRecords(t, restored)
 	requireRestoredMembers(t, restored)
 	requireRestoredAssignment(t, restored)
+	requireRestoredConsumerPauses(t, restored)
 	requireRestoredShardPlacement(t, restored)
 	requireRestoredACLPolicies(t, restored)
 	requireRestoredProducerBatches(t, restored)
@@ -100,6 +108,15 @@ func requireRestoredAssignment(t *testing.T, restored *store.MemoryStore) {
 	requireNoError(t, err)
 	if assignment == nil || len(assignment.Assignments) != 1 {
 		t.Fatalf("unexpected restored assignment: %#v", assignment)
+	}
+}
+
+func requireRestoredConsumerPauses(t *testing.T, restored *store.MemoryStore) {
+	t.Helper()
+	state, err := restored.LoadConsumerPause("c1", store.NewTopicPartition("orders", 0))
+	requireNoError(t, err)
+	if state == nil || !state.Paused || state.UpdatedAtMS != 100 {
+		t.Fatalf("unexpected restored consumer pause: %#v", state)
 	}
 }
 

@@ -21,11 +21,12 @@ func (s *StorxMetadataStore) Snapshot() (Snapshot, error) {
 }
 
 type storxSnapshotCatalog struct {
-	topics      []TopicConfig
-	offsets     *collectionmapping.Map[string, uint64]
-	placements  []ShardPlacement
-	members     []ConsumerGroupMember
-	assignments []ConsumerGroupAssignment
+	topics         []TopicConfig
+	offsets        *collectionmapping.Map[string, uint64]
+	consumerPauses []ConsumerPauseState
+	placements     []ShardPlacement
+	members        []ConsumerGroupMember
+	assignments    []ConsumerGroupAssignment
 }
 
 type storxSnapshotRuntime struct {
@@ -53,16 +54,21 @@ func (s *StorxMetadataStore) snapshotCatalogMetadata() (storxSnapshotCatalog, er
 	if err != nil {
 		return storxSnapshotCatalog{}, err
 	}
+	consumerPauses, err := s.ListConsumerPauses()
+	if err != nil {
+		return storxSnapshotCatalog{}, err
+	}
 	placements, err := s.ListShardPlacements()
 	if err != nil {
 		return storxSnapshotCatalog{}, err
 	}
 	return storxSnapshotCatalog{
-		topics:      topics,
-		offsets:     offsets,
-		placements:  placements,
-		members:     members,
-		assignments: assignments,
+		topics:         topics,
+		offsets:        offsets,
+		consumerPauses: consumerPauses,
+		placements:     placements,
+		members:        members,
+		assignments:    assignments,
 	}, nil
 }
 
@@ -112,6 +118,7 @@ func buildStorxSnapshot(catalog storxSnapshotCatalog, runtime storxSnapshotRunti
 	return Snapshot{
 		Topics:            *collectionlist.NewListWithCapacity[TopicConfig](len(catalog.topics), catalog.topics...),
 		Offsets:           *catalog.offsets,
+		ConsumerPauses:    *collectionlist.NewListWithCapacity[ConsumerPauseState](len(catalog.consumerPauses), catalog.consumerPauses...),
 		Placements:        *collectionlist.NewListWithCapacity[ShardPlacement](len(catalog.placements), catalog.placements...),
 		Members:           *collectionlist.NewListWithCapacity[ConsumerGroupMember](len(catalog.members), catalog.members...),
 		Assignments:       *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](len(catalog.assignments), catalog.assignments...),

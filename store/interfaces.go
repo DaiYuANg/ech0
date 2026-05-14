@@ -29,6 +29,13 @@ type OffsetStore interface {
 	SaveConsumerOffset(consumer string, topicPartition TopicPartition, nextOffset uint64) error
 }
 
+type ConsumerPauseStore interface {
+	SaveConsumerPause(state ConsumerPauseState) error
+	LoadConsumerPause(consumer string, topicPartition TopicPartition) (*ConsumerPauseState, error)
+	ListConsumerPauses() ([]ConsumerPauseState, error)
+	DeleteConsumerPause(consumer string, topicPartition TopicPartition) error
+}
+
 type TopicCatalogStore interface {
 	SaveTopicConfig(topic TopicConfig) error
 	LoadTopicConfig(topic string) (*TopicConfig, error)

@@ -15,6 +15,7 @@ type snapshotJSON struct {
 	Records           json.RawMessage `json:"records"`
 	LogOffsets        json.RawMessage `json:"log_offsets"`
 	Offsets           json.RawMessage `json:"offsets"`
+	ConsumerPauses    json.RawMessage `json:"consumer_pauses"`
 	Placements        json.RawMessage `json:"shard_placements"`
 	Members           json.RawMessage `json:"members"`
 	Assignments       json.RawMessage `json:"assignments"`
@@ -30,6 +31,7 @@ type snapshotCollections struct {
 	records         *collectionmapping.Map[string, []Record]
 	logOffsets      *collectionmapping.Map[string, uint64]
 	offsets         *collectionmapping.Map[string, uint64]
+	consumerPauses  *collectionlist.List[ConsumerPauseState]
 	placements      *collectionlist.List[ShardPlacement]
 	members         *collectionlist.List[ConsumerGroupMember]
 	assignments     *collectionlist.List[ConsumerGroupAssignment]
@@ -61,6 +63,7 @@ func (s Snapshot) snapshotJSON() (snapshotJSON, error) {
 		{&wire.Records, &s.Records, "records"},
 		{&wire.LogOffsets, &s.LogOffsets, "log_offsets"},
 		{&wire.Offsets, &s.Offsets, "offsets"},
+		{&wire.ConsumerPauses, &s.ConsumerPauses, "consumer pauses"},
 		{&wire.Placements, &s.Placements, "shard placements"},
 		{&wire.Members, &s.Members, "members"},
 		{&wire.Assignments, &s.Assignments, "assignments"},
@@ -94,6 +97,7 @@ func (s *Snapshot) UnmarshalJSON(data []byte) error {
 		Records:           *collections.records,
 		LogOffsets:        *collections.logOffsets,
 		Offsets:           *collections.offsets,
+		ConsumerPauses:    *collections.consumerPauses,
 		Placements:        *collections.placements,
 		Members:           *collections.members,
 		Assignments:       *collections.assignments,
@@ -112,6 +116,7 @@ func unmarshalSnapshotCollections(wire snapshotJSON) (snapshotCollections, error
 		records:         collectionmapping.NewMap[string, []Record](),
 		logOffsets:      collectionmapping.NewMap[string, uint64](),
 		offsets:         collectionmapping.NewMap[string, uint64](),
+		consumerPauses:  collectionlist.NewList[ConsumerPauseState](),
 		placements:      collectionlist.NewList[ShardPlacement](),
 		members:         collectionlist.NewList[ConsumerGroupMember](),
 		assignments:     collectionlist.NewList[ConsumerGroupAssignment](),
@@ -128,6 +133,7 @@ func unmarshalSnapshotCollections(wire snapshotJSON) (snapshotCollections, error
 		{wire.Records, collections.records, "records"},
 		{wire.LogOffsets, collections.logOffsets, "log_offsets"},
 		{wire.Offsets, collections.offsets, "offsets"},
+		{wire.ConsumerPauses, collections.consumerPauses, "consumer pauses"},
 		{wire.Placements, collections.placements, "shard placements"},
 		{wire.Members, collections.members, "members"},
 		{wire.Assignments, collections.assignments, "assignments"},

@@ -7,6 +7,7 @@ const (
 	raftCommandProduceBatches  = "produce_batches"
 	raftCommandCommitOffset    = "commit_offset"
 	raftCommandCommitOffsets   = "commit_offsets"
+	raftCommandConsumerPause   = "consumer_pause"
 	raftCommandTxBegin         = "tx_begin"
 	raftCommandTxPublish       = "tx_publish"
 	raftCommandTxPublishBatch  = "tx_publish_batch"

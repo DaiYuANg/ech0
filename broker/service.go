@@ -57,6 +57,7 @@ type ProduceBatchResult struct {
 
 type metadataStore interface {
 	store.OffsetStore
+	store.ConsumerPauseStore
 	store.TopicCatalogStore
 	store.ConsumerGroupStore
 	store.BrokerStateStore

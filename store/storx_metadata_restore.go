@@ -8,40 +8,35 @@ import (
 )
 
 func (s *StorxMetadataStore) Restore(snapshot Snapshot) error {
-	if err := s.clearMetadataBuckets(); err != nil {
-		return err
+	for _, step := range s.restoreMetadataSteps(snapshot) {
+		if err := step(); err != nil {
+			return err
+		}
 	}
-	if err := s.restoreMetadataTopics(snapshot.Topics); err != nil {
-		return err
+	return nil
+}
+
+func (s *StorxMetadataStore) restoreMetadataSteps(snapshot Snapshot) []func() error {
+	return []func() error{
+		s.clearMetadataBuckets,
+		func() error { return s.restoreMetadataTopics(snapshot.Topics) },
+		func() error { return s.restoreMetadataOffsets(snapshot) },
+		func() error { return s.restoreMetadataConsumerPauses(snapshot.ConsumerPauses) },
+		func() error { return s.restoreMetadataShardPlacements(snapshot.Placements) },
+		func() error { return s.restoreMetadataMembers(snapshot.Members) },
+		func() error { return s.restoreMetadataAssignments(snapshot.Assignments) },
+		func() error { return s.restoreMetadataTransactions(snapshot) },
+		func() error { return s.restoreMetadataProducerBatches(snapshot.ProducerBatches) },
+		func() error { return s.restoreMetadataACLPolicies(snapshot.ACLPolicies) },
+		func() error { return s.restoreMetadataBrokerState(snapshot.BrokerState) },
 	}
-	if err := s.restoreMetadataOffsets(snapshot); err != nil {
-		return err
-	}
-	if err := s.restoreMetadataShardPlacements(snapshot.Placements); err != nil {
-		return err
-	}
-	if err := s.restoreMetadataMembers(snapshot.Members); err != nil {
-		return err
-	}
-	if err := s.restoreMetadataAssignments(snapshot.Assignments); err != nil {
-		return err
-	}
-	if err := s.restoreMetadataTransactions(snapshot); err != nil {
-		return err
-	}
-	if err := s.restoreMetadataProducerBatches(snapshot.ProducerBatches); err != nil {
-		return err
-	}
-	if err := s.restoreMetadataACLPolicies(snapshot.ACLPolicies); err != nil {
-		return err
-	}
-	return s.restoreMetadataBrokerState(snapshot.BrokerState)
 }
 
 func (s *StorxMetadataStore) clearMetadataBuckets() error {
 	for _, bucket := range []interface{ Clear(context.Context) error }{
 		bucketClearer[string, TopicConfig]{s.topics},
 		bucketClearer[string, uint64]{s.offsets},
+		bucketClearer[string, ConsumerPauseState]{s.consumerPauses},
 		bucketClearer[string, ConsumerGroupMember]{s.members.Repository().Bucket()},
 		bucketClearer[string, ConsumerGroupAssignment]{s.assignments},
 		bucketClearer[string, BrokerState]{s.brokerState},
@@ -80,6 +75,21 @@ func (s *StorxMetadataStore) restoreMetadataOffsets(snapshot Snapshot) error {
 		return true
 	})
 	return wrapExternal(s.offsets.PutMany(context.Background(), entries.Values()...), "restore consumer offsets")
+}
+
+func (s *StorxMetadataStore) restoreMetadataConsumerPauses(pauses collectionlist.List[ConsumerPauseState]) error {
+	var resultErr error
+	pauses.Range(func(_ int, state ConsumerPauseState) bool {
+		if !state.Paused {
+			return true
+		}
+		if err := s.SaveConsumerPause(state); err != nil {
+			resultErr = err
+			return false
+		}
+		return true
+	})
+	return resultErr
 }
 
 func (s *StorxMetadataStore) restoreMetadataShardPlacements(placements collectionlist.List[ShardPlacement]) error {

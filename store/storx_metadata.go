@@ -12,6 +12,7 @@ import (
 const (
 	bucketTopics              = "topics"
 	bucketOffsets             = "offsets"
+	bucketConsumerPauses      = "consumer_pauses"
 	bucketMembers             = "group_members"
 	bucketMembersGroup        = "group_members_by_group"
 	bucketAssignments         = "group_assignments"
@@ -31,6 +32,7 @@ type StorxMetadataStore struct {
 	db                  *bboltx.DB
 	topics              *bboltx.Bucket[string, TopicConfig]
 	offsets             *bboltx.Bucket[string, uint64]
+	consumerPauses      *bboltx.Bucket[string, ConsumerPauseState]
 	members             *bboltx.ModelStore[string, ConsumerGroupMember]
 	membersByGroup      *bboltx.SecondaryIndexMany[string, ConsumerGroupMember, string]
 	assignments         *bboltx.Bucket[string, ConsumerGroupAssignment]

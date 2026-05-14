@@ -49,6 +49,14 @@ type commitOffsetsResult struct {
 	Items []commitOffsetItemResult
 }
 
+type consumerPauseCommand struct {
+	Consumer    string
+	Topic       string
+	Partition   uint32
+	Paused      bool
+	UpdatedAtMS uint64
+}
+
 type TransactionIdentity struct {
 	TxID          uint64
 	ProducerID    uint64

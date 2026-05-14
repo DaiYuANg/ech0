@@ -13,16 +13,16 @@ func TestEmbeddedBrokerMinimalFlow(t *testing.T) {
 	defer closeEmbeddedBroker(ctx, t, b)
 
 	requireNoError(t, b.CreateTopic(ctx, "orders"))
-	produced := publishEmbedded(ctx, t, b, "orders", []byte("m1"))
+	produced := publishEmbedded(ctx, t, b, []byte("m1"))
 	if produced.Topic != "orders" || produced.NextOffset != produced.Offset+1 {
 		t.Fatalf("unexpected produced message: %#v", produced)
 	}
-	fetched := fetchEmbedded(ctx, t, b, "orders")
+	fetched := fetchEmbedded(ctx, t, b)
 	if len(fetched.Messages) != 1 || string(fetched.Messages[0].Payload) != "m1" {
 		t.Fatalf("unexpected fetched messages: %#v", fetched)
 	}
 	requireNoError(t, b.Ack(ctx, "c1", fetched.Messages[0]))
-	fetched = fetchEmbedded(ctx, t, b, "orders")
+	fetched = fetchEmbedded(ctx, t, b)
 	if len(fetched.Messages) != 0 {
 		t.Fatalf("expected no messages after ack, got %#v", fetched)
 	}
@@ -58,15 +58,15 @@ func TestEmbeddedSeekOffset(t *testing.T) {
 	defer closeEmbeddedBroker(ctx, t, b)
 
 	requireNoError(t, b.CreateTopic(ctx, "orders"))
-	publishEmbedded(ctx, t, b, "orders", []byte("m1"))
-	publishEmbedded(ctx, t, b, "orders", []byte("m2"))
+	publishEmbedded(ctx, t, b, []byte("m1"))
+	publishEmbedded(ctx, t, b, []byte("m2"))
 
 	result, err := b.SeekOffset(ctx, "c1", "orders", 0, 1)
 	requireNoError(t, err)
 	if result.Offset != 1 || result.Topic != "orders" {
 		t.Fatalf("unexpected seek result: %#v", result)
 	}
-	fetched := fetchEmbedded(ctx, t, b, "orders")
+	fetched := fetchEmbedded(ctx, t, b)
 	if len(fetched.Messages) != 1 || string(fetched.Messages[0].Payload) != "m2" {
 		t.Fatalf("unexpected fetched messages after seek: %#v", fetched)
 	}
@@ -84,16 +84,16 @@ func closeEmbeddedBroker(ctx context.Context, t *testing.T, b *ech0.Broker) {
 	requireNoError(t, b.Close(ctx))
 }
 
-func publishEmbedded(ctx context.Context, t *testing.T, b *ech0.Broker, topic string, payload []byte) ech0.Message {
+func publishEmbedded(ctx context.Context, t *testing.T, b *ech0.Broker, payload []byte) ech0.Message {
 	t.Helper()
-	produced, err := b.Publish(ctx, topic, payload)
+	produced, err := b.Publish(ctx, "orders", payload)
 	requireNoError(t, err)
 	return produced
 }
 
-func fetchEmbedded(ctx context.Context, t *testing.T, b *ech0.Broker, topic string) ech0.FetchResult {
+func fetchEmbedded(ctx context.Context, t *testing.T, b *ech0.Broker) ech0.FetchResult {
 	t.Helper()
-	fetched, err := b.Fetch(ctx, "c1", topic, ech0.FetchLimit(10))
+	fetched, err := b.Fetch(ctx, "c1", "orders", ech0.FetchLimit(10))
 	requireNoError(t, err)
 	return fetched
 }

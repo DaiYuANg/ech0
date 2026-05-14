@@ -33,6 +33,14 @@ type ShardPlacement struct {
 	ShardID   ShardID `json:"shard_id"`
 }
 
+type ConsumerPauseState struct {
+	Consumer    string `json:"consumer"`
+	Topic       string `json:"topic"`
+	Partition   uint32 `json:"partition"`
+	Paused      bool   `json:"paused"`
+	UpdatedAtMS uint64 `json:"updated_at_ms"`
+}
+
 func NewTopicPartition(topic string, partition uint32) TopicPartition {
 	return TopicPartition{Topic: topic, Partition: partition}
 }

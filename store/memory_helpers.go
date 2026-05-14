@@ -10,6 +10,10 @@ func offsetKey(consumer string, tp TopicPartition) string {
 	return fmt.Sprintf("%s\x00%s\x00%d", consumer, tp.Topic, tp.Partition)
 }
 
+func consumerPauseKey(consumer string, tp TopicPartition) string {
+	return offsetKey(consumer, tp)
+}
+
 func producerBatchKey(batch ProducerPublishedBatch) string {
 	return fmt.Sprintf("%d\x00%d\x00%s\x00%d\x00%d", batch.ProducerID, batch.ProducerEpoch, batch.Topic, batch.Partition, batch.BaseSequence)
 }

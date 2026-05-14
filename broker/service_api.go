@@ -146,6 +146,10 @@ func (b *Broker) fetchScoped(ctx context.Context, consumer, topic string, partit
 	if maxRecords <= 0 || maxRecords > b.cfg.Broker.MaxFetchRecords {
 		maxRecords = b.cfg.Broker.MaxFetchRecords
 	}
+	paused, isPaused, err := b.pausedPollResult(consumer, topic, partition, offset)
+	if err != nil || isPaused {
+		return paused, err
+	}
 	fetchStart := time.Now()
 	poll, err = b.queue.Fetch(consumer, topic, partition, offset, maxRecords)
 	b.recordFetchStage(ctx, operation, "queue_fetch", len(poll.Records), fetchStart, err)

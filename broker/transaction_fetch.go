@@ -47,6 +47,10 @@ func (b *Broker) fetchWithIsolationScoped(
 	if maxRecords <= 0 || maxRecords > b.cfg.Broker.MaxFetchRecords {
 		maxRecords = b.cfg.Broker.MaxFetchRecords
 	}
+	paused, isPaused, err := b.pausedPollResult(consumer, topic, partition, offset)
+	if err != nil || isPaused {
+		return paused, err
+	}
 	nextOffset, err := b.fetchStartOffset(consumer, topic, partition, offset)
 	if err != nil {
 		return store.PollResult{}, err
