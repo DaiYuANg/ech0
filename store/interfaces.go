@@ -64,6 +64,12 @@ type TransactionStore interface {
 	ListTransactions() ([]TransactionState, error)
 }
 
+type ProducerBatchStore interface {
+	SaveProducerBatch(batch ProducerPublishedBatch) error
+	ListProducerBatches(filter ProducerBatchFilter) ([]ProducerPublishedBatch, error)
+	DeleteProducerBatch(batch ProducerPublishedBatch) error
+}
+
 type ACLPolicyStore interface {
 	SaveACLPolicy(policy ACLPolicy) error
 	LoadACLPolicy(policyID string) (*ACLPolicy, error)

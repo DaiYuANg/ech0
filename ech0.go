@@ -25,6 +25,7 @@ type metadataStore interface {
 	store.ConsumerGroupStore
 	store.BrokerStateStore
 	store.TransactionStore
+	store.ProducerBatchStore
 	store.ACLPolicyStore
 }
 

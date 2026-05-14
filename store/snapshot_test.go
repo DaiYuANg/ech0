@@ -42,6 +42,18 @@ func TestMemorySnapshotRoundTripsJSONWithCollectionLists(t *testing.T) {
 		Effect:       store.ACLPolicyEffectAllow,
 		Priority:     1,
 	}))
+	requireNoError(t, st.SaveProducerBatch(store.ProducerPublishedBatch{
+		ProducerID:    7,
+		ProducerEpoch: 1,
+		Topic:         "orders",
+		Partition:     0,
+		BaseSequence:  10,
+		RecordCount:   1,
+		BaseOffset:    0,
+		LastOffset:    0,
+		NextOffset:    1,
+		UpdatedAtMS:   100,
+	}))
 	snapshot, err := st.Snapshot()
 	requireNoError(t, err)
 	raw, err := json.Marshal(snapshot)
@@ -61,6 +73,7 @@ func requireRestoredMemorySnapshot(t *testing.T, restored *store.MemoryStore) {
 	requireRestoredAssignment(t, restored)
 	requireRestoredShardPlacement(t, restored)
 	requireRestoredACLPolicies(t, restored)
+	requireRestoredProducerBatches(t, restored)
 }
 
 func requireRestoredRecords(t *testing.T, restored *store.MemoryStore) {
@@ -105,5 +118,14 @@ func requireRestoredACLPolicies(t *testing.T, restored *store.MemoryStore) {
 	requireNoError(t, err)
 	if len(policies) != 1 || policies[0].PolicyID != "tenant-a-orders-produce" || len(policies[0].Actions) != 1 {
 		t.Fatalf("unexpected restored acl policies: %#v", policies)
+	}
+}
+
+func requireRestoredProducerBatches(t *testing.T, restored *store.MemoryStore) {
+	t.Helper()
+	batches, err := restored.ListProducerBatches(store.ProducerBatchFilter{ProducerID: 7})
+	requireNoError(t, err)
+	if len(batches) != 1 || batches[0].BaseSequence != 10 || batches[0].NextOffset != 1 {
+		t.Fatalf("unexpected restored producer batches: %#v", batches)
 	}
 }

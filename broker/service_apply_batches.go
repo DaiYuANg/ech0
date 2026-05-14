@@ -74,6 +74,10 @@ func (b *Broker) applyProduceBatchGroup(ctx context.Context, requests []produceB
 		setProduceBatchGroupError(items, group.indexes, err)
 		return
 	}
+	if groupHasIdempotentProduce(requests, group.indexes) {
+		b.applyProduceBatchGroupIndividually(ctx, requests, group, items)
+		return
+	}
 	records, err := b.queue.PublishBatchRecords(group.tp.Topic, group.tp.Partition, groupRecords(requests, group.indexes))
 	if err != nil {
 		setProduceBatchGroupError(items, group.indexes, wrapBroker("publish_batch_failed", err, "publish record batch"))
@@ -81,6 +85,28 @@ func (b *Broker) applyProduceBatchGroup(ctx context.Context, requests []produceB
 	}
 	if splitErr := splitProduceBatchGroupRecords(requests, group, records, items); splitErr != nil {
 		setProduceBatchGroupError(items, group.indexes, splitErr)
+	}
+}
+
+func groupHasIdempotentProduce(requests []produceBatchCommand, indexes []int) bool {
+	for _, index := range indexes {
+		if requests[index].Idempotency != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Broker) applyProduceBatchGroupIndividually(ctx context.Context, requests []produceBatchCommand, group produceBatchGroup, items []produceBatchItemResult) {
+	for _, index := range group.indexes {
+		command := requests[index]
+		command.Partitioning = PublishPartitioning{Mode: PartitionExplicit, Partition: group.tp.Partition}
+		item, err := b.applyProduceBatchInternal(ctx, command)
+		if err != nil {
+			items[index].Error = errorMessage(err)
+			continue
+		}
+		items[index] = item
 	}
 }
 
@@ -113,6 +139,7 @@ func splitProduceBatchGroupRecords(
 				Partition: group.tp.Partition,
 				Records:   records[cursor : cursor+count],
 			},
+			Appended: true,
 		}
 		cursor += count
 	}
@@ -131,7 +158,7 @@ func setProduceBatchGroupError(items []produceBatchItemResult, indexes []int, er
 
 func (b *Broker) recordProduceBatchItems(ctx context.Context, requests []produceBatchCommand, items []produceBatchItemResult) {
 	for index, item := range items {
-		if item.Error == "" {
+		if item.Error == "" && item.Appended {
 			b.recordBatchProduce(ctx, requests[index], item.Result.Partition, item.Result.Records)
 		}
 	}

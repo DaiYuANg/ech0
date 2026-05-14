@@ -113,7 +113,7 @@ func (s *TCPServer) handleProduceFrame(ctx context.Context, frame transport.Fram
 	if req.Tombstone {
 		record.Attributes |= store.RecordAttributeTombstone
 	}
-	result, err := s.broker.PublishRecord(ctx, req.Topic, partitioningFromProtocol(req.Partitioning, req.Partition), record)
+	result, err := s.publishProtocolRecord(ctx, req, record)
 	if err != nil {
 		return errorFromErr(err), nil
 	}
@@ -133,7 +133,7 @@ func (s *TCPServer) handleProduceBatchFrame(ctx context.Context, frame transport
 	if err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	result, err := s.broker.PublishBatch(ctx, req.Topic, partitioningFromProtocol(req.Partitioning, req.Partition), records)
+	result, err := s.publishProtocolBatch(ctx, req, records)
 	if err != nil {
 		return errorFromErr(err), nil
 	}
@@ -167,6 +167,7 @@ func (s *TCPServer) handleProduceBatchesFrame(ctx context.Context, frame transpo
 			Topic:        item.Topic,
 			Partitioning: partitioningFromProtocol(item.Partitioning, item.Partition),
 			Records:      records,
+			Idempotency:  produceIdempotencyFromProtocol(item.Idempotency),
 		})
 		items.Add(protocol.ProduceBatchesItemResponse{Topic: item.Topic})
 	}

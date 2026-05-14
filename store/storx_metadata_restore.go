@@ -29,6 +29,9 @@ func (s *StorxMetadataStore) Restore(snapshot Snapshot) error {
 	if err := s.restoreMetadataTransactions(snapshot); err != nil {
 		return err
 	}
+	if err := s.restoreMetadataProducerBatches(snapshot.ProducerBatches); err != nil {
+		return err
+	}
 	if err := s.restoreMetadataACLPolicies(snapshot.ACLPolicies); err != nil {
 		return err
 	}
@@ -45,6 +48,7 @@ func (s *StorxMetadataStore) clearMetadataBuckets() error {
 		bucketClearer[string, ShardPlacement]{s.placements},
 		bucketClearer[string, TransactionState]{s.transactions},
 		bucketClearer[string, uint64]{s.transactionCounters},
+		bucketClearer[string, ProducerPublishedBatch]{s.producerBatches},
 		bucketClearer[string, ACLPolicy]{s.aclPolicies},
 	} {
 		if err := bucket.Clear(context.Background()); err != nil {
@@ -132,4 +136,18 @@ func (s *StorxMetadataStore) restoreMetadataACLPolicies(policies collectionlist.
 		return true
 	})
 	return wrapExternal(s.aclPolicies.PutMany(context.Background(), entries.Values()...), "restore acl policies")
+}
+
+func (s *StorxMetadataStore) restoreMetadataProducerBatches(batches collectionlist.List[ProducerPublishedBatch]) error {
+	entries := collectionlist.NewListWithCapacity[bboltx.Entry[string, ProducerPublishedBatch]](batches.Len())
+	batches.Range(func(_ int, batch ProducerPublishedBatch) bool {
+		if validateProducerBatch(batch) == nil {
+			entries.Add(bboltx.Entry[string, ProducerPublishedBatch]{
+				Key:   producerBatchKey(batch),
+				Value: cloneProducerPublishedBatch(batch),
+			})
+		}
+		return true
+	})
+	return wrapExternal(s.producerBatches.PutMany(context.Background(), entries.Values()...), "restore producer batches")
 }

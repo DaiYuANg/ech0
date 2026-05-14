@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
-	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/arcgolabs/storx/bboltx"
 )
 
@@ -20,6 +19,7 @@ const (
 	bucketPlacements          = "shard_placements"
 	bucketTransactions        = "transactions"
 	bucketTransactionCounters = "transaction_counters"
+	bucketProducerBatches     = "producer_batches"
 	bucketACLPolicies         = "acl_policies"
 	brokerStateKey            = "current"
 	transactionCounterNext    = "next"
@@ -38,6 +38,7 @@ type StorxMetadataStore struct {
 	placements          *bboltx.Bucket[string, ShardPlacement]
 	transactions        *bboltx.Bucket[string, TransactionState]
 	transactionCounters *bboltx.Bucket[string, uint64]
+	producerBatches     *bboltx.Bucket[string, ProducerPublishedBatch]
 	aclPolicies         *bboltx.Bucket[string, ACLPolicy]
 	txMu                sync.Mutex
 }
@@ -211,60 +212,6 @@ func (s *StorxMetadataStore) LoadBrokerState() (*BrokerState, error) {
 		return absent, nil
 	}
 	return &state, nil
-}
-
-func (s *StorxMetadataStore) Snapshot() (Snapshot, error) {
-	topics, err := s.ListTopics()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	members, err := s.listAllMembers()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	assignments, err := s.ListGroupAssignments()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	state, err := s.LoadBrokerState()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	offsets := collectionmapping.NewMap[string, uint64]()
-	err = s.offsets.Walk(context.Background(), func(entry bboltx.Entry[string, uint64]) error {
-		offsets.Set(entry.Key, entry.Value)
-		return nil
-	})
-	if err != nil {
-		return Snapshot{}, wrapExternal(err, "walk consumer offsets")
-	}
-	placements, err := s.ListShardPlacements()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	transactions, err := s.ListTransactions()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	aclPolicies, err := s.ListACLPolicies(ACLPolicyFilter{})
-	if err != nil {
-		return Snapshot{}, err
-	}
-	nextTransactionID, err := s.loadNextTransactionID()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	return Snapshot{
-		Topics:            *collectionlist.NewListWithCapacity[TopicConfig](len(topics), topics...),
-		Offsets:           *offsets,
-		Placements:        *collectionlist.NewListWithCapacity[ShardPlacement](len(placements), placements...),
-		Members:           *collectionlist.NewListWithCapacity[ConsumerGroupMember](len(members), members...),
-		Assignments:       *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](len(assignments), assignments...),
-		Transactions:      *collectionlist.NewListWithCapacity[TransactionState](len(transactions), transactions...),
-		ACLPolicies:       *collectionlist.NewListWithCapacity[ACLPolicy](len(aclPolicies), aclPolicies...),
-		NextTransactionID: nextTransactionID,
-		BrokerState:       state,
-	}, nil
 }
 
 func (s *StorxMetadataStore) listAllMembers() ([]ConsumerGroupMember, error) {

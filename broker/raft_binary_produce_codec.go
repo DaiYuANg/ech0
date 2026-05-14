@@ -40,6 +40,7 @@ func writeBinaryProduceBatch(writer *raftBinaryWriter, item produceBatchCommand)
 	}
 	writer.writeU8(encodeRaftPartitioning(item.Partitioning.Mode))
 	writer.writeU32(item.Partitioning.Partition)
+	writeBinaryProduceIdempotency(writer, item.Idempotency)
 	recordCount, err := checkedRaftUint32(len(item.Records), "produce batch records")
 	if err != nil {
 		return err
@@ -94,6 +95,10 @@ func readBinaryProduceBatch(reader *raftBinaryReader) (produceBatchCommand, erro
 	if err != nil {
 		return produceBatchCommand{}, err
 	}
+	idempotency, err := readBinaryProduceIdempotency(reader)
+	if err != nil {
+		return produceBatchCommand{}, err
+	}
 	records, err := readBinaryRecordAppends(reader)
 	if err != nil {
 		return produceBatchCommand{}, err
@@ -102,7 +107,37 @@ func readBinaryProduceBatch(reader *raftBinaryReader) (produceBatchCommand, erro
 		Topic:        topic,
 		Partitioning: partitioning,
 		Records:      records,
+		Idempotency:  idempotency,
 	}, nil
+}
+
+func writeBinaryProduceIdempotency(writer *raftBinaryWriter, id *ProduceIdempotency) {
+	if id == nil {
+		writer.writeBool(false)
+		return
+	}
+	writer.writeBool(true)
+	writer.writeU64(id.ProducerID)
+	writer.writeU64(id.ProducerEpoch)
+	writer.writeU64(id.BaseSequence)
+}
+
+func readBinaryProduceIdempotency(reader *raftBinaryReader) (*ProduceIdempotency, error) {
+	ok, err := reader.readBool()
+	if err != nil || !ok {
+		return nil, err
+	}
+	id := ProduceIdempotency{}
+	if id.ProducerID, err = reader.readU64(); err != nil {
+		return nil, err
+	}
+	if id.ProducerEpoch, err = reader.readU64(); err != nil {
+		return nil, err
+	}
+	if id.BaseSequence, err = reader.readU64(); err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 func writeBinaryRecordAppend(writer *raftBinaryWriter, record store.RecordAppend) error {

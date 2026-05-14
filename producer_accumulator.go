@@ -100,17 +100,34 @@ func (p *Producer) publishBatch(batch producerBatch) {
 		records = append(records, item.record)
 		return true
 	})
-	result, err := p.broker.broker.PublishBatch(
-		p.ctx,
-		p.topic,
-		internalbroker.PublishPartitioning{Mode: internalbroker.PartitionExplicit, Partition: batch.partition},
-		records,
-	)
+	partitioning := internalbroker.PublishPartitioning{Mode: internalbroker.PartitionExplicit, Partition: batch.partition}
+	idempotency, enabled, err := p.batchIdempotency(batch.partition, len(records))
 	if err != nil {
-		completeProducerBatchError(batch, producerWrap("producer_batch_publish_failed", err, "publish producer batch"))
+		completeProducerBatchError(batch, err)
+		return
+	}
+	if !enabled {
+		idempotency = nil
+	}
+	result, err := p.publishBatchRecords(partitioning, records, idempotency)
+	if err != nil {
+		completeProducerBatchError(batch, err)
 		return
 	}
 	p.completeProducerBatch(batch, result)
+}
+
+func (p *Producer) publishBatchRecords(
+	partitioning internalbroker.PublishPartitioning,
+	records []store.RecordAppend,
+	idempotency *internalbroker.ProduceIdempotency,
+) (internalbroker.ProduceBatchResult, error) {
+	if idempotency == nil {
+		result, err := p.broker.broker.PublishBatch(p.ctx, p.topic, partitioning, records)
+		return result, producerWrap("producer_batch_publish_failed", err, "publish producer batch")
+	}
+	result, err := p.broker.broker.PublishBatchIdempotent(p.ctx, p.topic, partitioning, records, *idempotency)
+	return result, producerWrap("producer_batch_publish_failed", err, "publish idempotent producer batch")
 }
 
 func (p *Producer) completeProducerBatch(batch producerBatch, result internalbroker.ProduceBatchResult) {

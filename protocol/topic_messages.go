@@ -59,6 +59,7 @@ type ProduceRequest struct {
 	Topic        string              `json:"topic"`
 	Partition    *uint32             `json:"partition,omitempty"`
 	Partitioning ProducePartitioning `json:"partitioning"`
+	Idempotency  *ProduceIdempotency `json:"idempotency,omitempty"`
 	Key          []byte              `json:"key,omitempty"`
 	Headers      []MessageHeader     `json:"headers,omitempty"`
 	Tombstone    bool                `json:"tombstone,omitempty"`
@@ -78,6 +79,12 @@ type ProduceBatchRecord struct {
 	Payload   []byte          `json:"payload"`
 }
 
+type ProduceIdempotency struct {
+	ProducerID    uint64 `json:"producer_id"`
+	ProducerEpoch uint64 `json:"producer_epoch"`
+	BaseSequence  uint64 `json:"base_sequence"`
+}
+
 type TransactionRecordMetadata struct {
 	TxID          uint64                 `json:"tx_id"`
 	ProducerID    uint64                 `json:"producer_id"`
@@ -90,6 +97,7 @@ type ProduceBatchRequest struct {
 	Topic        string               `json:"topic"`
 	Partition    *uint32              `json:"partition,omitempty"`
 	Partitioning ProducePartitioning  `json:"partitioning"`
+	Idempotency  *ProduceIdempotency  `json:"idempotency,omitempty"`
 	Payloads     [][]byte             `json:"payloads,omitempty"`
 	Records      []ProduceBatchRecord `json:"records,omitempty"`
 }
@@ -106,6 +114,7 @@ type ProduceBatchesItemRequest struct {
 	Topic        string               `json:"topic"`
 	Partition    *uint32              `json:"partition,omitempty"`
 	Partitioning ProducePartitioning  `json:"partitioning"`
+	Idempotency  *ProduceIdempotency  `json:"idempotency,omitempty"`
 	Payloads     [][]byte             `json:"payloads,omitempty"`
 	Records      []ProduceBatchRecord `json:"records,omitempty"`
 }

@@ -6,12 +6,14 @@ type produceCommand struct {
 	Topic        string
 	Partitioning PublishPartitioning
 	Record       store.RecordAppend
+	Idempotency  *ProduceIdempotency
 }
 
 type produceBatchCommand struct {
 	Topic        string
 	Partitioning PublishPartitioning
 	Records      []store.RecordAppend
+	Idempotency  *ProduceIdempotency
 }
 
 type produceBatchesCommand struct {
@@ -19,8 +21,9 @@ type produceBatchesCommand struct {
 }
 
 type produceBatchItemResult struct {
-	Result ProduceBatchResult
-	Error  string
+	Result   ProduceBatchResult
+	Error    string
+	Appended bool
 }
 
 type produceBatchesResult struct {
@@ -50,6 +53,12 @@ type TransactionIdentity struct {
 	TxID          uint64
 	ProducerID    uint64
 	ProducerEpoch uint64
+}
+
+type ProduceIdempotency struct {
+	ProducerID    uint64
+	ProducerEpoch uint64
+	BaseSequence  uint64
 }
 
 type txBeginCommand struct {

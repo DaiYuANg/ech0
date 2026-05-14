@@ -65,10 +65,14 @@ type fetchOptions struct {
 type ProducerOption func(*producerOptions)
 
 type producerOptions struct {
-	batchSize int
-	linger    time.Duration
-	buffer    int
-	inFlight  int
+	batchSize         int
+	linger            time.Duration
+	buffer            int
+	inFlight          int
+	idempotent        bool
+	disableIdempotent bool
+	producerID        uint64
+	producerEpoch     uint64
 }
 
 func DefaultOptions() Options {
@@ -182,6 +186,26 @@ func ProducerInFlight(limit int) ProducerOption {
 	}
 }
 
+func ProducerID(id uint64) ProducerOption {
+	return func(opts *producerOptions) {
+		if id != 0 {
+			opts.producerID = id
+		}
+	}
+}
+
+func ProducerEpoch(epoch uint64) ProducerOption {
+	return func(opts *producerOptions) {
+		opts.producerEpoch = epoch
+	}
+}
+
+func DisableProducerIdempotency() ProducerOption {
+	return func(opts *producerOptions) {
+		opts.disableIdempotent = true
+	}
+}
+
 func normalizeOptions(opts Options) Options {
 	defaults := DefaultOptions()
 	if opts.DataDir == "" {
@@ -200,6 +224,12 @@ func normalizeOptions(opts Options) Options {
 }
 
 func normalizeProducerOptions(opts producerOptions) producerOptions {
+	if !opts.disableIdempotent {
+		opts.idempotent = true
+	}
+	if opts.disableIdempotent {
+		opts.idempotent = false
+	}
 	if opts.batchSize <= 0 {
 		opts.batchSize = 16
 	}
@@ -214,6 +244,9 @@ func normalizeProducerOptions(opts producerOptions) producerOptions {
 	}
 	if opts.buffer <= 0 {
 		opts.buffer = opts.batchSize * opts.inFlight * 4
+	}
+	if opts.idempotent && opts.producerID == 0 {
+		opts.producerID = newProducerID()
 	}
 	return opts
 }

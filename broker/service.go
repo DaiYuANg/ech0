@@ -36,6 +36,7 @@ type Broker struct {
 	shardSpecs              []dataShardSpec
 	dataShards              dataShardRuntime
 	aclAuthorizerConfigured bool
+	producerDedupeMu        sync.Mutex
 
 	raftMu sync.RWMutex
 	raft   *raftNode
@@ -60,6 +61,7 @@ type metadataStore interface {
 	store.ConsumerGroupStore
 	store.BrokerStateStore
 	store.TransactionStore
+	store.ProducerBatchStore
 	store.ACLPolicyStore
 }
 

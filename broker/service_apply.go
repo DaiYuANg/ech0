@@ -31,6 +31,21 @@ func (b *Broker) applyCreateTopic(ctx context.Context, topic store.TopicConfig) 
 }
 
 func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceResult, error) {
+	if req.Idempotency != nil {
+		batch, err := b.applyProduceBatch(ctx, produceBatchCommand{
+			Topic:        req.Topic,
+			Partitioning: req.Partitioning,
+			Records:      []store.RecordAppend{req.Record},
+			Idempotency:  cloneProduceIdempotency(req.Idempotency),
+		})
+		if err != nil {
+			return ProduceResult{}, err
+		}
+		if len(batch.Records) == 0 {
+			return ProduceResult{}, brokerStoreError(store.CodeCodec, "idempotent produce returned no records")
+		}
+		return ProduceResult{Partition: batch.Partition, Record: batch.Records[0]}, nil
+	}
 	topic, err := b.topicConfig(req.Topic)
 	if err != nil {
 		return ProduceResult{}, err
@@ -52,26 +67,39 @@ func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceR
 }
 
 func (b *Broker) applyProduceBatch(ctx context.Context, req produceBatchCommand) (ProduceBatchResult, error) {
-	topic, err := b.topicConfig(req.Topic)
+	item, err := b.applyProduceBatchInternal(ctx, req)
 	if err != nil {
 		return ProduceBatchResult{}, err
 	}
+	if item.Appended {
+		b.recordBatchProduce(ctx, req, item.Result.Partition, item.Result.Records)
+	}
+	return item.Result, nil
+}
+
+func (b *Broker) applyProduceBatchInternal(_ context.Context, req produceBatchCommand) (produceBatchItemResult, error) {
+	topic, err := b.topicConfig(req.Topic)
+	if err != nil {
+		return produceBatchItemResult{}, err
+	}
 	if topic == nil {
-		return ProduceBatchResult{}, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", req.Topic)
+		return produceBatchItemResult{}, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", req.Topic)
 	}
 	if validateErr := b.validateBatchPayload(req.Records); validateErr != nil {
-		return ProduceBatchResult{}, validateErr
+		return produceBatchItemResult{}, validateErr
 	}
 	partition, err := b.router.selectPartition(*topic, req.Partitioning, firstRecordKey(req.Records))
 	if err != nil {
-		return ProduceBatchResult{}, err
+		return produceBatchItemResult{}, err
 	}
-	records, err := b.queue.PublishBatchRecords(req.Topic, partition, req.Records)
+	appended, err := b.appendProduceBatch(req.Topic, partition, req)
 	if err != nil {
-		return ProduceBatchResult{}, wrapBroker("publish_batch_failed", err, "publish record batch")
+		return produceBatchItemResult{}, err
 	}
-	b.recordBatchProduce(ctx, req, partition, records)
-	return ProduceBatchResult{Partition: partition, Records: records}, nil
+	return produceBatchItemResult{
+		Result:   ProduceBatchResult{Partition: partition, Records: appended.Records},
+		Appended: appended.Appended,
+	}, nil
 }
 
 func (b *Broker) validateBatchPayload(records []store.RecordAppend) error {

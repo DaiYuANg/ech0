@@ -140,6 +140,17 @@ func partitioningFromProtocol(mode protocol.ProducePartitioning, partition *uint
 	}
 }
 
+func produceIdempotencyFromProtocol(id *protocol.ProduceIdempotency) *ProduceIdempotency {
+	if id == nil {
+		return nil
+	}
+	return &ProduceIdempotency{
+		ProducerID:    id.ProducerID,
+		ProducerEpoch: id.ProducerEpoch,
+		BaseSequence:  id.BaseSequence,
+	}
+}
+
 func explicitPartitioning(partition *uint32) PublishPartitioning {
 	if partition == nil {
 		return PublishPartitioning{Mode: PartitionExplicit, Partition: 0}

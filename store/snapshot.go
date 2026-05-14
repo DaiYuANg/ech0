@@ -19,6 +19,7 @@ type Snapshot struct {
 	Members           collectionlist.List[ConsumerGroupMember]     `json:"members"`
 	Assignments       collectionlist.List[ConsumerGroupAssignment] `json:"assignments"`
 	Transactions      collectionlist.List[TransactionState]        `json:"transactions"`
+	ProducerBatches   collectionlist.List[ProducerPublishedBatch]  `json:"producer_batches"`
 	ACLPolicies       collectionlist.List[ACLPolicy]               `json:"acl_policies"`
 	NextTransactionID uint64                                       `json:"next_transaction_id,omitempty"`
 	BrokerState       *BrokerState                                 `json:"broker_state,omitempty"`
@@ -36,6 +37,7 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		Members:           *collectionlist.NewListWithCapacity[ConsumerGroupMember](s.members.Len()),
 		Assignments:       *collectionlist.NewListWithCapacity[ConsumerGroupAssignment](s.assignments.Len()),
 		Transactions:      *collectionlist.NewListWithCapacity[TransactionState](s.transactions.Len()),
+		ProducerBatches:   *collectionlist.NewListWithCapacity[ProducerPublishedBatch](s.producerBatches.Len()),
 		ACLPolicies:       *collectionlist.NewListWithCapacity[ACLPolicy](s.aclPolicies.Len()),
 		NextTransactionID: s.nextTxID,
 	}
@@ -78,6 +80,9 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		snap.Transactions.Add(cloneTransactionState(state))
 		return true
 	})
+	for _, batch := range sortProducerPublishedBatches(s.producerBatches.Values()) {
+		snap.ProducerBatches.Add(cloneProducerPublishedBatch(batch))
+	}
 	aclPolicies := sortACLPolicies(s.aclPolicies.Values())
 	for i := range aclPolicies {
 		snap.ACLPolicies.Add(cloneACLPolicy(aclPolicies[i]))
@@ -105,6 +110,7 @@ func (s *MemoryStore) Restore(snapshot Snapshot) error {
 	s.members = state.members
 	s.assignments = state.assignments
 	s.transactions = state.transactions
+	s.producerBatches = state.producerBatches
 	s.aclPolicies = state.aclPolicies
 	s.nextTxID = state.nextTxID
 	s.brokerState = state.brokerState
@@ -112,18 +118,19 @@ func (s *MemoryStore) Restore(snapshot Snapshot) error {
 }
 
 type memoryRestoreState struct {
-	topics       *collectionmapping.OrderedMap[string, TopicConfig]
-	topicNames   *collectionset.Set[string]
-	records      *collectionmapping.Map[TopicPartition, []Record]
-	nextOffsets  *collectionmapping.Map[TopicPartition, uint64]
-	offsets      *collectionmapping.Map[string, uint64]
-	placements   *collectionmapping.Map[TopicPartition, ShardPlacement]
-	members      *collectionmapping.Map[string, ConsumerGroupMember]
-	assignments  *collectionmapping.Map[string, ConsumerGroupAssignment]
-	transactions *collectionmapping.Map[uint64, TransactionState]
-	aclPolicies  *collectionmapping.Map[string, ACLPolicy]
-	nextTxID     uint64
-	brokerState  *BrokerState
+	topics          *collectionmapping.OrderedMap[string, TopicConfig]
+	topicNames      *collectionset.Set[string]
+	records         *collectionmapping.Map[TopicPartition, []Record]
+	nextOffsets     *collectionmapping.Map[TopicPartition, uint64]
+	offsets         *collectionmapping.Map[string, uint64]
+	placements      *collectionmapping.Map[TopicPartition, ShardPlacement]
+	members         *collectionmapping.Map[string, ConsumerGroupMember]
+	assignments     *collectionmapping.Map[string, ConsumerGroupAssignment]
+	transactions    *collectionmapping.Map[uint64, TransactionState]
+	producerBatches *collectionmapping.Map[string, ProducerPublishedBatch]
+	aclPolicies     *collectionmapping.Map[string, ACLPolicy]
+	nextTxID        uint64
+	brokerState     *BrokerState
 }
 
 func buildMemoryRestoreState(snapshot Snapshot) (memoryRestoreState, error) {
@@ -135,18 +142,19 @@ func buildMemoryRestoreState(snapshot Snapshot) (memoryRestoreState, error) {
 		return memoryRestoreState{}, err
 	}
 	return memoryRestoreState{
-		topics:       topics,
-		topicNames:   topicNames,
-		records:      records,
-		nextOffsets:  restoreMemoryLogOffsets(snapshot.LogOffsets, records),
-		offsets:      restoreMemoryOffsets(snapshot.Offsets),
-		placements:   restoreMemoryShardPlacements(snapshot.Placements),
-		members:      restoreMemoryMembers(snapshot.Members),
-		assignments:  restoreMemoryAssignments(snapshot.Assignments),
-		transactions: restoreMemoryTransactions(snapshot.Transactions),
-		aclPolicies:  restoreMemoryACLPolicies(snapshot.ACLPolicies),
-		nextTxID:     restoreMemoryNextTransactionID(snapshot),
-		brokerState:  cloneBrokerState(snapshot.BrokerState),
+		topics:          topics,
+		topicNames:      topicNames,
+		records:         records,
+		nextOffsets:     restoreMemoryLogOffsets(snapshot.LogOffsets, records),
+		offsets:         restoreMemoryOffsets(snapshot.Offsets),
+		placements:      restoreMemoryShardPlacements(snapshot.Placements),
+		members:         restoreMemoryMembers(snapshot.Members),
+		assignments:     restoreMemoryAssignments(snapshot.Assignments),
+		transactions:    restoreMemoryTransactions(snapshot.Transactions),
+		producerBatches: restoreMemoryProducerBatches(snapshot.ProducerBatches),
+		aclPolicies:     restoreMemoryACLPolicies(snapshot.ACLPolicies),
+		nextTxID:        restoreMemoryNextTransactionID(snapshot),
+		brokerState:     cloneBrokerState(snapshot.BrokerState),
 	}, nil
 }
 

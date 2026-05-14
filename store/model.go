@@ -168,6 +168,28 @@ type TransactionPublishedBatch struct {
 	NextOffset   uint64 `json:"next_offset"`
 }
 
+type ProducerPublishedBatch struct {
+	ProducerID    uint64 `json:"producer_id"`
+	ProducerEpoch uint64 `json:"producer_epoch"`
+	Topic         string `json:"topic"`
+	Partition     uint32 `json:"partition"`
+	BaseSequence  uint64 `json:"base_sequence"`
+	RecordCount   uint64 `json:"record_count"`
+	BaseOffset    uint64 `json:"base_offset"`
+	LastOffset    uint64 `json:"last_offset"`
+	NextOffset    uint64 `json:"next_offset"`
+	UpdatedAtMS   uint64 `json:"updated_at_ms"`
+}
+
+type ProducerBatchFilter struct {
+	ProducerID    uint64
+	Topic         string
+	ProducerEpoch uint64
+	EpochSet      bool
+	Partition     uint32
+	PartitionSet  bool
+}
+
 type TransactionState struct {
 	TxID             uint64                      `json:"tx_id"`
 	TransactionalID  string                      `json:"transactional_id"`

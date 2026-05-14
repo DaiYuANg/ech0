@@ -10,6 +10,7 @@ func writeProduceRequest(writer *binaryWriter, req ProduceRequest) error {
 	}
 	writer.writeOptionalU32(req.Partition)
 	writePartitioning(writer, req.Partitioning)
+	writeProduceIdempotency(writer, req.Idempotency)
 	if err := writer.writeBytes(req.Key); err != nil {
 		return err
 	}
@@ -34,6 +35,9 @@ func readProduceRequest(reader *binaryReader) (ProduceRequest, error) {
 		return ProduceRequest{}, err
 	}
 	if req.Partitioning, err = readPartitioning(reader); err != nil {
+		return ProduceRequest{}, err
+	}
+	if req.Idempotency, err = readProduceIdempotency(reader); err != nil {
 		return ProduceRequest{}, err
 	}
 	if req.Key, err = reader.readBytes(); err != nil {
@@ -87,6 +91,7 @@ func writeProduceBatchRequest(writer *binaryWriter, req ProduceBatchRequest) err
 	}
 	writer.writeOptionalU32(req.Partition)
 	writePartitioning(writer, req.Partitioning)
+	writeProduceIdempotency(writer, req.Idempotency)
 	if err := writePayloads(writer, req.Payloads); err != nil {
 		return err
 	}
@@ -107,6 +112,9 @@ func readProduceBatchRequest(reader *binaryReader) (ProduceBatchRequest, error) 
 		return ProduceBatchRequest{}, err
 	}
 	if req.Partitioning, err = readPartitioning(reader); err != nil {
+		return ProduceBatchRequest{}, err
+	}
+	if req.Idempotency, err = readProduceIdempotency(reader); err != nil {
 		return ProduceBatchRequest{}, err
 	}
 	if req.Payloads, err = readPayloads(reader); err != nil {

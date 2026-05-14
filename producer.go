@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/cespare/xxhash/v2"
 	"github.com/lyonbrown4d/ech0/store"
 	"github.com/samber/oops"
@@ -27,6 +28,8 @@ type Producer struct {
 	roundRobin atomic.Uint64
 	wg         sync.WaitGroup
 	sendMu     sync.Mutex
+	sequenceMu sync.Mutex
+	sequences  *collectionmapping.Map[uint32, uint64]
 	sends      sync.WaitGroup
 	closed     bool
 	closeOnce  sync.Once
@@ -76,6 +79,7 @@ func (b *Broker) NewProducer(ctx context.Context, topic string, opts ...Producer
 		cancel:     cancel,
 		input:      make(chan producerItem, producerOpts.buffer),
 		batch:      make(chan producerBatch, producerOpts.inFlight*2),
+		sequences:  collectionmapping.NewMapWithCapacity[uint32, uint64](int(partitions)),
 	}
 	p.start()
 	return p, nil

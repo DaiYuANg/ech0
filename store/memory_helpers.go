@@ -10,6 +10,10 @@ func offsetKey(consumer string, tp TopicPartition) string {
 	return fmt.Sprintf("%s\x00%s\x00%d", consumer, tp.Topic, tp.Partition)
 }
 
+func producerBatchKey(batch ProducerPublishedBatch) string {
+	return fmt.Sprintf("%d\x00%d\x00%s\x00%d\x00%d", batch.ProducerID, batch.ProducerEpoch, batch.Topic, batch.Partition, batch.BaseSequence)
+}
+
 func groupMemberKey(group, memberID string) string {
 	return group + "\x00" + memberID
 }
@@ -78,6 +82,10 @@ func cloneTransactionState(state TransactionState) TransactionState {
 	state.PublishedBatches = collectionlist.NewList(state.PublishedBatches...).Values()
 	state.OffsetCommits = collectionlist.NewList(state.OffsetCommits...).Values()
 	return state
+}
+
+func cloneProducerPublishedBatch(batch ProducerPublishedBatch) ProducerPublishedBatch {
+	return batch
 }
 
 func cloneHeaders(headers []RecordHeader) []RecordHeader {

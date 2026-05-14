@@ -39,7 +39,7 @@ The first implementation cut should keep the public mental model small: existing
 
 ## Phase 2: MQ Semantics
 
-- Idempotent producer with producer ID, epoch, per-topic-partition sequence, and broker-side dedupe window.
+- Done: idempotent producer with producer ID, epoch, per-topic-partition sequence, broker-side dedupe window, TCP/raft protocol fields, and default embedded producer IDs.
 - Transactional offset commit for consume-transform-produce workflows.
 - Producer fencing and transaction timeout cleanup.
 - Transaction recovery tests across restart and cluster failover.

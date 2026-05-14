@@ -12,33 +12,35 @@ import (
 type MemoryStore struct {
 	mu sync.RWMutex
 
-	topics       *collectionmapping.OrderedMap[string, TopicConfig]
-	topicNames   *collectionset.Set[string]
-	records      *collectionmapping.Map[TopicPartition, []Record]
-	nextOffsets  *collectionmapping.Map[TopicPartition, uint64]
-	offsets      *collectionmapping.Map[string, uint64]
-	placements   *collectionmapping.Map[TopicPartition, ShardPlacement]
-	members      *collectionmapping.Map[string, ConsumerGroupMember]
-	assignments  *collectionmapping.Map[string, ConsumerGroupAssignment]
-	transactions *collectionmapping.Map[uint64, TransactionState]
-	aclPolicies  *collectionmapping.Map[string, ACLPolicy]
-	nextTxID     uint64
-	brokerState  *BrokerState
+	topics          *collectionmapping.OrderedMap[string, TopicConfig]
+	topicNames      *collectionset.Set[string]
+	records         *collectionmapping.Map[TopicPartition, []Record]
+	nextOffsets     *collectionmapping.Map[TopicPartition, uint64]
+	offsets         *collectionmapping.Map[string, uint64]
+	placements      *collectionmapping.Map[TopicPartition, ShardPlacement]
+	members         *collectionmapping.Map[string, ConsumerGroupMember]
+	assignments     *collectionmapping.Map[string, ConsumerGroupAssignment]
+	transactions    *collectionmapping.Map[uint64, TransactionState]
+	producerBatches *collectionmapping.Map[string, ProducerPublishedBatch]
+	aclPolicies     *collectionmapping.Map[string, ACLPolicy]
+	nextTxID        uint64
+	brokerState     *BrokerState
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		topics:       collectionmapping.NewOrderedMap[string, TopicConfig](),
-		topicNames:   collectionset.NewSet[string](),
-		records:      collectionmapping.NewMap[TopicPartition, []Record](),
-		nextOffsets:  collectionmapping.NewMap[TopicPartition, uint64](),
-		offsets:      collectionmapping.NewMap[string, uint64](),
-		placements:   collectionmapping.NewMap[TopicPartition, ShardPlacement](),
-		members:      collectionmapping.NewMap[string, ConsumerGroupMember](),
-		assignments:  collectionmapping.NewMap[string, ConsumerGroupAssignment](),
-		transactions: collectionmapping.NewMap[uint64, TransactionState](),
-		aclPolicies:  collectionmapping.NewMap[string, ACLPolicy](),
-		nextTxID:     1,
+		topics:          collectionmapping.NewOrderedMap[string, TopicConfig](),
+		topicNames:      collectionset.NewSet[string](),
+		records:         collectionmapping.NewMap[TopicPartition, []Record](),
+		nextOffsets:     collectionmapping.NewMap[TopicPartition, uint64](),
+		offsets:         collectionmapping.NewMap[string, uint64](),
+		placements:      collectionmapping.NewMap[TopicPartition, ShardPlacement](),
+		members:         collectionmapping.NewMap[string, ConsumerGroupMember](),
+		assignments:     collectionmapping.NewMap[string, ConsumerGroupAssignment](),
+		transactions:    collectionmapping.NewMap[uint64, TransactionState](),
+		producerBatches: collectionmapping.NewMap[string, ProducerPublishedBatch](),
+		aclPolicies:     collectionmapping.NewMap[string, ACLPolicy](),
+		nextTxID:        1,
 	}
 }
 
