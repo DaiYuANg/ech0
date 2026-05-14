@@ -10,11 +10,12 @@ import (
 )
 
 type Config struct {
-	Broker  BrokerConfig  `json:"broker"  koanf:"broker"  mapstructure:"broker"  toml:"broker"`
-	Admin   AdminConfig   `json:"admin"   koanf:"admin"   mapstructure:"admin"   toml:"admin"`
-	Storage StorageConfig `json:"storage" koanf:"storage" mapstructure:"storage" toml:"storage"`
-	Logging LoggingConfig `json:"logging" koanf:"logging" mapstructure:"logging" toml:"logging"`
-	Raft    RaftConfig    `json:"raft"    koanf:"raft"    mapstructure:"raft"    toml:"raft"`
+	Broker    BrokerConfig    `json:"broker"    koanf:"broker"    mapstructure:"broker"    toml:"broker"`
+	Admin     AdminConfig     `json:"admin"     koanf:"admin"     mapstructure:"admin"     toml:"admin"`
+	Storage   StorageConfig   `json:"storage"   koanf:"storage"   mapstructure:"storage"   toml:"storage"`
+	Logging   LoggingConfig   `json:"logging"   koanf:"logging"   mapstructure:"logging"   toml:"logging"`
+	Raft      RaftConfig      `json:"raft"      koanf:"raft"      mapstructure:"raft"      toml:"raft"`
+	Discovery DiscoveryConfig `json:"discovery" koanf:"discovery" mapstructure:"discovery" toml:"discovery"`
 }
 
 type ConfigSource struct {
@@ -85,6 +86,7 @@ const (
 )
 
 type RaftConfig struct {
+	AdvertiseAddr        string           `json:"advertise_addr"          koanf:"advertise_addr"          mapstructure:"advertise_addr"          toml:"advertise_addr"`
 	BindAddr             string           `json:"bind_addr"               koanf:"bind_addr"               mapstructure:"bind_addr"               toml:"bind_addr"`
 	ReadPolicy           RaftReadPolicy   `json:"read_policy"             koanf:"read_policy"             mapstructure:"read_policy"             toml:"read_policy"`
 	HeartbeatIntervalMS  uint64           `json:"heartbeat_interval_ms"   koanf:"heartbeat_interval_ms"   mapstructure:"heartbeat_interval_ms"   toml:"heartbeat_interval_ms"`
@@ -92,6 +94,24 @@ type RaftConfig struct {
 	ElectionTimeoutMaxMS uint64           `json:"election_timeout_max_ms" koanf:"election_timeout_max_ms" mapstructure:"election_timeout_max_ms" toml:"election_timeout_max_ms"`
 	ApplyTimeoutMS       uint64           `json:"apply_timeout_ms"        koanf:"apply_timeout_ms"        mapstructure:"apply_timeout_ms"        toml:"apply_timeout_ms"`
 	Cluster              []RaftPeerConfig `json:"cluster"                 koanf:"cluster"                 mapstructure:"cluster"                 toml:"cluster"`
+}
+
+type DiscoveryProvider string
+
+const (
+	DiscoveryProviderStatic     DiscoveryProvider = "static"
+	DiscoveryProviderMemberlist DiscoveryProvider = "memberlist"
+)
+
+type DiscoveryConfig struct {
+	Enabled         bool              `json:"enabled"          koanf:"enabled"          mapstructure:"enabled"          toml:"enabled"`
+	Provider        DiscoveryProvider `json:"provider"         koanf:"provider"         mapstructure:"provider"         toml:"provider"`
+	BindAddr        string            `json:"bind_addr"        koanf:"bind_addr"        mapstructure:"bind_addr"        toml:"bind_addr"`
+	AdvertiseAddr   string            `json:"advertise_addr"   koanf:"advertise_addr"   mapstructure:"advertise_addr"   toml:"advertise_addr"`
+	Seeds           []string          `json:"seeds"            koanf:"seeds"            mapstructure:"seeds"            toml:"seeds"`
+	BootstrapExpect int               `json:"bootstrap_expect" koanf:"bootstrap_expect" mapstructure:"bootstrap_expect" toml:"bootstrap_expect"`
+	JoinTimeoutMS   uint64            `json:"join_timeout_ms"  koanf:"join_timeout_ms"  mapstructure:"join_timeout_ms"  toml:"join_timeout_ms"`
+	SecretKey       string            `json:"secret_key"       koanf:"secret_key"       mapstructure:"secret_key"       toml:"secret_key"`
 }
 
 type RaftPeerConfig struct {

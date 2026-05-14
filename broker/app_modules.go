@@ -9,8 +9,19 @@ import (
 	"github.com/arcgolabs/dix"
 	"github.com/arcgolabs/eventx"
 	"github.com/arcgolabs/logx"
+	"github.com/lyonbrown4d/ech0/discovery"
+	memberlistdiscovery "github.com/lyonbrown4d/ech0/discovery/memberlist"
 	"github.com/lyonbrown4d/ech0/store"
 )
+
+type appBrokerDeps struct {
+	Logger    *slog.Logger
+	Bus       eventx.BusRuntime
+	Metrics   *MetricsRuntime
+	LogStore  *store.StorxLogStore
+	MetaStore metadataStore
+	Discovery discovery.Provider
+}
 
 func brokerAppModulesFromConfig(cfg Config, eventRecorder *dix.EventRecorder) []dix.Module {
 	return collectionlist.NewList(
@@ -60,7 +71,9 @@ func brokerCoreProviders(configProviders []dix.ProviderFunc, eventRecorder *dix.
 		dix.ProviderErr3(newBrokerEventRecorder, dix.Eager()),
 		dix.ProviderErr2(openAppLogStore, dix.Eager()),
 		dix.Provider0(func() metadataStore { return store.NewMemoryStore() }, dix.Eager()),
-		dix.ProviderErr6(newAppBroker, dix.Eager()),
+		dix.ProviderErr2(newDiscoveryProvider, dix.Eager()),
+		dix.Provider6(newAppBrokerDeps, dix.Eager()),
+		dix.ProviderErr2(newAppBroker, dix.Eager()),
 	)
 	return dix.Providers(providers.Values()...)
 }
@@ -97,15 +110,64 @@ func openAppLogStore(cfg Config, metrics *MetricsRuntime) (*store.StorxLogStore,
 	return logStore, nil
 }
 
-func newAppBroker(
-	cfg Config,
+func newDiscoveryProvider(cfg Config, logger *slog.Logger) (discovery.Provider, error) {
+	local := discoveryNodeFromConfig(cfg)
+	if !cfg.Discovery.Enabled {
+		return discovery.NewStaticProvider(local, discoveryNodesFromRaftConfig(cfg)), nil
+	}
+	switch cfg.Discovery.Provider {
+	case DiscoveryProviderStatic:
+		return discovery.NewStaticProvider(local, discoveryNodesFromRaftConfig(cfg)), nil
+	case DiscoveryProviderMemberlist:
+		provider, err := memberlistdiscovery.NewProvider(memberlistdiscovery.Config{
+			LocalNode:     local,
+			BindAddr:      cfg.Discovery.BindAddr,
+			AdvertiseAddr: cfg.Discovery.AdvertiseAddr,
+			Seeds:         cfg.Discovery.Seeds,
+			JoinTimeout:   durationFromMillis(cfg.Discovery.JoinTimeoutMS),
+			SecretKey:     []byte(cfg.Discovery.SecretKey),
+			Logger:        logger,
+		})
+		if err != nil {
+			return nil, wrapBroker("discovery_provider_create_failed", err, "create memberlist discovery provider")
+		}
+		return provider, nil
+	default:
+		return nil, brokerStoreError(store.CodeInvalidArgument, "unsupported discovery provider %q", cfg.Discovery.Provider)
+	}
+}
+
+func newAppBrokerDeps(
 	logger *slog.Logger,
 	bus eventx.BusRuntime,
 	metrics *MetricsRuntime,
 	logStore *store.StorxLogStore,
 	metaStore metadataStore,
+	discoveryProvider discovery.Provider,
+) appBrokerDeps {
+	return appBrokerDeps{
+		Logger:    logger,
+		Bus:       bus,
+		Metrics:   metrics,
+		LogStore:  logStore,
+		MetaStore: metaStore,
+		Discovery: discoveryProvider,
+	}
+}
+
+func newAppBroker(
+	cfg Config,
+	deps appBrokerDeps,
 ) (*Broker, error) {
-	return NewWithStores(cfg, logStore, metaStore, WithLogger(logger), WithEventBus(bus), WithMetrics(metrics))
+	return NewWithStores(
+		cfg,
+		deps.LogStore,
+		deps.MetaStore,
+		WithLogger(deps.Logger),
+		WithEventBus(deps.Bus),
+		WithMetrics(deps.Metrics),
+		WithDiscoveryProvider(deps.Discovery),
+	)
 }
 
 func newAppAdminServer(

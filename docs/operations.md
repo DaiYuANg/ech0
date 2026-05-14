@@ -19,6 +19,7 @@ Environment variables use `__` as the nesting separator. For example:
 ECH0_BROKER__BIND_ADDR=0.0.0.0:9092
 ECH0_ADMIN__BIND_ADDR=0.0.0.0:8080
 ECH0_RAFT__BIND_ADDR=0.0.0.0:3210
+ECH0_DISCOVERY__ENABLED=true
 ```
 
 The embedded root package does not expose this full config surface. Embedded users should use `ech0.Options`.
@@ -35,7 +36,7 @@ Metadata writes go through Dragonboat, while message writes use the local segmen
 
 ## Cluster Mode
 
-Cluster mode coordinates mutating broker commands through Dragonboat multi-group Raft when `raft.cluster` contains multiple peers:
+Cluster mode coordinates mutating broker commands through Dragonboat multi-group Raft when `raft.cluster` or the discovery-resolved peer set contains multiple peers:
 
 - Topic creation.
 - Produces and batch produces on the owning data shard group.
@@ -45,7 +46,33 @@ Cluster mode coordinates mutating broker commands through Dragonboat multi-group
 
 Dragonboat owns raft-side logs, snapshots, membership state, and recovery files under `data/dragonboat/<node_id>`. Broker state machines expose `store.Snapshotter` so Dragonboat can capture and restore business state; the broker does not open a separate metadata database in binary or embedded runtime.
 
-`raft.bind_addr` is the local listen address and may use `0.0.0.0` in containers. The current node's matching entry in `raft.cluster` is used as the Raft advertised address, so cluster entries should use routable peer addresses such as Docker service names.
+`raft.bind_addr` is the local listen address and may use `0.0.0.0` in containers. `raft.advertise_addr` is the routable Raft address announced to peers. When `raft.advertise_addr` is empty, the current node's matching entry in `raft.cluster` is used as the Raft advertised address.
+
+## Discovery
+
+Discovery is an optional bootstrap layer. It is not the authority for Raft membership after startup; Dragonboat still owns replicated state, raft logs, snapshots, and membership files. The initial implementation supports a static provider and a `memberlist` provider.
+
+With memberlist enabled, each node advertises its node id, cluster name, Raft address, broker address, admin address, and data shard count. Startup joins the configured seeds, waits for `discovery.bootstrap_expect` alive nodes, filters nodes by `broker.cluster_name`, then builds the Dragonboat initial peer set from the discovered Raft addresses.
+
+Example:
+
+```toml
+[raft]
+bind_addr = "0.0.0.0:3210"
+advertise_addr = "ech0-node1:3210"
+
+[discovery]
+enabled = true
+provider = "memberlist"
+bind_addr = "0.0.0.0:7946"
+seeds = ["ech0-node2:7946", "ech0-node3:7946"]
+bootstrap_expect = 3
+join_timeout_ms = 30000
+```
+
+`discovery.advertise_addr` is optional. When set for memberlist it must be an IP address and port; Docker Compose examples leave it empty so memberlist advertises the container IP while seeds still use service names.
+
+Use discovery for new cluster bootstrap and live node visibility. Do not use gossip suspicion alone to remove Dragonboat voting members; membership changes must go through controlled Raft operations.
 
 When a node is not leader, mutating commands return a not-leader error. Scheduled jobs use a gocron distributed elector and only run on the current leader.
 

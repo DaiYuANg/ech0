@@ -25,6 +25,9 @@ func dragonboatNodeHostConfig(cfg Config) config.NodeHostConfig {
 }
 
 func raftAdvertiseAddress(cfg Config) string {
+	if cfg.Raft.AdvertiseAddr != "" {
+		return cfg.Raft.AdvertiseAddr
+	}
 	for _, peer := range cfg.Raft.Cluster {
 		if peer.NodeID == cfg.Broker.NodeID && peer.Addr != "" {
 			return peer.Addr

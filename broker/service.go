@@ -10,6 +10,7 @@ import (
 	"github.com/arcgolabs/eventx"
 	"github.com/dgraph-io/ristretto/v2"
 	"github.com/lyonbrown4d/ech0/direct"
+	"github.com/lyonbrown4d/ech0/discovery"
 	"github.com/lyonbrown4d/ech0/store"
 )
 
@@ -23,6 +24,7 @@ type Broker struct {
 	direct     *direct.Runtime
 	router     *partitionRouter
 	events     eventx.BusRuntime
+	discovery  discovery.Provider
 	logger     *slog.Logger
 	metrics    *MetricsRuntime
 	topicCache *ristretto.Cache[string, store.TopicConfig]
@@ -86,14 +88,7 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 	}
 	b.shards = newBrokerShardResolver(metaStore, cfg.Broker.DataShardCount)
 	b.shardSpecs = buildDataShardSpecs(cfg)
-	fallbackCommands := newSingleGroupCommandRouter(b)
-	if dataRaftEnabled(cfg) {
-		b.dataShards = newRaftDataShardRegistry(b, b.shardSpecs)
-		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
-	} else {
-		b.dataShards = newLocalDataShardRegistry(b.shardSpecs)
-		b.commands = newMetadataOnlyCommandRouter(fallbackCommands)
-	}
+	b.configureCommandRuntime()
 	for _, opt := range opts {
 		opt(b)
 	}
@@ -102,6 +97,17 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		return nil, err
 	}
 	return b, nil
+}
+
+func (b *Broker) configureCommandRuntime() {
+	fallbackCommands := newSingleGroupCommandRouter(b)
+	if dataRaftEnabled(b.cfg) {
+		b.dataShards = newRaftDataShardRegistry(b, b.shardSpecs)
+		b.commands = newClusterCommandRouter(fallbackCommands, b.dataShards, b.shards)
+	} else {
+		b.dataShards = newLocalDataShardRegistry(b.shardSpecs)
+		b.commands = newMetadataOnlyCommandRouter(fallbackCommands)
+	}
 }
 
 func (b *Broker) applyRuntimeDefaults() {
@@ -143,6 +149,14 @@ func WithEventBus(events eventx.BusRuntime) Option {
 	}
 }
 
+func WithDiscoveryProvider(provider discovery.Provider) Option {
+	return func(b *Broker) {
+		if provider != nil {
+			b.discovery = provider
+		}
+	}
+}
+
 func WithMetrics(metrics *MetricsRuntime) Option {
 	return func(b *Broker) {
 		if metrics != nil {
@@ -160,15 +174,18 @@ func (b *Broker) Events() eventx.BusRuntime {
 }
 
 func (b *Broker) Start(ctx context.Context) error {
+	if err := b.startDiscovery(ctx); err != nil {
+		return err
+	}
 	if err := b.meta.SaveBrokerState(store.BrokerState{
 		NodeID: fmt.Sprintf("node-%d", b.cfg.Broker.NodeID),
 		Epoch:  1,
 	}); err != nil {
-		return wrapBrokerStore(err, "save broker state")
+		return errors.Join(wrapBrokerStore(err, "save broker state"), b.stopDiscovery(context.WithoutCancel(ctx)))
 	}
 	node, err := startRaft(ctx, b)
 	if err != nil {
-		return err
+		return errors.Join(err, b.stopDiscovery(context.WithoutCancel(ctx)))
 	}
 	b.raftMu.Lock()
 	b.raft = node
@@ -177,7 +194,6 @@ func (b *Broker) Start(ctx context.Context) error {
 }
 
 func (b *Broker) Stop(ctx context.Context) error {
-	_ = ctx
 	b.raftMu.Lock()
 	node := b.raft
 	b.raft = nil
@@ -186,6 +202,7 @@ func (b *Broker) Stop(ctx context.Context) error {
 	if node != nil {
 		result = errors.Join(result, node.Close())
 	}
+	result = errors.Join(result, b.stopDiscovery(context.WithoutCancel(ctx)))
 	result = errors.Join(result, b.closeDataShards())
 	result = errors.Join(result, b.closeMessageRuntime())
 	b.closeTopicCache()
@@ -199,6 +216,7 @@ func (b *Broker) RuntimeHealth() RuntimeHealth {
 	health := RuntimeHealth{
 		Status:      "ok",
 		RuntimeMode: runtimeMode(b.cfg),
+		Discovery:   b.discoveryHealth(),
 		DataShards:  dataShardHealth(b.shardSpecs, b.dataShards),
 	}
 	b.raftMu.RLock()
@@ -226,6 +244,7 @@ func runtimeMode(cfg Config) string {
 type RuntimeHealth struct {
 	Status      string            `json:"status"`
 	RuntimeMode string            `json:"runtime_mode"`
+	Discovery   *DiscoveryHealth  `json:"discovery,omitempty"`
 	DataShards  []DataShardHealth `json:"data_shards,omitempty"`
 	Raft        *RaftHealth       `json:"raft,omitempty"`
 }

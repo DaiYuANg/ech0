@@ -60,3 +60,10 @@ snapshot_max_chunk_size = 3145728
 [[raft.cluster]]
 node_id = 1
 addr = "127.0.0.1:3210"
+
+[discovery]
+enabled = false
+provider = "memberlist"
+bind_addr = "127.0.0.1:7946"
+bootstrap_expect = 1
+join_timeout_ms = 10000

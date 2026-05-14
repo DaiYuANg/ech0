@@ -18,6 +18,9 @@ services:
       - "${ECH0_NODE1_BROKER_PORT:-19090}:9090"
       - "${ECH0_NODE1_ADMIN_PORT:-19091}:9091"
       - "${ECH0_NODE1_RAFT_PORT:-13210}:3210"
+    expose:
+      - "7946/tcp"
+      - "7946/udp"
 
   ech0-node2:
     image: ${ECH0_CLUSTER_IMAGE:-ech0:cluster-local}
@@ -38,6 +41,9 @@ services:
       - "${ECH0_NODE2_BROKER_PORT:-29090}:9090"
       - "${ECH0_NODE2_ADMIN_PORT:-29091}:9091"
       - "${ECH0_NODE2_RAFT_PORT:-23210}:3210"
+    expose:
+      - "7946/tcp"
+      - "7946/udp"
 
   ech0-node3:
     image: ${ECH0_CLUSTER_IMAGE:-ech0:cluster-local}
@@ -58,3 +64,6 @@ services:
       - "${ECH0_NODE3_BROKER_PORT:-39090}:9090"
       - "${ECH0_NODE3_ADMIN_PORT:-39091}:9091"
       - "${ECH0_NODE3_RAFT_PORT:-33210}:3210"
+    expose:
+      - "7946/tcp"
+      - "7946/udp"

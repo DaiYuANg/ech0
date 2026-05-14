@@ -12,6 +12,7 @@ The public root package keeps the mental model intentionally small: configure a 
 - Dependency injection, logging, events, and helpers using `arcgolabs/dix`, `logx`, `eventx`, and `collectionx`.
 - Admin and OpenAPI HTTP surface built with `arcgolabs/httpx` on Fiber.
 - Dragonboat Raft for metadata coordination; multiple configured peers also enable replicated data shard groups.
+- Optional memberlist-based discovery for easier Dragonboat cluster bootstrap.
 - Retry, delay, nack, and scheduled workers using `go-co-op/gocron`, gated by Raft leadership.
 
 ## Library Usage
@@ -98,7 +99,7 @@ Common flags:
 --data-dir ./data
 ```
 
-Configuration is loaded with `arcgolabs/configx`. Environment variables use the `ECH0` prefix and `__` as the nesting separator, for example `ECH0_BROKER__BIND_ADDR` or `ECH0_RAFT__BIND_ADDR`.
+Configuration is loaded with `arcgolabs/configx`. Environment variables use the `ECH0` prefix and `__` as the nesting separator, for example `ECH0_BROKER__BIND_ADDR`, `ECH0_RAFT__BIND_ADDR`, or `ECH0_DISCOVERY__ENABLED`.
 
 ## Admin Endpoints
 

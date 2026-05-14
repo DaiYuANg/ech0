@@ -62,6 +62,12 @@ func DefaultConfig() Config {
 				{NodeID: 1, Addr: "127.0.0.1:3210"},
 			},
 		},
+		Discovery: DiscoveryConfig{
+			Enabled:       false,
+			Provider:      DiscoveryProviderMemberlist,
+			BindAddr:      "127.0.0.1:7946",
+			JoinTimeoutMS: 10_000,
+		},
 	}
 }
 
@@ -73,6 +79,7 @@ func normalizeConfig(cfg *Config) {
 	normalizeStorageConfig(&cfg.Storage)
 	normalizeLoggingConfig(&cfg.Logging)
 	normalizeRaftConfig(&cfg.Raft, cfg.Broker)
+	normalizeDiscoveryConfig(&cfg.Discovery)
 }
 
 func normalizeBrokerIdentity(cfg *BrokerConfig) {
@@ -215,5 +222,17 @@ func normalizeRaftConfig(cfg *RaftConfig, broker BrokerConfig) {
 	}
 	if len(cfg.Cluster) == 0 {
 		cfg.Cluster = []RaftPeerConfig{{NodeID: broker.NodeID, Addr: cfg.BindAddr}}
+	}
+}
+
+func normalizeDiscoveryConfig(cfg *DiscoveryConfig) {
+	if cfg.Provider == "" {
+		cfg.Provider = DiscoveryProviderMemberlist
+	}
+	if cfg.BindAddr == "" {
+		cfg.BindAddr = "127.0.0.1:7946"
+	}
+	if cfg.JoinTimeoutMS == 0 {
+		cfg.JoinTimeoutMS = 10_000
 	}
 }
