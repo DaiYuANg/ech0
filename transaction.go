@@ -128,6 +128,29 @@ func (tx *Transaction) CommitOffsetWithMetadata(ctx context.Context, consumer st
 	return oops.In("embedded").Code("transaction_offset_failed").With("consumer", consumer, "topic", msg.Topic).Wrapf(err, "stage transaction offset")
 }
 
+func (tx *Transaction) CommitConsumerGroupOffset(ctx context.Context, group *ConsumerGroup, msg Message) error {
+	return tx.CommitConsumerGroupOffsetWithMetadata(ctx, group, msg, "")
+}
+
+func (tx *Transaction) CommitConsumerGroupOffsetWithMetadata(ctx context.Context, group *ConsumerGroup, msg Message, metadata string) error {
+	if err := tx.ensureOpen(); err != nil {
+		return err
+	}
+	if err := group.ensureReady(); err != nil {
+		return err
+	}
+	_, err := tx.broker.broker.CommitTransactionOffset(ctx, tx.identity, internalbroker.TransactionOffsetCommit{
+		Group:      group.group,
+		MemberID:   group.memberID,
+		Generation: group.generation,
+		Topic:      msg.Topic,
+		Partition:  msg.Partition,
+		NextOffset: msg.NextOffset,
+		Metadata:   metadata,
+	})
+	return oops.In("embedded").Code("transaction_group_offset_failed").With("group", group.group, "member_id", group.memberID, "topic", msg.Topic).Wrapf(err, "stage transaction consumer group offset")
+}
+
 func (tx *Transaction) Commit(ctx context.Context) error {
 	if err := tx.ensureOpen(); err != nil {
 		return err

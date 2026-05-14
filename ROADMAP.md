@@ -54,7 +54,7 @@ The first implementation cut should keep the public mental model small: existing
 - Done: static membership keeps assignment generation stable when the same member rejoins without assignment changes.
 - Done: cooperative-sticky rebalance balances new or remaining members while moving the minimum eligible partitions.
 - Done: assignment versioning rejects stale group fetches, offset commits, seeks, pauses, and transactional group offset commits.
-- Revoke and assign callback semantics for clients.
+- Done: embedded consumer group sessions expose revoke and assign callback semantics around rebalance.
 - Group health views for lag, members, assignments, and rebalance history.
 - Max poll interval and session timeout behavior.
 
