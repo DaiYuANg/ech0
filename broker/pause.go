@@ -45,14 +45,16 @@ func (b *Broker) setConsumerPause(ctx context.Context, consumer, topic string, p
 }
 
 func (b *Broker) setConsumerGroupPause(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, paused bool) (PauseResult, error) {
-	_ = memberID
-	_ = generation
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionCommit, groupResource(identity, group)); err != nil {
 		return PauseResult{}, err
 	}
-	consumer := groupConsumer(scopedName(identity, "group", group))
-	result, err := b.setPauseScoped(ctx, consumer, scopedTopicName(identity, topic), partition, paused)
+	scopedGroup := scopedName(identity, "group", group)
+	scopedTopic := scopedTopicName(identity, topic)
+	if err := b.validateConsumerGroupLease(scopedGroup, memberID, generation, store.NewTopicPartition(scopedTopic, partition)); err != nil {
+		return PauseResult{}, err
+	}
+	result, err := b.setPauseScoped(ctx, groupConsumer(scopedGroup), scopedTopic, partition, paused)
 	if err != nil {
 		return PauseResult{}, err
 	}

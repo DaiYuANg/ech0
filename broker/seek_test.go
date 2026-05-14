@@ -67,12 +67,17 @@ func TestBrokerSeekConsumerGroupOffsetMovesGroupPosition(t *testing.T) {
 	publishOrder(ctx, t, b, []byte("m1"))
 	publishOrder(ctx, t, b, []byte("m2"))
 
-	result, err := b.SeekConsumerGroupOffset(ctx, "workers", "member-1", 1, "orders", 0, 1)
+	_, err := b.JoinConsumerGroup(ctx, "workers", "member-1", []string{"orders"}, 30_000)
+	requireNoError(t, err)
+	assignment, err := b.RebalanceConsumerGroup(ctx, "workers")
+	requireNoError(t, err)
+
+	result, err := b.SeekConsumerGroupOffset(ctx, "workers", "member-1", assignment.Generation, "orders", 0, 1)
 	requireNoError(t, err)
 	if result.Offset != 1 {
 		t.Fatalf("unexpected group seek result: %#v", result)
 	}
-	poll, err := b.FetchConsumerGroup(ctx, "workers", "member-1", 1, "orders", 0, nil, 10)
+	poll, err := b.FetchConsumerGroup(ctx, "workers", "member-1", assignment.Generation, "orders", 0, nil, 10)
 	requireNoError(t, err)
 	requirePayloads(t, poll, "m2")
 }

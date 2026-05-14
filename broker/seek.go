@@ -41,14 +41,16 @@ func (b *Broker) SeekTimestamp(ctx context.Context, consumer, topic string, part
 }
 
 func (b *Broker) SeekConsumerGroupOffset(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, offset uint64) (SeekResult, error) {
-	_ = memberID
-	_ = generation
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionCommit, groupResource(identity, group)); err != nil {
 		return SeekResult{}, err
 	}
-	scopedGroup := groupConsumer(scopedName(identity, "group", group))
-	result, err := b.seekOffsetScoped(ctx, scopedGroup, scopedTopicName(identity, topic), partition, offset)
+	scopedGroup := scopedName(identity, "group", group)
+	scopedTopic := scopedTopicName(identity, topic)
+	if err := b.validateConsumerGroupLease(scopedGroup, memberID, generation, store.NewTopicPartition(scopedTopic, partition)); err != nil {
+		return SeekResult{}, err
+	}
+	result, err := b.seekOffsetScoped(ctx, groupConsumer(scopedGroup), scopedTopic, partition, offset)
 	if err != nil {
 		return SeekResult{}, err
 	}
@@ -64,14 +66,16 @@ func (b *Broker) SeekConsumerGroupTimestamp(
 	partition uint32,
 	timestampMS uint64,
 ) (SeekResult, error) {
-	_ = memberID
-	_ = generation
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionCommit, groupResource(identity, group)); err != nil {
 		return SeekResult{}, err
 	}
-	scopedGroup := groupConsumer(scopedName(identity, "group", group))
-	result, err := b.seekTimestampScoped(ctx, scopedGroup, scopedTopicName(identity, topic), partition, timestampMS)
+	scopedGroup := scopedName(identity, "group", group)
+	scopedTopic := scopedTopicName(identity, topic)
+	if err := b.validateConsumerGroupLease(scopedGroup, memberID, generation, store.NewTopicPartition(scopedTopic, partition)); err != nil {
+		return SeekResult{}, err
+	}
+	result, err := b.seekTimestampScoped(ctx, groupConsumer(scopedGroup), scopedTopic, partition, timestampMS)
 	if err != nil {
 		return SeekResult{}, err
 	}

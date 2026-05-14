@@ -38,17 +38,22 @@ func TestBrokerPauseResumeConsumerGroupPartition(t *testing.T) {
 	createTopic(ctx, t, b, store.NewTopicConfig("orders"))
 	publishOrder(ctx, t, b, []byte("m1"))
 
-	_, err := b.PauseConsumerGroup(ctx, "workers", "member-1", 1, "orders", 0)
+	_, err := b.JoinConsumerGroup(ctx, "workers", "member-1", []string{"orders"}, 30_000)
 	requireNoError(t, err)
-	poll, err := b.FetchConsumerGroup(ctx, "workers", "member-1", 1, "orders", 0, nil, 10)
+	assignment, err := b.RebalanceConsumerGroup(ctx, "workers")
+	requireNoError(t, err)
+
+	_, err = b.PauseConsumerGroup(ctx, "workers", "member-1", assignment.Generation, "orders", 0)
+	requireNoError(t, err)
+	poll, err := b.FetchConsumerGroup(ctx, "workers", "member-1", assignment.Generation, "orders", 0, nil, 10)
 	requireNoError(t, err)
 	if len(poll.Records) != 0 || poll.NextOffset != 0 {
 		t.Fatalf("expected paused group fetch to stay empty at offset 0, got %#v", poll)
 	}
 
-	_, err = b.ResumeConsumerGroup(ctx, "workers", "member-1", 1, "orders", 0)
+	_, err = b.ResumeConsumerGroup(ctx, "workers", "member-1", assignment.Generation, "orders", 0)
 	requireNoError(t, err)
-	poll, err = b.FetchConsumerGroup(ctx, "workers", "member-1", 1, "orders", 0, nil, 10)
+	poll, err = b.FetchConsumerGroup(ctx, "workers", "member-1", assignment.Generation, "orders", 0, nil, 10)
 	requireNoError(t, err)
 	requirePayloads(t, poll, "m1")
 }

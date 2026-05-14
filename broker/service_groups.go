@@ -89,13 +89,16 @@ func (b *Broker) FetchConsumerGroupWithIsolation(
 	maxRecords int,
 	isolation FetchIsolation,
 ) (store.PollResult, error) {
-	_ = memberID
-	_ = generation
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionConsume, groupResource(identity, group)); err != nil {
 		return store.PollResult{}, err
 	}
-	return b.fetchWithIsolationScoped(ctx, groupConsumer(scopedName(identity, "group", group)), scopedTopicName(identity, topic), partition, offset, maxRecords, isolation)
+	scopedGroup := scopedName(identity, "group", group)
+	scopedTopic := scopedTopicName(identity, topic)
+	if err := b.validateConsumerGroupLease(scopedGroup, memberID, generation, store.NewTopicPartition(scopedTopic, partition)); err != nil {
+		return store.PollResult{}, err
+	}
+	return b.fetchWithIsolationScoped(ctx, groupConsumer(scopedGroup), scopedTopic, partition, offset, maxRecords, isolation)
 }
 
 func (b *Broker) CommitConsumerGroupOffset(ctx context.Context, group, memberID string, generation uint64, topic string, partition uint32, nextOffset uint64) error {
@@ -112,15 +115,18 @@ func (b *Broker) CommitConsumerGroupOffsetWithMetadata(
 	nextOffset uint64,
 	metadata string,
 ) error {
-	_ = memberID
-	_ = generation
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionCommit, groupResource(identity, group)); err != nil {
 		return err
 	}
+	scopedGroup := scopedName(identity, "group", group)
+	scopedTopic := scopedTopicName(identity, topic)
+	if err := b.validateConsumerGroupLease(scopedGroup, memberID, generation, store.NewTopicPartition(scopedTopic, partition)); err != nil {
+		return err
+	}
 	req := commitOffsetCommand{
-		Consumer:    groupConsumer(scopedName(identity, "group", group)),
-		Topic:       scopedTopicName(identity, topic),
+		Consumer:    groupConsumer(scopedGroup),
+		Topic:       scopedTopic,
 		Partition:   partition,
 		NextOffset:  nextOffset,
 		Metadata:    metadata,

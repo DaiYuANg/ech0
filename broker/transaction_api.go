@@ -91,13 +91,18 @@ func (b *Broker) CommitTransactionOffset(
 	if err := b.authorize(ctx, identityScope, ACLActionCommit, topicResource(identityScope, offset.Topic)); err != nil {
 		return TransactionOffsetCommitResult{}, err
 	}
+	scopedTopic := scopedTopicName(identityScope, offset.Topic)
+	scopedGroup, err := b.scopedTransactionOffsetGroup(ctx, identityScope, offset, scopedTopic)
+	if err != nil {
+		return TransactionOffsetCommitResult{}, err
+	}
 	req := txCommitOffsetCommand{
 		Identity:   identity,
-		Consumer:   scopedName(identityScope, "consumer", offset.Consumer),
-		Group:      scopedName(identityScope, "group", offset.Group),
+		Consumer:   scopedTransactionOffsetConsumer(identityScope, offset.Consumer),
+		Group:      scopedGroup,
 		MemberID:   offset.MemberID,
 		Generation: offset.Generation,
-		Topic:      scopedTopicName(identityScope, offset.Topic),
+		Topic:      scopedTopic,
 		Partition:  offset.Partition,
 		NextOffset: offset.NextOffset,
 		Metadata:   offset.Metadata,
@@ -128,4 +133,25 @@ func (b *Broker) selectTransactionPartition(topicName string, partitioning Publi
 		return 0, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", topicName)
 	}
 	return b.router.selectPartition(*topic, partitioning, key)
+}
+
+func (b *Broker) scopedTransactionOffsetGroup(ctx context.Context, identity Identity, offset TransactionOffsetCommit, scopedTopic string) (string, error) {
+	if offset.Group == "" {
+		return "", nil
+	}
+	if err := b.authorize(ctx, identity, ACLActionCommit, groupResource(identity, offset.Group)); err != nil {
+		return "", err
+	}
+	scopedGroup := scopedName(identity, "group", offset.Group)
+	if err := b.validateConsumerGroupLease(scopedGroup, offset.MemberID, offset.Generation, store.NewTopicPartition(scopedTopic, offset.Partition)); err != nil {
+		return "", err
+	}
+	return scopedGroup, nil
+}
+
+func scopedTransactionOffsetConsumer(identity Identity, consumer string) string {
+	if consumer == "" {
+		return ""
+	}
+	return scopedName(identity, "consumer", consumer)
 }
