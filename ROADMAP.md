@@ -51,7 +51,7 @@ The first implementation cut should keep the public mental model small: existing
 
 ## Phase 3: Consumer Group Maturity
 
-- Static membership to avoid unnecessary full rebalances during short restarts.
+- Done: static membership keeps assignment generation stable when the same member rejoins without assignment changes.
 - Cooperative-sticky rebalance to reduce partition movement.
 - Assignment versioning to reject stale commits and stale fetches.
 - Revoke and assign callback semantics for clients.
