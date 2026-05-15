@@ -159,11 +159,13 @@ type FetchRecord struct {
 }
 
 type FetchResponse struct {
-	Topic         string        `json:"topic"`
-	Partition     uint32        `json:"partition"`
-	Records       []FetchRecord `json:"records"`
-	NextOffset    uint64        `json:"next_offset"`
-	HighWatermark *uint64       `json:"high_watermark,omitempty"`
+	Topic          string        `json:"topic"`
+	Partition      uint32        `json:"partition"`
+	Records        []FetchRecord `json:"records"`
+	NextOffset     uint64        `json:"next_offset"`
+	HighWatermark  *uint64       `json:"high_watermark,omitempty"`
+	LowWatermark   *uint64       `json:"low_watermark,omitempty"`
+	LogStartOffset uint64        `json:"log_start_offset"`
 }
 
 type FetchBatchItemRequest struct {
@@ -182,11 +184,13 @@ type FetchBatchRequest struct {
 }
 
 type FetchBatchItemResponse struct {
-	Topic         string        `json:"topic"`
-	Partition     uint32        `json:"partition"`
-	Records       []FetchRecord `json:"records"`
-	NextOffset    uint64        `json:"next_offset"`
-	HighWatermark *uint64       `json:"high_watermark,omitempty"`
+	Topic          string        `json:"topic"`
+	Partition      uint32        `json:"partition"`
+	Records        []FetchRecord `json:"records"`
+	NextOffset     uint64        `json:"next_offset"`
+	HighWatermark  *uint64       `json:"high_watermark,omitempty"`
+	LowWatermark   *uint64       `json:"low_watermark,omitempty"`
+	LogStartOffset uint64        `json:"log_start_offset"`
 }
 
 type FetchBatchResponse struct {

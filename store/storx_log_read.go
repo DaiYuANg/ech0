@@ -111,18 +111,27 @@ func (s *StorxLogStore) readPointer(pointer segmentRecordPointer) (Record, error
 }
 
 func (s *StorxLogStore) LastOffset(topicPartition TopicPartition) (*uint64, error) {
-	if _, err := s.loadTopicForPartition(topicPartition); err != nil {
+	offsets, err := s.PartitionOffsets(topicPartition)
+	if err != nil {
 		return nil, err
 	}
-	s.indexMu.RLock()
-	next, ok := s.nextOffsets.Get(topicPartition)
-	s.indexMu.RUnlock()
-	if !ok || next == 0 {
-		var absent *uint64
-		return absent, nil
+	return offsets.HighWatermark, nil
+}
+
+func (s *StorxLogStore) PartitionOffsets(topicPartition TopicPartition) (PartitionOffsetState, error) {
+	if _, err := s.loadTopicForPartition(topicPartition); err != nil {
+		return PartitionOffsetState{}, err
 	}
-	last := next - 1
-	return &last, nil
+	s.indexMu.RLock()
+	pointers := s.records.GetOrDefault(topicPartition, nil)
+	next, ok := s.nextOffsets.Get(topicPartition)
+	fallbackNext := nextOffsetFromPointers(pointers)
+	recordOffsets := segmentPointerOffsets(pointers)
+	s.indexMu.RUnlock()
+	if !ok {
+		next = fallbackNext
+	}
+	return partitionOffsetsFromRecordOffsets(topicPartition, next, recordOffsets), nil
 }
 
 func (s *StorxLogStore) loadTopicForPartition(topicPartition TopicPartition) (TopicConfig, error) {

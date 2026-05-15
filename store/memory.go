@@ -205,50 +205,6 @@ func (s *MemoryStore) memoryRecordPageNext(topicPartition TopicPartition, record
 	return true, strconv.FormatUint(next, 10), nil
 }
 
-func (s *MemoryStore) LastOffset(topicPartition TopicPartition) (*uint64, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	topic, ok := s.topics.Get(topicPartition.Topic)
-	if !ok {
-		return nil, E(CodeTopicNotFound, "topic %s not found", topicPartition.Topic)
-	}
-	if topicPartition.Partition >= topic.Partitions {
-		return nil, E(CodePartitionNotFound, "partition %s/%d not found", topicPartition.Topic, topicPartition.Partition)
-	}
-	records := s.records.GetOrDefault(topicPartition, nil)
-	if len(records) == 0 {
-		var absent *uint64
-		return absent, nil
-	}
-	last := records[len(records)-1].Offset
-	return &last, nil
-}
-
-func (s *MemoryStore) SaveConsumerOffset(consumer string, topicPartition TopicPartition, nextOffset uint64) error {
-	return s.SaveConsumerOffsetState(ConsumerOffsetState{
-		Consumer:    consumer,
-		Topic:       topicPartition.Topic,
-		Partition:   topicPartition.Partition,
-		NextOffset:  nextOffset,
-		UpdatedAtMS: NowMS(),
-	})
-}
-
-func (s *MemoryStore) LoadConsumerOffset(consumer string, topicPartition TopicPartition) (*uint64, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	state, ok := s.offsetStates.Get(offsetKey(consumer, topicPartition))
-	if ok {
-		return &state.NextOffset, nil
-	}
-	value, ok := s.offsets.Get(offsetKey(consumer, topicPartition))
-	if !ok {
-		var absent *uint64
-		return absent, nil
-	}
-	return &value, nil
-}
-
 func (s *MemoryStore) SaveTopicConfig(topic TopicConfig) error {
 	if topic.Name == "" {
 		return E(CodeInvalidArgument, "topic name is required")

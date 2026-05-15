@@ -18,6 +18,7 @@ type messageRuntime interface {
 	ListTopics() ([]store.TopicConfig, error)
 	ReadFrom(store.TopicPartition, uint64, int) ([]store.Record, error)
 	LastOffset(store.TopicPartition) (*uint64, error)
+	PartitionOffsets(store.TopicPartition) (store.PartitionOffsetState, error)
 	Close() error
 }
 
@@ -139,6 +140,14 @@ func (r singleMessageRuntime) LastOffset(topicPartition store.TopicPartition) (*
 	out, err := r.log.LastOffset(topicPartition)
 	if err != nil {
 		return nil, wrapBrokerStore(err, "load message high watermark")
+	}
+	return out, nil
+}
+
+func (r singleMessageRuntime) PartitionOffsets(topicPartition store.TopicPartition) (store.PartitionOffsetState, error) {
+	out, err := r.log.PartitionOffsets(topicPartition)
+	if err != nil {
+		return store.PartitionOffsetState{}, wrapBrokerStore(err, "load message partition offsets")
 	}
 	return out, nil
 }

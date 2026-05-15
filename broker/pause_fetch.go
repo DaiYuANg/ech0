@@ -11,11 +11,16 @@ func (b *Broker) pausedPollResult(consumer, topic string, partition uint32, offs
 	if err != nil {
 		return store.PollResult{}, false, err
 	}
-	highWatermark, err := b.queue.LastOffset(store.NewTopicPartition(topic, partition))
+	offsets, err := b.queue.PartitionOffsets(store.NewTopicPartition(topic, partition))
 	if err != nil {
-		return store.PollResult{}, false, wrapBrokerStore(err, "load paused fetch high watermark")
+		return store.PollResult{}, false, wrapBrokerStore(err, "load paused fetch partition offsets")
 	}
-	return store.PollResult{NextOffset: nextOffset, HighWatermark: highWatermark}, true, nil
+	return store.PollResult{
+		NextOffset:     nextOffset,
+		HighWatermark:  offsets.HighWatermark,
+		LowWatermark:   offsets.LowWatermark,
+		LogStartOffset: offsets.LogStartOffset,
+	}, true, nil
 }
 
 func (b *Broker) isConsumerPaused(consumer, topic string, partition uint32) (bool, error) {

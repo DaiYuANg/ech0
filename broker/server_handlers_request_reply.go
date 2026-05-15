@@ -101,11 +101,13 @@ func startRequestResponseFromBroker(pending PendingRequest) protocol.StartReques
 
 func fetchRequestsResponseFromBroker(result RequestPollResult) protocol.FetchRequestsResponse {
 	return protocol.FetchRequestsResponse{
-		Subject:       result.Subject,
-		Partition:     result.Partition,
-		Requests:      requestRecordsFromBroker(result.Requests),
-		NextOffset:    result.NextOffset,
-		HighWatermark: result.HighWatermark,
+		Subject:        result.Subject,
+		Partition:      result.Partition,
+		Requests:       requestRecordsFromBroker(result.Requests),
+		NextOffset:     result.NextOffset,
+		HighWatermark:  result.HighWatermark,
+		LowWatermark:   result.LowWatermark,
+		LogStartOffset: result.LogStartOffset,
 	}
 }
 

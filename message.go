@@ -18,9 +18,11 @@ type Message struct {
 }
 
 type FetchResult struct {
-	Messages      []Message
-	NextOffset    uint64
-	HighWatermark *uint64
+	Messages       []Message
+	NextOffset     uint64
+	HighWatermark  *uint64
+	LowWatermark   *uint64
+	LogStartOffset uint64
 }
 
 func messageFromRecord(topic string, partition uint32, record store.Record) Message {

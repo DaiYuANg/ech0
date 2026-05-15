@@ -91,19 +91,19 @@
     <h2 class="mb-3 mt-6 text-base font-semibold tracking-normal">Lag</h2>
     <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
       <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
-        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Member</th><th class="px-3 py-2">Topic</th><th class="px-3 py-2">Partition</th><th class="px-3 py-2">Committed</th><th class="px-3 py-2">High Watermark</th><th class="px-3 py-2">Backlog</th><th class="px-3 py-2">Lag</th></tr></thead>
+        <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Member</th><th class="px-3 py-2">Topic</th><th class="px-3 py-2">Partition</th><th class="px-3 py-2">Committed</th><th class="px-3 py-2">Log Start</th><th class="px-3 py-2">Low Watermark</th><th class="px-3 py-2">High Watermark</th><th class="px-3 py-2">Backlog</th><th class="px-3 py-2">Lag</th></tr></thead>
         <tbody class="divide-y divide-zinc-200">
         {{if .Lag}}
           {{range .Lag.Partitions}}
             <tr>
-              <td class="px-3 py-2">{{.MemberID}}</td><td class="px-3 py-2">{{.Topic}}</td><td class="px-3 py-2">{{.Partition}}</td><td class="px-3 py-2">{{.CommittedNextOffset}}</td>
+              <td class="px-3 py-2">{{.MemberID}}</td><td class="px-3 py-2">{{.Topic}}</td><td class="px-3 py-2">{{.Partition}}</td><td class="px-3 py-2">{{.CommittedNextOffset}}</td><td class="px-3 py-2">{{.LogStartOffset}}</td><td class="px-3 py-2">{{fmtOffset .LowWatermark}}</td>
               <td class="px-3 py-2">{{fmtOffset .HighWatermark}}</td><td class="px-3 py-2">{{.BacklogRecords}}</td><td class="px-3 py-2">{{.LagRecords}}</td>
             </tr>
           {{else}}
-            <tr><td colspan="7" class="px-3 py-4 text-zinc-500">No assigned partitions</td></tr>
+            <tr><td colspan="9" class="px-3 py-4 text-zinc-500">No assigned partitions</td></tr>
           {{end}}
         {{else}}
-          <tr><td colspan="7" class="px-3 py-4 text-zinc-500">No lag snapshot</td></tr>
+          <tr><td colspan="9" class="px-3 py-4 text-zinc-500">No lag snapshot</td></tr>
         {{end}}
         </tbody>
       </table>

@@ -25,6 +25,8 @@
       <span>partition {{.Page.Partition}}</span>
       <span>offset {{.Page.Offset}}</span>
       {{if .Page.Cursor}}<span>cursor page</span>{{end}}
+      <span>log start {{.Page.LogStartOffset}}</span>
+      <span>low watermark {{fmtOffset .Page.LowWatermark}}</span>
       <span>high watermark {{fmtOffset .Page.HighWatermark}}</span>
       <a class="font-medium text-emerald-700 hover:text-emerald-800" href="/ui/topics/{{.Page.Topic}}/messages?partition={{.Page.Partition}}&offset={{.PrevOffset}}&limit={{.Page.Limit}}">prev</a>
       {{if .Page.HasMore}}

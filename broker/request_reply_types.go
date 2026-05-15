@@ -61,6 +61,8 @@ type RequestPollResult struct {
 	Requests      []RequestMessage
 	NextOffset    uint64
 	HighWatermark *uint64
+	LowWatermark  *uint64
+	LogStartOffset uint64
 }
 
 func (m RequestMessage) ExpiredAt(nowMS uint64) bool {

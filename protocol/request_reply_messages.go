@@ -46,11 +46,13 @@ type RequestRecord struct {
 }
 
 type FetchRequestsResponse struct {
-	Subject       string          `json:"subject"`
-	Partition     uint32          `json:"partition"`
-	Requests      []RequestRecord `json:"requests"`
-	NextOffset    uint64          `json:"next_offset"`
-	HighWatermark *uint64         `json:"high_watermark,omitempty"`
+	Subject        string          `json:"subject"`
+	Partition      uint32          `json:"partition"`
+	Requests       []RequestRecord `json:"requests"`
+	NextOffset     uint64          `json:"next_offset"`
+	HighWatermark  *uint64         `json:"high_watermark,omitempty"`
+	LowWatermark   *uint64         `json:"low_watermark,omitempty"`
+	LogStartOffset uint64          `json:"log_start_offset"`
 }
 
 type ReplyRequest struct {

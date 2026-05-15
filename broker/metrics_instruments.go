@@ -249,11 +249,3 @@ func highWatermarkBacklog(highWatermark *uint64) uint64 {
 	}
 	return *highWatermark + 1
 }
-
-func lagRecords(committedNextOffset uint64, highWatermark *uint64) uint64 {
-	backlog := highWatermarkBacklog(highWatermark)
-	if committedNextOffset >= backlog {
-		return 0
-	}
-	return backlog - committedNextOffset
-}

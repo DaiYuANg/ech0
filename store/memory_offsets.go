@@ -18,6 +18,31 @@ func (s *MemoryStore) SaveConsumerOffsetState(state ConsumerOffsetState) error {
 	return nil
 }
 
+func (s *MemoryStore) SaveConsumerOffset(consumer string, topicPartition TopicPartition, nextOffset uint64) error {
+	return s.SaveConsumerOffsetState(ConsumerOffsetState{
+		Consumer:    consumer,
+		Topic:       topicPartition.Topic,
+		Partition:   topicPartition.Partition,
+		NextOffset:  nextOffset,
+		UpdatedAtMS: NowMS(),
+	})
+}
+
+func (s *MemoryStore) LoadConsumerOffset(consumer string, topicPartition TopicPartition) (*uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	state, ok := s.offsetStates.Get(offsetKey(consumer, topicPartition))
+	if ok {
+		return &state.NextOffset, nil
+	}
+	value, ok := s.offsets.Get(offsetKey(consumer, topicPartition))
+	if !ok {
+		var absent *uint64
+		return absent, nil
+	}
+	return &value, nil
+}
+
 func (s *MemoryStore) LoadConsumerOffsetState(consumer string, topicPartition TopicPartition) (*ConsumerOffsetState, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

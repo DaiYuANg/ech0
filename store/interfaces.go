@@ -10,6 +10,7 @@ type MessageLogStore interface {
 	AppendRecordsBatch(topicPartition TopicPartition, records []RecordAppend) ([]Record, error)
 	ReadFrom(topicPartition TopicPartition, offset uint64, maxRecords int) ([]Record, error)
 	LastOffset(topicPartition TopicPartition) (*uint64, error)
+	PartitionOffsets(topicPartition TopicPartition) (PartitionOffsetState, error)
 }
 
 type MessageLogPager interface {

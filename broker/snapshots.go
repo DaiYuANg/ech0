@@ -3,7 +3,6 @@ package broker
 import (
 	"cmp"
 	"context"
-	"strconv"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/lyonbrown4d/ech0/store"
@@ -185,12 +184,12 @@ func (b *Broker) topicSummary(topic store.TopicConfig) (TopicSummary, error) {
 	}
 	for partition := range topic.Partitions {
 		tp := store.NewTopicPartition(topic.Name, partition)
-		highWatermark, err := b.queue.LastOffset(tp)
+		offsets, err := b.queue.PartitionOffsets(tp)
 		if err != nil {
-			return TopicSummary{}, wrapBroker("topic_summary_high_watermark_failed", err, "load topic partition high watermark")
+			return TopicSummary{}, wrapBroker("topic_summary_offsets_failed", err, "load topic partition offsets")
 		}
-		backlog := highWatermarkBacklog(highWatermark)
-		summary.ProducedRecordsTotal += backlog
+		backlog := offsets.RetainedRecords
+		summary.ProducedRecordsTotal += highWatermarkBacklog(offsets.HighWatermark)
 		summary.TotalBacklogRecords += backlog
 		if backlog > summary.HottestPartitionRecords {
 			selected := partition
@@ -219,9 +218,9 @@ func (b *Broker) groupLagFromAssignment(assignment store.ConsumerGroupAssignment
 	partitions := collectionlist.NewList[GroupPartitionLagSummary]()
 	for _, item := range assignment.Assignments {
 		tp := store.NewTopicPartition(item.Topic, item.Partition)
-		highWatermark, err := b.queue.LastOffset(tp)
+		offsets, err := b.queue.PartitionOffsets(tp)
 		if err != nil {
-			return GroupLagSummary{}, wrapBroker("group_lag_high_watermark_failed", err, "load group partition high watermark")
+			return GroupLagSummary{}, wrapBroker("group_lag_offsets_failed", err, "load group partition offsets")
 		}
 		committed := uint64(0)
 		if offset, offsetErr := b.meta.LoadConsumerOffset(groupConsumer(assignment.Group), tp); offsetErr != nil {
@@ -229,8 +228,8 @@ func (b *Broker) groupLagFromAssignment(assignment store.ConsumerGroupAssignment
 		} else if offset != nil {
 			committed = *offset
 		}
-		backlog := highWatermarkBacklog(highWatermark)
-		lag := lagRecords(committed, highWatermark)
+		backlog := offsets.RetainedRecords
+		lag := lagRecordsFromOffsets(committed, offsets)
 		out.TotalBacklogRecords += backlog
 		out.TotalLagRecords += lag
 		partitions.Add(GroupPartitionLagSummary{
@@ -238,7 +237,9 @@ func (b *Broker) groupLagFromAssignment(assignment store.ConsumerGroupAssignment
 			Topic:               item.Topic,
 			Partition:           item.Partition,
 			CommittedNextOffset: committed,
-			HighWatermark:       highWatermark,
+			HighWatermark:       offsets.HighWatermark,
+			LowWatermark:        offsets.LowWatermark,
+			LogStartOffset:      offsets.LogStartOffset,
 			BacklogRecords:      backlog,
 			LagRecords:          lag,
 		})
@@ -280,11 +281,4 @@ func visibleGroupLagSummary(identity Identity, summary GroupLagSummary) GroupLag
 		summary.Partitions[index].Topic = visibleTopicName(identity, summary.Partitions[index].Topic)
 	}
 	return summary
-}
-
-func displayUint64Ptr(value *uint64) string {
-	if value == nil {
-		return "-"
-	}
-	return strconv.FormatUint(*value, 10)
 }

@@ -95,7 +95,7 @@ func encodeFetchConsumerGroupResponse(value any) ([]byte, error) {
 			return err
 		}
 		writer.writeU64(resp.NextOffset)
-		writer.writeOptionalU64(resp.HighWatermark)
+		writeFetchWatermarks(writer, resp.HighWatermark, resp.LowWatermark, resp.LogStartOffset)
 		return nil
 	})
 }
@@ -134,7 +134,7 @@ func readFetchConsumerGroupResponseTail(reader *binaryReader, resp FetchConsumer
 	if resp.NextOffset, err = reader.readU64(); err != nil {
 		return FetchConsumerGroupResponse{}, err
 	}
-	if resp.HighWatermark, err = reader.readOptionalU64(); err != nil {
+	if err := readFetchWatermarks(reader, &resp.HighWatermark, &resp.LowWatermark, &resp.LogStartOffset); err != nil {
 		return FetchConsumerGroupResponse{}, err
 	}
 	return resp, nil

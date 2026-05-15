@@ -25,29 +25,32 @@ func (b *Broker) TopicMessagesSnapshotFor(ctx context.Context, topic string, par
 	}
 	scopedTopic := scopedTopicName(identity, topic)
 	tp := store.NewTopicPartition(scopedTopic, partition)
-	records, err := b.queue.ReadFrom(tp, offset, limit)
+	offsets, err := b.queue.PartitionOffsets(tp)
+	if err != nil {
+		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_offsets_failed", err, "load topic message offsets")
+	}
+	effectiveOffset := max(offset, offsets.LogStartOffset)
+	records, err := b.queue.ReadFrom(tp, effectiveOffset, limit)
 	if err != nil {
 		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_read_failed", err, "read topic messages")
 	}
-	highWatermark, err := b.queue.LastOffset(tp)
-	if err != nil {
-		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_high_watermark_failed", err, "load topic message high watermark")
-	}
 	items := collectionlist.NewList[TopicMessageSummary]()
-	nextOffset := offset
+	nextOffset := effectiveOffset
 	for _, record := range records {
 		items.Add(topicMessageSummary(record))
 		nextOffset = record.Offset + 1
 	}
 	return TopicMessagesPageSummary{
-		Topic:         visibleTopicName(identity, scopedTopic),
-		Partition:     partition,
-		Offset:        offset,
-		Limit:         limit,
-		NextOffset:    nextOffset,
-		HasMore:       len(records) == limit && highWatermark != nil && nextOffset <= *highWatermark,
-		HighWatermark: highWatermark,
-		Records:       items.Values(),
+		Topic:          visibleTopicName(identity, scopedTopic),
+		Partition:      partition,
+		Offset:         effectiveOffset,
+		Limit:          limit,
+		NextOffset:     nextOffset,
+		HasMore:        len(records) == limit && offsets.HighWatermark != nil && nextOffset <= *offsets.HighWatermark,
+		HighWatermark:  offsets.HighWatermark,
+		LowWatermark:   offsets.LowWatermark,
+		LogStartOffset: offsets.LogStartOffset,
+		Records:        items.Values(),
 	}, nil
 }
 
@@ -73,13 +76,13 @@ func (b *Broker) TopicMessagesCursorSnapshotFor(ctx context.Context, topic strin
 	if err != nil {
 		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_page_failed", err, "page topic messages")
 	}
-	highWatermark, err := b.queue.LastOffset(tp)
+	offsets, err := b.queue.PartitionOffsets(tp)
 	if err != nil {
-		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_high_watermark_failed", err, "load topic message high watermark")
+		return TopicMessagesPageSummary{}, wrapBroker("topic_messages_offsets_failed", err, "load topic message offsets")
 	}
 	items := collectionlist.NewListWithCapacity[TopicMessageSummary](len(page.Records))
-	nextOffset := uint64(0)
-	offset := uint64(0)
+	nextOffset := offsets.LogStartOffset
+	offset := offsets.LogStartOffset
 	for idx, record := range page.Records {
 		if idx == 0 {
 			offset = record.Offset
@@ -88,16 +91,18 @@ func (b *Broker) TopicMessagesCursorSnapshotFor(ctx context.Context, topic strin
 		nextOffset = record.Offset + 1
 	}
 	return TopicMessagesPageSummary{
-		Topic:         visibleTopicName(identity, scopedTopic),
-		Partition:     partition,
-		Offset:        offset,
-		Limit:         limit,
-		Cursor:        cursor,
-		NextOffset:    nextOffset,
-		NextCursor:    page.NextCursor,
-		HasMore:       page.HasMore,
-		HighWatermark: highWatermark,
-		Records:       items.Values(),
+		Topic:          visibleTopicName(identity, scopedTopic),
+		Partition:      partition,
+		Offset:         offset,
+		Limit:          limit,
+		Cursor:         cursor,
+		NextOffset:     nextOffset,
+		NextCursor:     page.NextCursor,
+		HasMore:        page.HasMore,
+		HighWatermark:  offsets.HighWatermark,
+		LowWatermark:   offsets.LowWatermark,
+		LogStartOffset: offsets.LogStartOffset,
+		Records:        items.Values(),
 	}, nil
 }
 

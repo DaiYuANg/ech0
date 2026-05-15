@@ -59,6 +59,7 @@ func (s *StorxLogStore) removeRecordPointers(tp TopicPartition, remove interface
 	s.indexMu.Lock()
 	defer s.indexMu.Unlock()
 	existing := s.records.GetOrDefault(tp, nil)
+	nextOffset := s.nextOffsets.GetOrDefault(tp, nextOffsetFromPointers(existing))
 	kept := make([]segmentRecordPointer, 0, len(existing))
 	removed := make([]segmentRecordPointer, 0)
 	for _, pointer := range existing {
@@ -69,7 +70,7 @@ func (s *StorxLogStore) removeRecordPointers(tp TopicPartition, remove interface
 		kept = append(kept, pointer)
 	}
 	s.records.Set(tp, kept)
-	s.nextOffsets.Set(tp, nextOffsetFromPointers(kept))
+	s.nextOffsets.Set(tp, max(nextOffset, nextOffsetFromPointers(kept)))
 	return removed
 }
 
@@ -99,4 +100,15 @@ func cloneSegmentPointers(pointers []segmentRecordPointer) []segmentRecordPointe
 		return nil
 	}
 	return append([]segmentRecordPointer(nil), pointers...)
+}
+
+func segmentPointerOffsets(pointers []segmentRecordPointer) []uint64 {
+	if len(pointers) == 0 {
+		return nil
+	}
+	out := make([]uint64, 0, len(pointers))
+	for _, pointer := range pointers {
+		out = append(out, pointer.Offset)
+	}
+	return out
 }

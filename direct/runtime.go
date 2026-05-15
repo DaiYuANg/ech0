@@ -49,10 +49,12 @@ type InboxRecord struct {
 }
 
 type FetchInboxResult struct {
-	Recipient     string
-	Records       []InboxRecord
-	NextOffset    uint64
-	HighWatermark *uint64
+	Recipient      string
+	Records        []InboxRecord
+	NextOffset     uint64
+	HighWatermark  *uint64
+	LowWatermark   *uint64
+	LogStartOffset uint64
 }
 
 type Runtime struct {
@@ -130,10 +132,12 @@ func (r *Runtime) FetchInbox(recipient string, maxRecords int) (FetchInboxResult
 		records.Add(decoded)
 	}
 	return FetchInboxResult{
-		Recipient:     recipient,
-		Records:       records.Values(),
-		NextOffset:    poll.NextOffset,
-		HighWatermark: poll.HighWatermark,
+		Recipient:      recipient,
+		Records:        records.Values(),
+		NextOffset:     poll.NextOffset,
+		HighWatermark:  poll.HighWatermark,
+		LowWatermark:   poll.LowWatermark,
+		LogStartOffset: poll.LogStartOffset,
 	}, nil
 }
 

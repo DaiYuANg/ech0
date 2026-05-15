@@ -75,7 +75,7 @@ func encodeFetchResponse(value any) ([]byte, error) {
 			return err
 		}
 		writer.writeU64(resp.NextOffset)
-		writer.writeOptionalU64(resp.HighWatermark)
+		writeFetchWatermarks(writer, resp.HighWatermark, resp.LowWatermark, resp.LogStartOffset)
 		return nil
 	})
 }
@@ -99,10 +99,28 @@ func readFetchResponse(reader *binaryReader) (FetchResponse, error) {
 	if resp.NextOffset, err = reader.readU64(); err != nil {
 		return FetchResponse{}, err
 	}
-	if resp.HighWatermark, err = reader.readOptionalU64(); err != nil {
+	if err := readFetchWatermarks(reader, &resp.HighWatermark, &resp.LowWatermark, &resp.LogStartOffset); err != nil {
 		return FetchResponse{}, err
 	}
 	return resp, nil
+}
+
+func writeFetchWatermarks(writer *binaryWriter, high, low *uint64, logStart uint64) {
+	writer.writeOptionalU64(high)
+	writer.writeOptionalU64(low)
+	writer.writeU64(logStart)
+}
+
+func readFetchWatermarks(reader *binaryReader, high, low **uint64, logStart *uint64) error {
+	var err error
+	if *high, err = reader.readOptionalU64(); err != nil {
+		return err
+	}
+	if *low, err = reader.readOptionalU64(); err != nil {
+		return err
+	}
+	*logStart, err = reader.readU64()
+	return err
 }
 
 func writeFetchRecords(writer *binaryWriter, records []FetchRecord) error {

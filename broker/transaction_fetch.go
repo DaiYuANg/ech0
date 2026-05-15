@@ -59,25 +59,35 @@ func (b *Broker) fetchWithIsolationScoped(
 	if err != nil {
 		return store.PollResult{}, err
 	}
-	highWatermark, err := b.queue.LastOffset(store.NewTopicPartition(topic, partition))
+	offsets, err := b.queue.PartitionOffsets(store.NewTopicPartition(topic, partition))
 	if err != nil {
-		return store.PollResult{}, wrapBrokerStore(err, "load message high watermark")
+		return store.PollResult{}, wrapBrokerStore(err, "load message partition offsets")
 	}
-	return store.PollResult{Records: records, NextOffset: committedNextOffset, HighWatermark: highWatermark}, nil
+	return store.PollResult{
+		Records:        records,
+		NextOffset:     committedNextOffset,
+		HighWatermark:  offsets.HighWatermark,
+		LowWatermark:   offsets.LowWatermark,
+		LogStartOffset: offsets.LogStartOffset,
+	}, nil
 }
 
 func (b *Broker) fetchStartOffset(consumer, topic string, partition uint32, offset *uint64) (uint64, error) {
+	offsets, err := b.queue.PartitionOffsets(store.NewTopicPartition(topic, partition))
+	if err != nil {
+		return 0, wrapBrokerStore(err, "load message partition offsets")
+	}
 	if offset != nil {
-		return *offset, nil
+		return max(*offset, offsets.LogStartOffset), nil
 	}
 	committed, err := b.meta.LoadConsumerOffset(consumer, store.NewTopicPartition(topic, partition))
 	if err != nil {
 		return 0, wrapBrokerStore(err, "load consumer offset")
 	}
 	if committed == nil {
-		return 0, nil
+		return offsets.LogStartOffset, nil
 	}
-	return *committed, nil
+	return max(*committed, offsets.LogStartOffset), nil
 }
 
 func (b *Broker) readCommittedRecords(topic string, partition uint32, offset uint64, maxRecords int) ([]store.Record, uint64, error) {

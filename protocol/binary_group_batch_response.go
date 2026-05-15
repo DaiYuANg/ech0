@@ -47,7 +47,7 @@ func writeConsumerGroupBatchItem(writer *binaryWriter, item FetchConsumerGroupBa
 		return err
 	}
 	writer.writeU64(item.NextOffset)
-	writer.writeOptionalU64(item.HighWatermark)
+	writeFetchWatermarks(writer, item.HighWatermark, item.LowWatermark, item.LogStartOffset)
 	return nil
 }
 
@@ -100,7 +100,7 @@ func readConsumerGroupBatchItem(reader *binaryReader) (FetchConsumerGroupBatchIt
 	if item.NextOffset, err = reader.readU64(); err != nil {
 		return FetchConsumerGroupBatchItemResponse{}, err
 	}
-	if item.HighWatermark, err = reader.readOptionalU64(); err != nil {
+	if err := readFetchWatermarks(reader, &item.HighWatermark, &item.LowWatermark, &item.LogStartOffset); err != nil {
 		return FetchConsumerGroupBatchItemResponse{}, err
 	}
 	return item, nil

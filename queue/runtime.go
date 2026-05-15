@@ -50,31 +50,37 @@ func (r *Runtime) PublishBatchRecords(topic string, partition uint32, records []
 
 func (r *Runtime) Fetch(consumer, topic string, partition uint32, offset *uint64, maxRecords int) (store.PollResult, error) {
 	tp := store.NewTopicPartition(topic, partition)
-	nextOffset := uint64(0)
+	offsets, err := r.log.PartitionOffsets(tp)
+	if err != nil {
+		return store.PollResult{}, oops.In("queue").Code("load_partition_offsets_failed").With("topic", topic, "partition", partition).Wrapf(err, "load partition offsets")
+	}
+	nextOffset := offsets.LogStartOffset
 	if offset != nil {
-		nextOffset = *offset
-	} else if committed, err := r.meta.LoadConsumerOffset(consumer, tp); err != nil {
-		return store.PollResult{}, oops.In("queue").Code("load_consumer_offset_failed").With("consumer", consumer, "topic", topic, "partition", partition).Wrapf(err, "load consumer offset")
-	} else if committed != nil {
-		nextOffset = *committed
+		nextOffset = max(*offset, offsets.LogStartOffset)
+	} else {
+		committed, loadErr := r.meta.LoadConsumerOffset(consumer, tp)
+		if loadErr != nil {
+			return store.PollResult{}, oops.In("queue").Code("load_consumer_offset_failed").With("consumer", consumer, "topic", topic, "partition", partition).Wrapf(loadErr, "load consumer offset")
+		}
+		if committed != nil {
+			nextOffset = max(*committed, offsets.LogStartOffset)
+		}
 	}
 
 	records, err := r.log.ReadFrom(tp, nextOffset, maxRecords)
 	if err != nil {
 		return store.PollResult{}, oops.In("queue").Code("read_records_failed").With("topic", topic, "partition", partition).Wrapf(err, "read records")
 	}
-	highWatermark, err := r.log.LastOffset(tp)
-	if err != nil {
-		return store.PollResult{}, oops.In("queue").Code("load_high_watermark_failed").With("topic", topic, "partition", partition).Wrapf(err, "load high watermark")
-	}
 	computedNext := nextOffset
 	if len(records) > 0 {
 		computedNext = records[len(records)-1].Offset + 1
 	}
 	return store.PollResult{
-		Records:       records,
-		NextOffset:    computedNext,
-		HighWatermark: highWatermark,
+		Records:        records,
+		NextOffset:     computedNext,
+		HighWatermark:  offsets.HighWatermark,
+		LowWatermark:   offsets.LowWatermark,
+		LogStartOffset: offsets.LogStartOffset,
 	}, nil
 }
 

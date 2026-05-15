@@ -164,7 +164,13 @@ func (g *ConsumerGroup) Fetch(ctx context.Context, topic string, partition uint3
 	for _, record := range poll.Records {
 		messages = append(messages, messageFromRecord(topic, partition, record))
 	}
-	return FetchResult{Messages: messages, NextOffset: poll.NextOffset, HighWatermark: poll.HighWatermark}, nil
+	return FetchResult{
+		Messages:       messages,
+		NextOffset:     poll.NextOffset,
+		HighWatermark:  poll.HighWatermark,
+		LowWatermark:   poll.LowWatermark,
+		LogStartOffset: poll.LogStartOffset,
+	}, nil
 }
 
 func (g *ConsumerGroup) Ack(ctx context.Context, msg Message) error {

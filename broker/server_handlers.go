@@ -189,11 +189,13 @@ func (s *TCPServer) handleFetchFrame(ctx context.Context, frame transport.Frame)
 		return errorFromErr(err), nil
 	}
 	return okFrame(protocol.CmdFetchResponse, protocol.FetchResponse{
-		Topic:         req.Topic,
-		Partition:     req.Partition,
-		Records:       fetchRecordsFromStore(poll.Records),
-		NextOffset:    poll.NextOffset,
-		HighWatermark: poll.HighWatermark,
+		Topic:          req.Topic,
+		Partition:      req.Partition,
+		Records:        fetchRecordsFromStore(poll.Records),
+		NextOffset:     poll.NextOffset,
+		HighWatermark:  poll.HighWatermark,
+		LowWatermark:   poll.LowWatermark,
+		LogStartOffset: poll.LogStartOffset,
 	})
 }
 
@@ -209,11 +211,13 @@ func (s *TCPServer) handleFetchBatchFrame(ctx context.Context, frame transport.F
 			return errorFromErr(err), nil
 		}
 		items.Add(protocol.FetchBatchItemResponse{
-			Topic:         item.Topic,
-			Partition:     item.Partition,
-			Records:       fetchRecordsFromStore(poll.Records),
-			NextOffset:    poll.NextOffset,
-			HighWatermark: poll.HighWatermark,
+			Topic:          item.Topic,
+			Partition:      item.Partition,
+			Records:        fetchRecordsFromStore(poll.Records),
+			NextOffset:     poll.NextOffset,
+			HighWatermark:  poll.HighWatermark,
+			LowWatermark:   poll.LowWatermark,
+			LogStartOffset: poll.LogStartOffset,
 		})
 	}
 	return okFrame(protocol.CmdFetchBatchResponse, protocol.FetchBatchResponse{Items: items.Values()})

@@ -159,7 +159,7 @@ func writeFetchBatchItemResponse(writer *binaryWriter, item FetchBatchItemRespon
 		return err
 	}
 	writer.writeU64(item.NextOffset)
-	writer.writeOptionalU64(item.HighWatermark)
+	writeFetchWatermarks(writer, item.HighWatermark, item.LowWatermark, item.LogStartOffset)
 	return nil
 }
 
@@ -178,7 +178,7 @@ func readFetchBatchItemResponse(reader *binaryReader) (FetchBatchItemResponse, e
 	if item.NextOffset, err = reader.readU64(); err != nil {
 		return FetchBatchItemResponse{}, err
 	}
-	if item.HighWatermark, err = reader.readOptionalU64(); err != nil {
+	if err := readFetchWatermarks(reader, &item.HighWatermark, &item.LowWatermark, &item.LogStartOffset); err != nil {
 		return FetchBatchItemResponse{}, err
 	}
 	return item, nil

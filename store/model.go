@@ -143,9 +143,11 @@ func (r Record) IsTombstone() bool {
 }
 
 type PollResult struct {
-	Records       []Record
-	NextOffset    uint64
-	HighWatermark *uint64
+	Records        []Record
+	NextOffset     uint64
+	HighWatermark  *uint64
+	LowWatermark   *uint64
+	LogStartOffset uint64
 }
 
 type TransactionRecordMetadata struct {

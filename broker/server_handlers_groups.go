@@ -35,10 +35,12 @@ func (s *TCPServer) handleFetchInboxFrame(ctx context.Context, frame transport.F
 		return errorFromErr(err), nil
 	}
 	return okFrame(protocol.CmdFetchInboxResponse, protocol.FetchInboxResponse{
-		Recipient:     result.Recipient,
-		Records:       directMessagesToProtocol(result.Records),
-		NextOffset:    result.NextOffset,
-		HighWatermark: result.HighWatermark,
+		Recipient:      result.Recipient,
+		Records:        directMessagesToProtocol(result.Records),
+		NextOffset:     result.NextOffset,
+		HighWatermark:  result.HighWatermark,
+		LowWatermark:   result.LowWatermark,
+		LogStartOffset: result.LogStartOffset,
 	})
 }
 
@@ -137,14 +139,16 @@ func (s *TCPServer) handleFetchConsumerGroupFrame(ctx context.Context, frame tra
 		return errorFromErr(err), nil
 	}
 	return okFrame(protocol.CmdFetchConsumerGroupResponse, protocol.FetchConsumerGroupResponse{
-		Group:         req.Group,
-		MemberID:      req.MemberID,
-		Generation:    req.Generation,
-		Topic:         req.Topic,
-		Partition:     req.Partition,
-		Records:       fetchRecordsFromStore(poll.Records),
-		NextOffset:    poll.NextOffset,
-		HighWatermark: poll.HighWatermark,
+		Group:          req.Group,
+		MemberID:       req.MemberID,
+		Generation:     req.Generation,
+		Topic:          req.Topic,
+		Partition:      req.Partition,
+		Records:        fetchRecordsFromStore(poll.Records),
+		NextOffset:     poll.NextOffset,
+		HighWatermark:  poll.HighWatermark,
+		LowWatermark:   poll.LowWatermark,
+		LogStartOffset: poll.LogStartOffset,
 	})
 }
 
@@ -188,11 +192,13 @@ func (s *TCPServer) fetchConsumerGroupBatchItems(
 			return nil, err
 		}
 		items.Add(protocol.FetchConsumerGroupBatchItemResponse{
-			Topic:         item.Topic,
-			Partition:     item.Partition,
-			Records:       fetchRecordsFromStore(poll.Records),
-			NextOffset:    poll.NextOffset,
-			HighWatermark: poll.HighWatermark,
+			Topic:          item.Topic,
+			Partition:      item.Partition,
+			Records:        fetchRecordsFromStore(poll.Records),
+			NextOffset:     poll.NextOffset,
+			HighWatermark:  poll.HighWatermark,
+			LowWatermark:   poll.LowWatermark,
+			LogStartOffset: poll.LogStartOffset,
 		})
 	}
 	return items.Values(), nil

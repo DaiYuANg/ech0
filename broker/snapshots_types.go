@@ -32,16 +32,18 @@ type TopicMessageSummary struct {
 }
 
 type TopicMessagesPageSummary struct {
-	Topic         string                `json:"topic"`
-	Partition     uint32                `json:"partition"`
-	Offset        uint64                `json:"offset"`
-	Limit         int                   `json:"limit"`
-	Cursor        string                `json:"cursor,omitempty"`
-	NextOffset    uint64                `json:"next_offset"`
-	NextCursor    string                `json:"next_cursor,omitempty"`
-	HasMore       bool                  `json:"has_more"`
-	HighWatermark *uint64               `json:"high_watermark,omitempty"`
-	Records       []TopicMessageSummary `json:"records"`
+	Topic          string                `json:"topic"`
+	Partition      uint32                `json:"partition"`
+	Offset         uint64                `json:"offset"`
+	Limit          int                   `json:"limit"`
+	Cursor         string                `json:"cursor,omitempty"`
+	NextOffset     uint64                `json:"next_offset"`
+	NextCursor     string                `json:"next_cursor,omitempty"`
+	HasMore        bool                  `json:"has_more"`
+	HighWatermark  *uint64               `json:"high_watermark,omitempty"`
+	LowWatermark   *uint64               `json:"low_watermark,omitempty"`
+	LogStartOffset uint64                `json:"log_start_offset"`
+	Records        []TopicMessageSummary `json:"records"`
 }
 
 type GroupMemberSummary struct {
@@ -76,6 +78,8 @@ type GroupPartitionLagSummary struct {
 	Partition           uint32  `json:"partition"`
 	CommittedNextOffset uint64  `json:"committed_next_offset"`
 	HighWatermark       *uint64 `json:"high_watermark,omitempty"`
+	LowWatermark        *uint64 `json:"low_watermark,omitempty"`
+	LogStartOffset      uint64  `json:"log_start_offset"`
 	BacklogRecords      uint64  `json:"backlog_records"`
 	LagRecords          uint64  `json:"lag_records"`
 }

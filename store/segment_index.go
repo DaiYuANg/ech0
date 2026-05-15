@@ -17,6 +17,7 @@ const segmentIndexExtension = ".idx"
 
 func (s *StorxLogStore) loadSegmentIndexes() error {
 	loaded := collectionmapping.NewMap[TopicPartition, *collectionmapping.Map[uint64, segmentRecordPointer]]()
+	nextOffsets := collectionmapping.NewMap[TopicPartition, uint64]()
 	if err := filepath.WalkDir(s.segmentsDir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -28,7 +29,7 @@ func (s *StorxLogStore) loadSegmentIndexes() error {
 		if relErr != nil {
 			return wrapExternal(relErr, "resolve segment index path")
 		}
-		return s.loadSegmentIndexFile(relativePath, loaded)
+		return s.loadSegmentIndexFile(relativePath, loaded, nextOffsets)
 	}); err != nil {
 		return wrapExternal(err, "load segment indexes")
 	}
@@ -41,7 +42,13 @@ func (s *StorxLogStore) loadSegmentIndexes() error {
 			return true
 		})
 		s.records.Set(tp, sortSegmentPointers(pointers.Values()))
-		s.nextOffsets.Set(tp, nextOffsetFromPointers(s.records.GetOrDefault(tp, nil)))
+		s.nextOffsets.Set(tp, max(nextOffsets.GetOrDefault(tp, 0), nextOffsetFromPointers(s.records.GetOrDefault(tp, nil))))
+		return true
+	})
+	nextOffsets.Range(func(tp TopicPartition, next uint64) bool {
+		if _, ok := loaded.Get(tp); !ok {
+			s.nextOffsets.Set(tp, next)
+		}
 		return true
 	})
 	s.topics.Range(func(_ string, topic TopicConfig) bool {
@@ -54,6 +61,7 @@ func (s *StorxLogStore) loadSegmentIndexes() error {
 func (s *StorxLogStore) loadSegmentIndexFile(
 	relativePath string,
 	loaded *collectionmapping.Map[TopicPartition, *collectionmapping.Map[uint64, segmentRecordPointer]],
+	nextOffsets *collectionmapping.Map[TopicPartition, uint64],
 ) error {
 	root, err := os.OpenRoot(s.segmentsDir)
 	if err != nil {
@@ -76,17 +84,19 @@ func (s *StorxLogStore) loadSegmentIndexFile(
 		return wrapExternal(closeRootErr, "close segment index root")
 	}
 	for _, entry := range entries {
-		applyLoadedSegmentIndexEntry(loaded, entry)
+		applyLoadedSegmentIndexEntry(loaded, nextOffsets, entry)
 	}
 	return nil
 }
 
 func applyLoadedSegmentIndexEntry(
 	loaded *collectionmapping.Map[TopicPartition, *collectionmapping.Map[uint64, segmentRecordPointer]],
+	nextOffsets *collectionmapping.Map[TopicPartition, uint64],
 	entry segmentIndexEntry,
 ) {
 	pointer := entry.Pointer
 	tp := NewTopicPartition(pointer.Topic, pointer.Partition)
+	nextOffsets.Set(tp, max(nextOffsets.GetOrDefault(tp, 0), pointer.Offset+1))
 	byOffset, ok := loaded.Get(tp)
 	if !ok {
 		byOffset = collectionmapping.NewMap[uint64, segmentRecordPointer]()

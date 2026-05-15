@@ -60,12 +60,12 @@ The first implementation cut should keep the public mental model small: existing
 
 ## Phase 4: Topic And Message Lifecycle
 
-- Retention by time.
-- Retention by size.
-- Compaction by key.
+- Done: retention by time with monotonic next offset and fetch log-start clamping.
+- Done: retention by size with low watermark advancement.
+- Done: compaction by key for segment-log storage.
+- Done: partition high watermark, low watermark, and log start offset in store/runtime/protocol/admin views.
 - Tombstone cleanup.
 - Topic-level policies for retention, compaction, retry, DLQ, priority, and ordering.
-- Partition high watermark, low watermark, and log start offset.
 - Per-message TTL with expire-or-DLQ policy.
 
 ## Phase 5: Retry, Delay, And DLQ

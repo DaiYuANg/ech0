@@ -111,7 +111,7 @@ func encodeFetchInboxResponse(value any) ([]byte, error) {
 			return err
 		}
 		writer.writeU64(resp.NextOffset)
-		writer.writeOptionalU64(resp.HighWatermark)
+		writeFetchWatermarks(writer, resp.HighWatermark, resp.LowWatermark, resp.LogStartOffset)
 		return nil
 	})
 }
@@ -132,7 +132,7 @@ func readFetchInboxResponse(reader *binaryReader) (FetchInboxResponse, error) {
 	if resp.NextOffset, err = reader.readU64(); err != nil {
 		return FetchInboxResponse{}, err
 	}
-	if resp.HighWatermark, err = reader.readOptionalU64(); err != nil {
+	if err := readFetchWatermarks(reader, &resp.HighWatermark, &resp.LowWatermark, &resp.LogStartOffset); err != nil {
 		return FetchInboxResponse{}, err
 	}
 	return resp, nil

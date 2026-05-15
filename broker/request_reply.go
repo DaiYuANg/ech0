@@ -101,11 +101,13 @@ func (b *Broker) FetchRequestsWithIsolation(
 		return RequestPollResult{}, err
 	}
 	return RequestPollResult{
-		Subject:       subject,
-		Partition:     partition,
-		Requests:      requests,
-		NextOffset:    poll.NextOffset,
-		HighWatermark: poll.HighWatermark,
+		Subject:        subject,
+		Partition:      partition,
+		Requests:       requests,
+		NextOffset:     poll.NextOffset,
+		HighWatermark:  poll.HighWatermark,
+		LowWatermark:   poll.LowWatermark,
+		LogStartOffset: poll.LogStartOffset,
 	}, nil
 }
 

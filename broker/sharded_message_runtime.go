@@ -192,6 +192,18 @@ func (r *shardedMessageRuntime) LastOffset(topicPartition store.TopicPartition) 
 	return out, nil
 }
 
+func (r *shardedMessageRuntime) PartitionOffsets(topicPartition store.TopicPartition) (store.PartitionOffsetState, error) {
+	shard, err := r.shardForTopicPartition(topicPartition)
+	if err != nil {
+		return store.PartitionOffsetState{}, err
+	}
+	out, err := shard.log.PartitionOffsets(topicPartition)
+	if err != nil {
+		return store.PartitionOffsetState{}, wrapBrokerStore(err, "load sharded message partition offsets")
+	}
+	return out, nil
+}
+
 func (r *shardedMessageRuntime) ReadPage(topicPartition store.TopicPartition, cursor string, maxRecords int) (store.RecordPage, error) {
 	shard, err := r.shardForTopicPartition(topicPartition)
 	if err != nil {
