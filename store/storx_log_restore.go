@@ -40,6 +40,7 @@ func (s *StorxLogStore) clearLogIndexes() error {
 	s.indexMu.Lock()
 	s.topics = collectionmapping.NewMap[string, TopicConfig]()
 	s.records = collectionmapping.NewMap[TopicPartition, []segmentRecordPointer]()
+	s.timestampRecords = collectionmapping.NewMap[TopicPartition, []segmentRecordPointer]()
 	s.nextOffsets = collectionmapping.NewMap[TopicPartition, uint64]()
 	s.indexMu.Unlock()
 	if err := os.Remove(s.segmentManifestPath()); err != nil && !os.IsNotExist(err) {

@@ -37,6 +37,8 @@ func (s *StorxLogStore) recordAppendedPointer(tp TopicPartition, pointer segment
 	defer s.indexMu.Unlock()
 	pointers := s.records.GetOrDefault(tp, nil)
 	s.records.Set(tp, appendSegmentPointerSorted(pointers, pointer))
+	timestampPointers := s.timestampRecords.GetOrDefault(tp, nil)
+	s.timestampRecords.Set(tp, insertSegmentTimestampPointerSorted(timestampPointers, pointer))
 	if pointer.Offset >= s.nextOffsets.GetOrDefault(tp, 0) {
 		s.nextOffsets.Set(tp, pointer.Offset+1)
 	}
@@ -52,6 +54,11 @@ func (s *StorxLogStore) recordAppendedPointers(tp TopicPartition, pointers []seg
 	existing = append(existing, pointers...)
 	sortSegmentPointers(existing)
 	s.records.Set(tp, existing)
+	timestamped := s.timestampRecords.GetOrDefault(tp, nil)
+	for _, pointer := range pointers {
+		timestamped = insertSegmentTimestampPointerSorted(timestamped, pointer)
+	}
+	s.timestampRecords.Set(tp, timestamped)
 	s.nextOffsets.Set(tp, nextOffsetFromPointers(existing))
 }
 
@@ -70,6 +77,15 @@ func (s *StorxLogStore) removeRecordPointers(tp TopicPartition, remove interface
 		kept = append(kept, pointer)
 	}
 	s.records.Set(tp, kept)
+	timestampExisting := s.timestampRecords.GetOrDefault(tp, nil)
+	timestampKept := make([]segmentRecordPointer, 0, len(timestampExisting))
+	for _, pointer := range timestampExisting {
+		if remove.Contains(pointer.Offset) {
+			continue
+		}
+		timestampKept = append(timestampKept, pointer)
+	}
+	s.timestampRecords.Set(tp, timestampKept)
 	s.nextOffsets.Set(tp, max(nextOffset, nextOffsetFromPointers(kept)))
 	return removed
 }

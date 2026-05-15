@@ -23,6 +23,7 @@ type StorxLogStore struct {
 	readMode         SegmentReadMode
 	topics           *collectionmapping.Map[string, TopicConfig]
 	records          *collectionmapping.Map[TopicPartition, []segmentRecordPointer]
+	timestampRecords *collectionmapping.Map[TopicPartition, []segmentRecordPointer]
 	nextOffsets      *collectionmapping.Map[TopicPartition, uint64]
 	metrics          StoreMetrics
 	partitionLocks   *collectionmapping.Map[TopicPartition, *sync.Mutex]
@@ -66,20 +67,21 @@ func OpenStorxLogStoreWithOptions(path string, options StorxLogOptions) (*StorxL
 		return nil, errors.Join(wrapExternal(mkdirErr, "create segment log directory"), compression.close())
 	}
 	store := &StorxLogStore{
-		rootDir:         rootDir,
-		segmentsDir:     segmentsDir,
-		compression:     compression,
-		readMode:        options.ReadMode,
-		topics:          collectionmapping.NewMap[string, TopicConfig](),
-		records:         collectionmapping.NewMap[TopicPartition, []segmentRecordPointer](),
-		nextOffsets:     collectionmapping.NewMap[TopicPartition, uint64](),
-		metrics:         options.Metrics,
-		partitionLocks:  collectionmapping.NewMap[TopicPartition, *sync.Mutex](),
-		writers:         collectionmapping.NewMap[string, *segmentWriter](),
-		indexWriters:    collectionmapping.NewMap[string, *segmentIndexWriter](),
-		readers:         collectionmapping.NewMap[string, *segmentReader](),
-		appendPipelines: collectionmapping.NewMap[TopicPartition, *appendPipeline](),
-		appendSyncer:    newAppendDurabilityCoordinator(),
+		rootDir:          rootDir,
+		segmentsDir:      segmentsDir,
+		compression:      compression,
+		readMode:         options.ReadMode,
+		topics:           collectionmapping.NewMap[string, TopicConfig](),
+		records:          collectionmapping.NewMap[TopicPartition, []segmentRecordPointer](),
+		timestampRecords: collectionmapping.NewMap[TopicPartition, []segmentRecordPointer](),
+		nextOffsets:      collectionmapping.NewMap[TopicPartition, uint64](),
+		metrics:          options.Metrics,
+		partitionLocks:   collectionmapping.NewMap[TopicPartition, *sync.Mutex](),
+		writers:          collectionmapping.NewMap[string, *segmentWriter](),
+		indexWriters:     collectionmapping.NewMap[string, *segmentIndexWriter](),
+		readers:          collectionmapping.NewMap[string, *segmentReader](),
+		appendPipelines:  collectionmapping.NewMap[TopicPartition, *appendPipeline](),
+		appendSyncer:     newAppendDurabilityCoordinator(),
 	}
 	if err := store.loadLogManifest(); err != nil {
 		return nil, errors.Join(err, compression.close())

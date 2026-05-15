@@ -83,12 +83,12 @@ func (b *Broker) SeekConsumerGroupTimestamp(
 }
 
 func (b *Broker) seekTimestampScoped(ctx context.Context, consumer, topic string, partition uint32, timestampMS uint64) (SeekResult, error) {
-	position, err := b.offsetForTimestamp(topic, partition, timestampMS)
+	offset, matchedTimestamp, err := b.offsetForTimestamp(topic, partition, timestampMS)
 	if err != nil {
 		return SeekResult{}, err
 	}
-	result, err := b.seekOffsetScoped(ctx, consumer, topic, partition, position.Offset)
-	result.TimestampMS = position.TimestampMS
+	result, err := b.seekOffsetScoped(ctx, consumer, topic, partition, offset)
+	result.TimestampMS = matchedTimestamp
 	return result, err
 }
 
@@ -107,38 +107,12 @@ func (b *Broker) seekOffsetScoped(ctx context.Context, consumer, topic string, p
 	return SeekResult{Topic: topic, Partition: partition, Offset: offset}, nil
 }
 
-func (b *Broker) offsetForTimestamp(topic string, partition uint32, timestampMS uint64) (SeekResult, error) {
-	endOffset, err := b.seekEndOffset(topic, partition)
+func (b *Broker) offsetForTimestamp(topic string, partition uint32, timestampMS uint64) (uint64, *uint64, error) {
+	offset, matched, err := b.queue.OffsetForTimestamp(store.NewTopicPartition(topic, partition), timestampMS)
 	if err != nil {
-		return SeekResult{}, err
+		return 0, nil, wrapBrokerStore(err, "lookup message timestamp offset")
 	}
-	cursor := uint64(0)
-	for cursor < endOffset {
-		position, done, err := b.scanTimestampSeekBatch(topic, partition, cursor, timestampMS)
-		if err != nil || done {
-			return position, err
-		}
-		cursor = position.Offset
-	}
-	return SeekResult{Topic: topic, Partition: partition, Offset: endOffset}, nil
-}
-
-func (b *Broker) scanTimestampSeekBatch(topic string, partition uint32, offset, timestampMS uint64) (SeekResult, bool, error) {
-	records, err := b.queue.ReadFrom(store.NewTopicPartition(topic, partition), offset, b.timestampSeekScanBatch())
-	if err != nil {
-		return SeekResult{}, false, wrapBrokerStore(err, "read timestamp seek records")
-	}
-	if len(records) == 0 {
-		return SeekResult{Topic: topic, Partition: partition, Offset: offset}, true, nil
-	}
-	for _, record := range records {
-		if record.TimestampMS >= timestampMS {
-			matched := record.TimestampMS
-			return SeekResult{Topic: topic, Partition: partition, Offset: record.Offset, TimestampMS: &matched}, true, nil
-		}
-		offset = record.Offset + 1
-	}
-	return SeekResult{Topic: topic, Partition: partition, Offset: offset}, false, nil
+	return offset, matched, nil
 }
 
 func (b *Broker) seekEndOffset(topic string, partition uint32) (uint64, error) {
@@ -170,13 +144,6 @@ func (b *Broker) validateSeekTopicPartition(topic string, partition uint32) erro
 		return brokerStoreError(store.CodePartitionNotFound, "partition %s/%d not found", topic, partition)
 	}
 	return nil
-}
-
-func (b *Broker) timestampSeekScanBatch() int {
-	if b.cfg.Broker.MaxFetchRecords > minTimestampSeekScanBatch {
-		return b.cfg.Broker.MaxFetchRecords
-	}
-	return minTimestampSeekScanBatch
 }
 
 func (b *Broker) visibleSeekResult(identity Identity, result SeekResult) SeekResult {

@@ -62,7 +62,9 @@ func (s *StorxLogStore) applyLoadedSegmentIndexes(
 			pointers.Add(pointer)
 			return true
 		})
-		s.records.Set(tp, sortSegmentPointers(pointers.Values()))
+		offsetSorted := sortSegmentPointers(pointers.Values())
+		s.records.Set(tp, offsetSorted)
+		s.timestampRecords.Set(tp, sortSegmentPointersByTimestamp(cloneSegmentPointers(offsetSorted)))
 		s.nextOffsets.Set(tp, max(nextOffsets.GetOrDefault(tp, 0), nextOffsetFromPointers(s.records.GetOrDefault(tp, nil))))
 		return true
 	})

@@ -7,6 +7,51 @@ import (
 	"github.com/lyonbrown4d/ech0/store"
 )
 
+func fallbackOffsetForTimestamp(log store.MessageLogStore, topicPartition store.TopicPartition, timestampMS uint64) (uint64, *uint64, error) {
+	offsets, err := log.PartitionOffsets(topicPartition)
+	if err != nil {
+		return 0, nil, wrapBrokerStore(err, "load partition offsets for timestamp seek")
+	}
+	endOffset := offsets.NextOffset
+	cursor := uint64(0)
+	for cursor < endOffset {
+		offset, matched, found, done, scanErr := fallbackOffsetForTimestampScan(log, topicPartition, cursor, timestampMS)
+		if scanErr != nil {
+			return 0, nil, wrapBrokerStore(scanErr, "scan message batch for timestamp seek")
+		}
+		if found {
+			return offset, matched, nil
+		}
+		if done {
+			return endOffset, nil, nil
+		}
+		cursor = offset
+	}
+	return endOffset, nil, nil
+}
+
+func fallbackOffsetForTimestampScan(
+	log store.MessageLogStore,
+	topicPartition store.TopicPartition,
+	cursor uint64,
+	timestampMS uint64,
+) (nextCursor uint64, matched *uint64, found bool, done bool, err error) {
+	records, readErr := log.ReadFrom(topicPartition, cursor, minTimestampSeekScanBatch)
+	if readErr != nil {
+		return 0, nil, false, false, readErr
+	}
+	if len(records) == 0 {
+		return cursor, nil, false, true, nil
+	}
+	for _, record := range records {
+		if record.TimestampMS >= timestampMS {
+			timestamp := record.TimestampMS
+			return record.Offset, &timestamp, true, false, nil
+		}
+	}
+	return records[len(records)-1].Offset + 1, nil, false, false, nil
+}
+
 type messageRuntime interface {
 	store.Snapshotter
 	CreateTopic(store.TopicConfig) error
@@ -19,6 +64,7 @@ type messageRuntime interface {
 	ReadFrom(store.TopicPartition, uint64, int) ([]store.Record, error)
 	LastOffset(store.TopicPartition) (*uint64, error)
 	PartitionOffsets(store.TopicPartition) (store.PartitionOffsetState, error)
+	OffsetForTimestamp(store.TopicPartition, uint64) (uint64, *uint64, error)
 	Close() error
 }
 
@@ -150,6 +196,21 @@ func (r singleMessageRuntime) PartitionOffsets(topicPartition store.TopicPartiti
 		return store.PartitionOffsetState{}, wrapBrokerStore(err, "load message partition offsets")
 	}
 	return out, nil
+}
+
+func (r singleMessageRuntime) OffsetForTimestamp(topicPartition store.TopicPartition, timestampMS uint64) (uint64, *uint64, error) {
+	if fastPath, ok := r.log.(store.MessageLogTimestampStore); ok {
+		offset, matched, err := fastPath.OffsetForTimestamp(topicPartition, timestampMS)
+		if err != nil {
+			return 0, nil, wrapBrokerStore(err, "lookup message timestamp offset")
+		}
+		return offset, matched, nil
+	}
+	offset, matched, err := fallbackOffsetForTimestamp(r.log, topicPartition, timestampMS)
+	if err != nil {
+		return 0, nil, wrapBrokerStore(err, "lookup message timestamp offset")
+	}
+	return offset, matched, nil
 }
 
 func (r singleMessageRuntime) ReadPage(topicPartition store.TopicPartition, cursor string, maxRecords int) (store.RecordPage, error) {

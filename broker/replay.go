@@ -32,11 +32,11 @@ func (b *Broker) ReplayFromTimestamp(ctx context.Context, topic string, partitio
 	if err != nil {
 		return ReplayResult{}, err
 	}
-	position, err := b.offsetForTimestamp(scopedTopic, partition, timestampMS)
+	position, _, err := b.offsetForTimestamp(scopedTopic, partition, timestampMS)
 	if err != nil {
 		return ReplayResult{}, err
 	}
-	return b.replayFromOffsetScoped(identity, scopedTopic, partition, position.Offset, limit)
+	return b.replayFromOffsetScoped(identity, scopedTopic, partition, position, limit)
 }
 
 func (b *Broker) ReplayFromCursor(ctx context.Context, topic string, partition uint32, cursor string, maxRecords int) (ReplayResult, error) {

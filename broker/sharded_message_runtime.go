@@ -204,6 +204,25 @@ func (r *shardedMessageRuntime) PartitionOffsets(topicPartition store.TopicParti
 	return out, nil
 }
 
+func (r *shardedMessageRuntime) OffsetForTimestamp(topicPartition store.TopicPartition, timestampMS uint64) (uint64, *uint64, error) {
+	shard, err := r.shardForTopicPartition(topicPartition)
+	if err != nil {
+		return 0, nil, err
+	}
+	if fastPath, ok := any(shard.log).(store.MessageLogTimestampStore); ok {
+		offset, matched, timestampErr := fastPath.OffsetForTimestamp(topicPartition, timestampMS)
+		if timestampErr != nil {
+			return 0, nil, wrapBrokerStore(timestampErr, "lookup sharded message timestamp offset")
+		}
+		return offset, matched, nil
+	}
+	offset, matched, err := fallbackOffsetForTimestamp(shard.log, topicPartition, timestampMS)
+	if err != nil {
+		return 0, nil, wrapBrokerStore(err, "lookup sharded message timestamp offset")
+	}
+	return offset, matched, nil
+}
+
 func (r *shardedMessageRuntime) ReadPage(topicPartition store.TopicPartition, cursor string, maxRecords int) (store.RecordPage, error) {
 	shard, err := r.shardForTopicPartition(topicPartition)
 	if err != nil {
