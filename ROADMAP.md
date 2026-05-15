@@ -105,6 +105,8 @@ The first implementation cut should keep the public mental model small: existing
 
 ## Phase 8: Storage And Recovery Reliability
 
+- Done: self-describing segment frame header with body length for new writes.
+- Done: startup rebuild of missing `.idx` files from self-describing segment frames.
 - Offset index strengthening.
 - Timestamp index.
 - Optional key index for compaction and query support.

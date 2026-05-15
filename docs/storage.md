@@ -36,13 +36,14 @@ Each segment frame has:
 
 | Field | Description |
 | --- | --- |
-| magic | `ECZ0` (`0x45435a30`) for zstd-compressed single-record frames, `ECBZ` (`0x4543425a`) for zstd-compressed batch frames, or legacy `ECH0` (`0x45434830`) / `ECB0` (`0x45434230`) for uncompressed frames. |
+| magic | `ECZ1` (`0x45435a31`) for zstd-compressed single-record frames, `EBZ1` (`0x45425a31`) for zstd-compressed batch frames, `ECH1` (`0x45434831`) for raw single-record frames, or `ECB1` (`0x45434231`) for raw batch frames. Legacy `ECH0` / `ECZ0` / `ECB0` / `ECBZ` frames are still accepted when an index entry provides the exact length. |
 | checksum | CRC32 of the stored frame body. |
+| body_len | Stored frame body byte length. This makes new frames self-describing during recovery. |
 | body | zstd-compressed or raw record body for single-record frames; zstd-compressed or raw count-prefixed record bodies for batch frames. |
 
 The record body stores offset, timestamp, attributes, key, headers, and payload. Length-prefixed byte fields use an ASCII decimal length followed by `:`, then raw bytes.
 
-New writes use zstd compression by default and reads continue to accept legacy uncompressed frames. The checksum protects against partial or corrupted frame reads. The segment index entry provides the exact frame position and length. Clean shutdown flushes pending asynchronous group sync work before segment and index files are closed.
+New writes use zstd compression by default and include the body length in the frame header. The checksum protects against partial or corrupted frame reads. Startup loads existing `.idx` files first, then rebuilds any missing segment index from self-describing segment frames and writes the rebuilt `.idx` next to the `.seg`. Legacy unsized frames still require an existing `.idx` because they cannot be safely scanned without an external length. Clean shutdown flushes pending asynchronous group sync work before segment and index files are closed.
 
 ## Metadata Store
 
@@ -60,7 +61,7 @@ It also implements `store.Snapshotter`, so Raft snapshots can persist and restor
 
 The broker does not maintain a separate runtime metadata database. Dragonboat owns raft log files, raft snapshots, membership state, and recovery under the configured Dragonboat directory. The broker state machine exposes `Snapshot` and `Restore`; Dragonboat decides when those snapshots are created and replayed.
 
-Message indexes are now owned by the segment log itself. Startup loads `.idx` files into memory, reads use binary search over the partition pointer slice, and retention/compaction append delete markers to the affected index files.
+Message indexes are now owned by the segment log itself. Startup loads `.idx` files into memory, rebuilds missing indexes for self-describing segment frames, reads use binary search over the partition pointer slice, and retention/compaction append delete markers to the affected index files.
 
 ## Snapshot and Restore
 

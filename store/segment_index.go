@@ -18,6 +18,20 @@ const segmentIndexExtension = ".idx"
 func (s *StorxLogStore) loadSegmentIndexes() error {
 	loaded := collectionmapping.NewMap[TopicPartition, *collectionmapping.Map[uint64, segmentRecordPointer]]()
 	nextOffsets := collectionmapping.NewMap[TopicPartition, uint64]()
+	if err := s.loadSegmentIndexFiles(loaded, nextOffsets); err != nil {
+		return err
+	}
+	if err := s.rebuildMissingSegmentIndexes(loaded, nextOffsets); err != nil {
+		return err
+	}
+	s.applyLoadedSegmentIndexes(loaded, nextOffsets)
+	return nil
+}
+
+func (s *StorxLogStore) loadSegmentIndexFiles(
+	loaded *collectionmapping.Map[TopicPartition, *collectionmapping.Map[uint64, segmentRecordPointer]],
+	nextOffsets *collectionmapping.Map[TopicPartition, uint64],
+) error {
 	if err := filepath.WalkDir(s.segmentsDir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -33,6 +47,13 @@ func (s *StorxLogStore) loadSegmentIndexes() error {
 	}); err != nil {
 		return wrapExternal(err, "load segment indexes")
 	}
+	return nil
+}
+
+func (s *StorxLogStore) applyLoadedSegmentIndexes(
+	loaded *collectionmapping.Map[TopicPartition, *collectionmapping.Map[uint64, segmentRecordPointer]],
+	nextOffsets *collectionmapping.Map[TopicPartition, uint64],
+) {
 	s.indexMu.Lock()
 	defer s.indexMu.Unlock()
 	loaded.Range(func(tp TopicPartition, byOffset *collectionmapping.Map[uint64, segmentRecordPointer]) bool {
@@ -55,7 +76,6 @@ func (s *StorxLogStore) loadSegmentIndexes() error {
 		s.ensureTopicPartitionsLocked(topic)
 		return true
 	})
-	return nil
 }
 
 func (s *StorxLogStore) loadSegmentIndexFile(

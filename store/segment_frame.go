@@ -10,13 +10,19 @@ import (
 )
 
 const (
-	segmentFrameMagic      uint32 = 0x45434830
-	segmentFrameZstdMagic  uint32 = 0x45435a30
-	segmentBatchMagic      uint32 = 0x45434230
-	segmentBatchZstdMagic  uint32 = 0x4543425a
-	segmentFrameHeader     int    = 8
-	segmentBatchHeader     int    = 4
-	segmentBatchItemHeader int    = 4
+	segmentFrameMagic        uint32 = 0x45434831
+	segmentFrameZstdMagic    uint32 = 0x45435a31
+	segmentBatchMagic        uint32 = 0x45434231
+	segmentBatchZstdMagic    uint32 = 0x45425a31
+	segmentFrameHeader       int    = 12
+	segmentFrameLegacyHeader int    = 8
+	segmentBatchHeader       int    = 4
+	segmentBatchItemHeader   int    = 4
+
+	legacySegmentFrameMagic     uint32 = 0x45434830
+	legacySegmentFrameZstdMagic uint32 = 0x45435a30
+	legacySegmentBatchMagic     uint32 = 0x45434230
+	legacySegmentBatchZstdMagic uint32 = 0x4543425a
 )
 
 func encodeSegmentFrameWithCompression(record Record, compression segmentFrameCompression) ([]byte, error) {
@@ -28,7 +34,7 @@ func encodeSegmentFrameWithCompression(record Record, compression segmentFrameCo
 	if err != nil {
 		return nil, err
 	}
-	return encodeSegmentFrameEnvelope(magic, payload), nil
+	return encodeSegmentFrameEnvelope(magic, payload)
 }
 
 func encodeSegmentBatchFrameWithCompression(records []Record, compression segmentFrameCompression) ([]byte, error) {
@@ -57,7 +63,7 @@ func encodeSegmentBatchFrameWithCompression(records []Record, compression segmen
 	if err != nil {
 		return nil, err
 	}
-	return encodeSegmentFrameEnvelope(magic, payload), nil
+	return encodeSegmentFrameEnvelope(magic, payload)
 }
 
 func appendSegmentRecordBody(out []byte, record Record) []byte {
@@ -124,12 +130,17 @@ func appendSegmentHeaders(out []byte, headers []RecordHeader) []byte {
 	return out
 }
 
-func encodeSegmentFrameEnvelope(magic uint32, body []byte) []byte {
+func encodeSegmentFrameEnvelope(magic uint32, body []byte) ([]byte, error) {
+	bodyLen, err := segmentIntToU32(len(body), "segment frame body length")
+	if err != nil {
+		return nil, err
+	}
 	frame := make([]byte, segmentFrameHeader+len(body))
 	binary.BigEndian.PutUint32(frame[0:4], magic)
 	binary.BigEndian.PutUint32(frame[4:8], crc32.ChecksumIEEE(body))
+	binary.BigEndian.PutUint32(frame[8:12], bodyLen)
 	copy(frame[segmentFrameHeader:], body)
-	return frame
+	return frame, nil
 }
 
 func appendSegmentString(out []byte, value string) []byte {
@@ -252,7 +263,7 @@ func mappedSegmentSpan(data []byte, position int64, length int) ([]byte, error) 
 	if position < 0 {
 		return nil, E(CodeCodec, "segment mmap position %d is negative", position)
 	}
-	if length < segmentFrameHeader {
+	if length < segmentFrameLegacyHeader {
 		return nil, E(CodeCodec, "segment mmap length %d is too small", length)
 	}
 	start := position

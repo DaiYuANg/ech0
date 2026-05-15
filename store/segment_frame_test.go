@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	testSegmentFrameMagic     uint32 = 0x45434830
-	testSegmentFrameZstdMagic uint32 = 0x45435a30
+	testSegmentFrameMagic     uint32 = 0x45434831
+	testSegmentFrameZstdMagic uint32 = 0x45435a31
 )
 
 func TestStorxLogStoreDefaultsToZstdFrame(t *testing.T) {
@@ -31,7 +31,7 @@ func TestStorxLogStoreDefaultsToZstdFrame(t *testing.T) {
 	}
 }
 
-func TestStorxLogStoreReadsUncompressedLegacyFrame(t *testing.T) {
+func TestStorxLogStoreReadsUncompressedFrame(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "log")
 	st, err := store.OpenStorxLogStoreWithOptions(root, store.StorxLogOptions{Compression: store.SegmentCompressionNone})
 	requireNoError(t, err)
@@ -40,7 +40,7 @@ func TestStorxLogStoreReadsUncompressedLegacyFrame(t *testing.T) {
 	_, err = st.Append(store.NewTopicPartition(topic.Name, 0), []byte("legacy"))
 	requireNoError(t, err)
 	if magic := readSegmentFrameMagic(t, root, topic.Name, 0, 0); magic != testSegmentFrameMagic {
-		t.Fatalf("unexpected legacy segment frame magic: %x", magic)
+		t.Fatalf("unexpected segment frame magic: %x", magic)
 	}
 	closeLogStore(t, st)
 

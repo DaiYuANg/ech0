@@ -7,12 +7,14 @@ import (
 	"strings"
 )
 
+const segmentFileExtension = ".seg"
+
 func (s *StorxLogStore) partitionDir(tp TopicPartition) string {
 	return filepath.Join(s.segmentsDir, partitionRelativeDir(tp))
 }
 
 func (s *StorxLogStore) segmentRelativePath(tp TopicPartition, segmentID uint64) string {
-	return filepath.Join(partitionRelativeDir(tp), fmtOffset(segmentID)+".seg")
+	return filepath.Join(partitionRelativeDir(tp), fmtOffset(segmentID)+segmentFileExtension)
 }
 
 func partitionRelativeDir(tp TopicPartition) string {
