@@ -112,7 +112,7 @@ The first implementation cut should keep the public mental model small: existing
 - Optional key index for compaction and query support.
 - Zero-copy or mmap read path experiments.
 - Crash recovery fault tests.
-- Snapshot and replay correctness tests.
+- Done: graceful Raft snapshot-on-stop and replay correctness coverage for follower restart from existing data.
 - Compaction correctness tests.
 - Segment checksum and corruption detection.
 - Log repair tooling.
@@ -126,7 +126,7 @@ The first implementation cut should keep the public mental model small: existing
 - Cluster metadata admin API.
 - Gossip discovery stability tests.
 - Rolling restart tests.
-- Restart-from-existing-data tests.
+- Done: follower restart-from-existing-data test for a multi-node Dragonboat cluster.
 - Cross-cluster mirror or replicator.
 
 ## Phase 10: Ecosystem Integrations

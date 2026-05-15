@@ -59,7 +59,11 @@ The wire protocol includes transaction commands and record metadata in protocol 
 - Metadata commands are proposed through Dragonboat. In single-replica mode, partition-owned commands apply directly to local segment shards. In multi-node cluster mode, partition-owned commands target the owning Dragonboat data shard group.
 - Coalesced produce and offset commit commands are split by shard before they enter Raft, so one client batch can become several independent group proposals.
 
-Read operations use the local runtime today, with `RaftReadPolicy` reserved in configuration for stricter clustered read behavior.
+Read operations use `raft.read_policy` to choose the clustered consistency cost:
+
+- `local` reads directly from the local runtime and is the default low-latency mode.
+- `leader` requires the local broker to be leader for the owning read group and performs a Dragonboat read barrier before reading.
+- `linearizable` performs a Dragonboat read barrier for the owning read group, allowing follower callers to pay the barrier cost without requiring local leadership.
 
 ## Target Cluster Architecture
 
@@ -129,12 +133,12 @@ Reads also need a clear ownership model:
 
 | Read | Default |
 | --- | --- |
-| `Fetch` | Read from the owning data shard leader for correctness, with follower/local reads as a later read policy optimization. |
+| `Fetch` | Use `raft.read_policy`: default local reads for throughput, leader-only reads for strict leader ownership, or linearizable read barriers for follower-safe reads. |
 | Admin topic metadata | Read from local metadata cache backed by the metadata group. |
 | Admin message browser | Route to the owning data shard. |
 | Consumer group views | Combine metadata group membership with data shard offsets. |
 
-This keeps correctness simple during the first architecture change. Faster follower reads can be added after shard placement and high watermark tracking are stable.
+This keeps the default read path cheap while letting operators opt into Dragonboat read barriers when stale follower reads are not acceptable.
 
 ## Target Storage Layout
 

@@ -35,10 +35,10 @@ func fallbackOffsetForTimestampScan(
 	topicPartition store.TopicPartition,
 	cursor uint64,
 	timestampMS uint64,
-) (nextCursor uint64, matched *uint64, found bool, done bool, err error) {
+) (nextCursor uint64, matched *uint64, found, done bool, err error) {
 	records, readErr := log.ReadFrom(topicPartition, cursor, minTimestampSeekScanBatch)
 	if readErr != nil {
-		return 0, nil, false, false, readErr
+		return 0, nil, false, false, wrapBrokerStore(readErr, "read timestamp scan records")
 	}
 	if len(records) == 0 {
 		return cursor, nil, false, true, nil

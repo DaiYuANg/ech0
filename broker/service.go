@@ -193,6 +193,7 @@ func (b *Broker) Stop(ctx context.Context) error {
 	b.raftMu.Unlock()
 	var result error
 	if node != nil {
+		result = errors.Join(result, node.Snapshot(ctx))
 		result = errors.Join(result, node.Close())
 	}
 	result = errors.Join(result, b.stopDiscovery(context.WithoutCancel(ctx)))

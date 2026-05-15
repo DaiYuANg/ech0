@@ -32,7 +32,7 @@ Single-replica cluster mode runs one broker process with a Dragonboat metadata g
 ech0 --config config/ech0.toml.example
 ```
 
-Metadata writes go through Dragonboat, while message writes use the local segment hot path. Scheduled jobs are gated by the local Dragonboat leader state.
+Metadata writes go through Dragonboat. Message writes use the local segment hot path in a single-peer deployment and the owning Dragonboat data shard group in a multi-peer cluster. Scheduled jobs are gated by the local Dragonboat leader state.
 
 ## Cluster Mode
 
@@ -47,6 +47,8 @@ Cluster mode coordinates mutating broker commands through Dragonboat multi-group
 Dragonboat owns raft-side logs, snapshots, membership state, and recovery files under `data/dragonboat/<node_id>`. Broker state machines expose `store.Snapshotter` so Dragonboat can capture and restore business state; the broker does not open a separate metadata database in binary or embedded runtime.
 
 `raft.bind_addr` is the local listen address and may use `0.0.0.0` in containers. `raft.advertise_addr` is the routable Raft address announced to peers. When `raft.advertise_addr` is empty, the current node's matching entry in `raft.cluster` is used as the Raft advertised address.
+
+`raft.read_policy` controls clustered read consistency. `local` reads from the local runtime with the lowest latency. `leader` requires the local node to lead the owning group and uses a Dragonboat read barrier before fetching. `linearizable` also uses a Dragonboat read barrier, but it can be called on followers and is useful when correctness is more important than the extra consensus round-trip.
 
 ## Discovery
 
