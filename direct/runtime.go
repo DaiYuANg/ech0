@@ -116,7 +116,11 @@ func (r *Runtime) Send(sender, recipient string, conversationID *string, payload
 }
 
 func (r *Runtime) FetchInbox(recipient string, maxRecords int) (FetchInboxResult, error) {
-	poll, err := r.queue.Fetch(consumerName(recipient), inboxTopic(recipient), 0, nil, maxRecords)
+	return r.FetchInboxForConsumer(consumerName(recipient), recipient, maxRecords)
+}
+
+func (r *Runtime) FetchInboxForConsumer(consumer, recipient string, maxRecords int) (FetchInboxResult, error) {
+	poll, err := r.queue.Fetch(consumer, inboxTopic(recipient), 0, nil, maxRecords)
 	if err != nil {
 		if store.ErrorCode(err) == store.CodeTopicNotFound {
 			return FetchInboxResult{Recipient: recipient, Records: nil, NextOffset: 0}, nil
@@ -142,8 +146,12 @@ func (r *Runtime) FetchInbox(recipient string, maxRecords int) (FetchInboxResult
 }
 
 func (r *Runtime) AckInbox(recipient string, nextOffset uint64) error {
+	return r.AckInboxForConsumer(consumerName(recipient), recipient, nextOffset)
+}
+
+func (r *Runtime) AckInboxForConsumer(consumer, recipient string, nextOffset uint64) error {
 	return oops.In("direct").Code("ack_inbox_failed").With("recipient", recipient).Wrapf(
-		r.queue.Ack(consumerName(recipient), inboxTopic(recipient), 0, nextOffset),
+		r.queue.Ack(consumer, inboxTopic(recipient), 0, nextOffset),
 		"ack inbox",
 	)
 }

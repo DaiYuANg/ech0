@@ -41,7 +41,7 @@ func (b *Broker) StartRequest(ctx context.Context, subject string, payload []byt
 	}
 	timeoutMS := durationMillis(normalized.Timeout)
 	expiresAtMS := store.NowMS() + timeoutMS
-	replyTo := replyRecipient(normalized.InstanceID, correlationID)
+	replyTo := replyRecipient(normalized.InstanceID)
 	requestPayload, err := encodeRequestPayload(subject, normalized, correlationID, replyTo, expiresAtMS, payload)
 	if err != nil {
 		return PendingRequest{}, err
@@ -65,11 +65,18 @@ func (b *Broker) AwaitReply(ctx context.Context, pending PendingRequest) (ReplyM
 	if pending.CorrelationID == "" || pending.ReplyTo == "" {
 		return ReplyMessage{}, brokerStoreError(store.CodeInvalidArgument, "pending request is missing reply routing fields")
 	}
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionConsume, directInboxResource(identity, pending.ReplyTo)); err != nil {
+		return ReplyMessage{}, err
+	}
+	if err := b.authorize(ctx, identity, ACLActionCommit, directInboxResource(identity, pending.ReplyTo)); err != nil {
+		return ReplyMessage{}, err
+	}
 	waitCtx, cancel := context.WithDeadline(ctx, requestDeadline(pending))
 	defer cancel()
 	pollBackoff := newRequestReplyBackOff(pending.PollInterval)
 	for {
-		reply, ok, err := b.fetchReplyOnce(waitCtx, pending)
+		reply, ok, err := b.fetchReplyOnce(waitCtx, identity, pending)
 		if err != nil || ok {
 			return reply, err
 		}
@@ -146,10 +153,14 @@ func requestMessagesFromRecords(subject string, records []store.Record) ([]Reque
 	return requests.Values(), nil
 }
 
-func (b *Broker) fetchReplyOnce(ctx context.Context, pending PendingRequest) (ReplyMessage, bool, error) {
-	inbox, err := b.FetchInboxFor(ctx, pending.ReplyTo, defaultReplyFetchRecords)
+func (b *Broker) fetchReplyOnce(ctx context.Context, identity Identity, pending PendingRequest) (ReplyMessage, bool, error) {
+	inbox, err := b.direct.FetchInboxForConsumer(
+		replyInboxConsumer(identity, pending),
+		scopedName(identity, "direct", pending.ReplyTo),
+		defaultReplyFetchRecords,
+	)
 	if err != nil {
-		return ReplyMessage{}, false, err
+		return ReplyMessage{}, false, wrapBroker("reply_inbox_fetch_failed", err, "fetch reply inbox")
 	}
 	for _, record := range inbox.Records {
 		reply, err := replyFromDirect(record.Message)
@@ -160,9 +171,19 @@ func (b *Broker) fetchReplyOnce(ctx context.Context, pending PendingRequest) (Re
 			continue
 		}
 		reply.Offset = record.Offset
-		return reply, true, b.AckDirect(ctx, pending.ReplyTo, record.Offset+1)
+		return reply, true, b.ackReplyInbox(ctx, identity, pending, record.Offset+1)
 	}
 	return ReplyMessage{}, false, nil
+}
+
+func (b *Broker) ackReplyInbox(ctx context.Context, identity Identity, pending PendingRequest, nextOffset uint64) error {
+	req := ackDirectCommand{
+		Recipient:  scopedName(identity, "direct", pending.ReplyTo),
+		Consumer:   replyInboxConsumer(identity, pending),
+		NextOffset: nextOffset,
+	}
+	_, err := routePartitionCommand(ctx, b, topicCommandTarget(direct.InternalInboxTopicPrefix), raftCommandDirectAck, req, b.applyDirectAck)
+	return err
 }
 
 func normalizeRequestOptions(opts RequestOptions) (RequestOptions, error) {
@@ -216,8 +237,12 @@ func newCorrelationID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-func replyRecipient(instanceID, correlationID string) string {
-	return "__reply/" + instanceID + "/" + correlationID
+func replyRecipient(instanceID string) string {
+	return "__reply/" + instanceID
+}
+
+func replyInboxConsumer(identity Identity, pending PendingRequest) string {
+	return scopedName(identity, "direct_reply", pending.ReplyTo+"/"+pending.CorrelationID)
 }
 
 func durationMillis(duration time.Duration) uint64 {

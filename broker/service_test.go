@@ -64,7 +64,7 @@ func TestBrokerRequestReplyRoutesToOriginInstance(t *testing.T) {
 		Partitioning: broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0},
 	})
 	requireNoError(t, err)
-	if !strings.HasPrefix(pending.ReplyTo, "__reply/A1/") {
+	if pending.ReplyTo != "__reply/A1" {
 		t.Fatalf("expected reply inbox to be scoped to A1, got %q", pending.ReplyTo)
 	}
 
@@ -86,11 +86,42 @@ func TestBrokerRequestReplyRoutesToOriginInstance(t *testing.T) {
 		t.Fatalf("unexpected reply message: %#v", reply)
 	}
 
-	a2ReplyInbox := strings.Replace(pending.ReplyTo, "/A1/", "/A2/", 1)
+	a2ReplyInbox := strings.Replace(pending.ReplyTo, "/A1", "/A2", 1)
 	inbox, err := b.FetchInbox(a2ReplyInbox, 10)
 	requireNoError(t, err)
 	if len(inbox.Records) != 0 {
 		t.Fatalf("expected A2 reply inbox to stay empty, got %#v", inbox)
+	}
+}
+
+func TestBrokerRequestReplyStableInboxHandlesConcurrentPending(t *testing.T) {
+	b := newTestBroker(t)
+	ctx := context.Background()
+	createTopic(ctx, t, b, store.NewTopicConfig("svc.echo"))
+
+	first := startEchoRequest(ctx, t, b, "one")
+	second := startEchoRequest(ctx, t, b, "two")
+	if first.ReplyTo != second.ReplyTo {
+		t.Fatalf("expected same instance requests to share reply inbox, got %q and %q", first.ReplyTo, second.ReplyTo)
+	}
+
+	requests, err := b.FetchRequests(ctx, "svc-workers", "svc.echo", 0, nil, 2)
+	requireNoError(t, err)
+	if len(requests.Requests) != 2 {
+		t.Fatalf("expected two requests, got %#v", requests)
+	}
+	replyToRequest(ctx, t, b, requests.Requests[1], "reply-two")
+	secondReply, err := b.AwaitReply(ctx, second)
+	requireNoError(t, err)
+	if secondReply.CorrelationID != second.CorrelationID || string(secondReply.Payload) != "reply-two" {
+		t.Fatalf("unexpected second reply: %#v", secondReply)
+	}
+
+	replyToRequest(ctx, t, b, requests.Requests[0], "reply-one")
+	firstReply, err := b.AwaitReply(ctx, first)
+	requireNoError(t, err)
+	if firstReply.CorrelationID != first.CorrelationID || string(firstReply.Payload) != "reply-one" {
+		t.Fatalf("unexpected first reply: %#v", firstReply)
 	}
 }
 
@@ -182,6 +213,24 @@ func publishOrder(ctx context.Context, t *testing.T, b *broker.Broker, payload [
 	result, err := b.Publish(ctx, "orders", broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0}, nil, false, payload)
 	requireNoError(t, err)
 	return result
+}
+
+func startEchoRequest(ctx context.Context, t *testing.T, b *broker.Broker, payload string) broker.PendingRequest {
+	t.Helper()
+	pending, err := b.StartRequest(ctx, "svc.echo", []byte(payload), broker.RequestOptions{
+		InstanceID:   "A1",
+		Timeout:      time.Second,
+		PollInterval: time.Millisecond,
+		Partitioning: broker.PublishPartitioning{Mode: broker.PartitionExplicit, Partition: 0},
+	})
+	requireNoError(t, err)
+	return pending
+}
+
+func replyToRequest(ctx context.Context, t *testing.T, b *broker.Broker, request broker.RequestMessage, payload string) {
+	t.Helper()
+	_, err := b.Reply(ctx, request, "B1", []byte(payload))
+	requireNoError(t, err)
 }
 
 func fetchTopic(t *testing.T, b *broker.Broker, consumer, topic string, offset *uint64, maxRecords int) store.PollResult {

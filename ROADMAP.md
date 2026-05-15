@@ -81,6 +81,8 @@ The first implementation cut should keep the public mental model small: existing
 
 ## Phase 6: Routing And Bidirectional Messaging
 
+- Done: embedded library APIs for direct inbox messaging and request/reply.
+- Done: stable per-instance reply inbox with per-correlation consumer cursors for concurrent pending requests.
 - Routing key support beyond topic and partition.
 - Fanout topic or broadcast subject.
 - Wildcard subject matching for lightweight pub/sub routing.

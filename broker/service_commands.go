@@ -121,6 +121,7 @@ type directCommand struct {
 
 type ackDirectCommand struct {
 	Recipient  string
+	Consumer   string
 	NextOffset uint64
 }
 

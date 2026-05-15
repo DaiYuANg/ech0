@@ -23,13 +23,14 @@ Request flow:
 7. The reply is sent as a direct message to the requester instance's reply inbox.
 8. The requester calls `AwaitReply`, which polls its reply inbox for the matching correlation ID.
 
-The reply inbox name is derived from the requester instance ID and correlation ID:
+The reply inbox name is derived from the requester instance ID:
 
 ```text
-__reply/{instance_id}/{correlation_id}
+__reply/{instance_id}
 ```
 
 Because the inbox contains the instance ID, a reply for `A1` is not consumed by `A2`.
+Each pending request uses its own internal consumer cursor on that stable inbox, keyed by correlation ID. This allows the same requester instance to wait on multiple concurrent requests without creating a new reply inbox topic for every request.
 
 ## Replica Example
 
@@ -40,7 +41,7 @@ Assume:
 - `A1` sends a request on subject `payments.authorize`.
 - `B2` fetches and handles that request.
 
-The request carries `reply_to = __reply/A1/{correlation_id}`. `B2` replies to that direct recipient. `A1` awaits the reply on its own direct inbox. `A2` is not polling that inbox and will not receive the reply.
+The request carries `reply_to = __reply/A1`. `B2` replies to that direct recipient with the correlation ID in the reply envelope. `A1` awaits the reply on its own direct inbox. `A2` is not polling that inbox and will not receive the reply.
 
 ## Timeouts
 
@@ -75,8 +76,7 @@ Requests are normal topic records and follow topic partitioning, offsets, and co
 Replies are direct inbox messages:
 
 - The direct inbox has its own offset.
-- `AwaitReply` acks the direct message after it reads the matching correlation ID.
+- `AwaitReply` uses a per-correlation consumer cursor and acks that cursor after it reads the matching correlation ID.
 - If the requester crashes before acking, the reply can remain in the inbox and be fetched again.
 
 The current implementation is pull-based. It does not maintain long-lived push subscriptions or server-side response streams yet.
-

@@ -192,5 +192,9 @@ func (b *Broker) applyDirectSend(ctx context.Context, req directCommand) (direct
 
 func (b *Broker) applyDirectAck(ctx context.Context, req ackDirectCommand) (struct{}, error) {
 	_ = ctx
-	return struct{}{}, wrapBroker("direct_ack_failed", b.direct.AckInbox(req.Recipient, req.NextOffset), "ack direct inbox")
+	err := b.direct.AckInbox(req.Recipient, req.NextOffset)
+	if req.Consumer != "" {
+		err = b.direct.AckInboxForConsumer(req.Consumer, req.Recipient, req.NextOffset)
+	}
+	return struct{}{}, wrapBroker("direct_ack_failed", err, "ack direct inbox")
 }

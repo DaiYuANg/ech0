@@ -60,7 +60,7 @@ func TestTCPRequestReplyProtocolRoutesToOriginInstance(t *testing.T) {
 		t.Fatalf("unexpected reply: %#v", awaited)
 	}
 
-	a2ReplyInbox := strings.Replace(started.ReplyTo, "/A1/", "/A2/", 1)
+	a2ReplyInbox := strings.Replace(started.ReplyTo, "/A1", "/A2", 1)
 	inbox, err := b.FetchInbox(a2ReplyInbox, 10)
 	requireNoError(t, err)
 	if len(inbox.Records) != 0 {
