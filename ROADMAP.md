@@ -95,8 +95,8 @@ The first implementation cut should keep the public mental model small: existing
 
 ## Phase 7: Protocol And Client Ecosystem
 
-- Protocol capability negotiation during handshake.
-- Negotiation for compression, batch support, transaction support, and fetch wait behavior.
+- Done: protocol capability negotiation during handshake.
+- Done: negotiation constants for compression, batch support, transaction support, fetch wait behavior, direct, request/reply, consumer groups, retry/delay, idempotency, and schema headers.
 - Non-Go client codec documentation.
 - Go client split into producer, consumer, admin, and transactional producer packages.
 - Standardized error codes.

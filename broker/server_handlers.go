@@ -62,6 +62,7 @@ func (s *TCPServer) handleHandshakeFrame(ctx context.Context, frame transport.Fr
 		Tenant:          identity.Tenant,
 		Namespace:       identity.Namespace,
 		Principal:       identity.Principal,
+		Capabilities:    protocol.NegotiateCapabilities(req.Capabilities),
 	})
 }
 

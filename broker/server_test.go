@@ -38,6 +38,24 @@ func TestTCPProduceFetchHeaders(t *testing.T) {
 	}
 }
 
+func TestTCPHandshakeNegotiatesCapabilities(t *testing.T) {
+	b := newTestBroker(t)
+	ctx := context.Background()
+	server := broker.NewTCPServer(broker.DefaultConfig(), b, nil, nil)
+	resp := handleProtocolFrame[protocol.HandshakeResponse](ctx, t, server, protocol.CmdHandshakeRequest, protocol.CmdHandshakeResponse, protocol.HandshakeRequest{
+		ClientID: "client-1",
+		Capabilities: []string{
+			protocol.CapabilityTransactions,
+			"not-supported",
+			protocol.CapabilityCompressionZstd,
+		},
+	})
+	want := []string{protocol.CapabilityCompressionZstd, protocol.CapabilityTransactions}
+	if !stringSlicesEqual(resp.Capabilities, want) {
+		t.Fatalf("unexpected capabilities: got %#v want %#v", resp.Capabilities, want)
+	}
+}
+
 func TestTCPRequestReplyProtocolRoutesToOriginInstance(t *testing.T) {
 	b := newTestBroker(t)
 	ctx := context.Background()
@@ -267,4 +285,16 @@ func protocolHeaderValue(headers []protocol.MessageHeader, key string) string {
 		}
 	}
 	return ""
+}
+
+func stringSlicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }

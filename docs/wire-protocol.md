@@ -40,6 +40,51 @@ Primitive encoding:
 
 Message headers are repeated `{ key string, value bytes }` pairs.
 
+## Handshake And Capabilities
+
+The first command a TCP client should send is `CmdHandshakeRequest`.
+
+Handshake request body order:
+
+| Field | Encoding |
+| --- | --- |
+| `client_id` | `string` |
+| `tenant` | `string` |
+| `namespace` | `string` |
+| `principal` | `string` |
+| `auth_token` | `string` |
+| `capabilities` | `u32` count followed by capability strings |
+
+Handshake response body order:
+
+| Field | Encoding |
+| --- | --- |
+| `server_id` | `string` |
+| `protocol_version` | `u8` |
+| `tenant` | `string` |
+| `namespace` | `string` |
+| `principal` | `string` |
+| `capabilities` | `u32` count followed by negotiated capability strings |
+
+If the request sends an empty capability list, the server returns every capability supported by this protocol version. If the request sends one or more capability strings, the server returns the supported intersection in server-preferred order and ignores unknown capabilities.
+
+Current capability strings:
+
+| Capability | Meaning |
+| --- | --- |
+| `compression.zstd` | zstd payload or batch compression support. |
+| `produce.batch` | Single-topic batch produce command support. |
+| `produce.batches` | Multi-topic/multi-partition batch produce command support. |
+| `fetch.batch` | Batch fetch command support. |
+| `fetch.wait` | Fetch requests can use min-records and max-wait fields. |
+| `transactions` | Transaction begin, publish, offset commit, commit, and abort commands. |
+| `idempotent.produce` | Producer ID, epoch, and sequence based dedupe. |
+| `direct` | Direct inbox send, fetch, and ack commands. |
+| `request.reply` | Request/reply command set. |
+| `consumer.groups` | Consumer group membership, rebalance, fetch, and commit commands. |
+| `retry.delay` | Nack, retry processing, and delayed schedule commands. |
+| `schema.headers` | Schema hints are carried through message headers such as `content-type`, `schema-id`, and `encoding`. |
+
 ## Codec Registry
 
 `protocol.EncodeBody` and `protocol.DecodeBody` dispatch through a collectionx-backed registry:
@@ -97,5 +142,6 @@ A non-Go client needs only:
 2. A body codec for the commands it uses.
 3. Request ID generation.
 4. Error frame handling.
+5. Capability negotiation during handshake.
 
 Clients do not need to hand-write internal broker envelopes for request/reply. Request/reply is exposed as protocol commands.

@@ -14,7 +14,10 @@ func encodeHandshakeRequest(value any) ([]byte, error) {
 		if err := writer.writeString(req.Principal); err != nil {
 			return err
 		}
-		return writer.writeString(req.AuthToken)
+		if err := writer.writeString(req.AuthToken); err != nil {
+			return err
+		}
+		return writeStringSlice(writer, req.Capabilities)
 	})
 }
 
@@ -37,12 +40,17 @@ func decodeHandshakeRequest(data []byte, target any) error {
 			return HandshakeRequest{}, err
 		}
 		authToken, err := reader.readString()
+		if err != nil {
+			return HandshakeRequest{}, err
+		}
+		capabilities, err := readStringSlice(reader)
 		return HandshakeRequest{
-			ClientID:  clientID,
-			Tenant:    tenant,
-			Namespace: namespace,
-			Principal: principal,
-			AuthToken: authToken,
+			ClientID:     clientID,
+			Tenant:       tenant,
+			Namespace:    namespace,
+			Principal:    principal,
+			AuthToken:    authToken,
+			Capabilities: capabilities,
 		}, err
 	})
 }
@@ -59,7 +67,10 @@ func encodeHandshakeResponse(value any) ([]byte, error) {
 		if err := writer.writeString(resp.Namespace); err != nil {
 			return err
 		}
-		return writer.writeString(resp.Principal)
+		if err := writer.writeString(resp.Principal); err != nil {
+			return err
+		}
+		return writeStringSlice(writer, resp.Capabilities)
 	})
 }
 
@@ -82,12 +93,17 @@ func decodeHandshakeResponse(data []byte, target any) error {
 			return HandshakeResponse{}, err
 		}
 		principal, err := reader.readString()
+		if err != nil {
+			return HandshakeResponse{}, err
+		}
+		capabilities, err := readStringSlice(reader)
 		return HandshakeResponse{
 			ServerID:        serverID,
 			ProtocolVersion: version,
 			Tenant:          tenant,
 			Namespace:       namespace,
 			Principal:       principal,
+			Capabilities:    capabilities,
 		}, err
 	})
 }

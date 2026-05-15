@@ -10,11 +10,12 @@ import (
 
 func TestHandshakeBinaryRoundTrip(t *testing.T) {
 	req := protocol.HandshakeRequest{
-		ClientID:  "client-1",
-		Tenant:    "tenant-a",
-		Namespace: "payments",
-		Principal: "svc-a",
-		AuthToken: "token",
+		ClientID:     "client-1",
+		Tenant:       "tenant-a",
+		Namespace:    "payments",
+		Principal:    "svc-a",
+		AuthToken:    "token",
+		Capabilities: []string{protocol.CapabilityCompressionZstd, protocol.CapabilityTransactions},
 	}
 	data, err := protocol.EncodeBody(protocol.CmdHandshakeRequest, req)
 	if err != nil {
@@ -24,8 +25,24 @@ func TestHandshakeBinaryRoundTrip(t *testing.T) {
 	if err := protocol.DecodeBody(protocol.CmdHandshakeRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got != req {
+	if !reflect.DeepEqual(got, req) {
 		t.Fatalf("got %#v, want %#v", got, req)
+	}
+}
+
+func TestCapabilityNegotiation(t *testing.T) {
+	got := protocol.NegotiateCapabilities([]string{
+		protocol.CapabilityTransactions,
+		"unknown",
+		protocol.CapabilityCompressionZstd,
+		protocol.CapabilityTransactions,
+	})
+	want := []string{protocol.CapabilityCompressionZstd, protocol.CapabilityTransactions}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+	if len(protocol.NegotiateCapabilities(nil)) != len(protocol.SupportedCapabilities()) {
+		t.Fatalf("empty request should return supported capabilities")
 	}
 }
 

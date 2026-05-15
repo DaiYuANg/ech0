@@ -1,19 +1,21 @@
 package protocol
 
 type HandshakeRequest struct {
-	ClientID  string `json:"client_id"`
-	Tenant    string `json:"tenant,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	Principal string `json:"principal,omitempty"`
-	AuthToken string `json:"auth_token,omitempty"`
+	ClientID     string   `json:"client_id"`
+	Tenant       string   `json:"tenant,omitempty"`
+	Namespace    string   `json:"namespace,omitempty"`
+	Principal    string   `json:"principal,omitempty"`
+	AuthToken    string   `json:"auth_token,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 type HandshakeResponse struct {
-	ServerID        string `json:"server_id"`
-	ProtocolVersion uint8  `json:"protocol_version"`
-	Tenant          string `json:"tenant,omitempty"`
-	Namespace       string `json:"namespace,omitempty"`
-	Principal       string `json:"principal,omitempty"`
+	ServerID        string   `json:"server_id"`
+	ProtocolVersion uint8    `json:"protocol_version"`
+	Tenant          string   `json:"tenant,omitempty"`
+	Namespace       string   `json:"namespace,omitempty"`
+	Principal       string   `json:"principal,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
 }
 
 type PingRequest struct {

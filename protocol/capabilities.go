@@ -1,0 +1,62 @@
+package protocol
+
+import (
+	"strings"
+
+	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionset "github.com/arcgolabs/collectionx/set"
+)
+
+const (
+	CapabilityCompressionZstd   = "compression.zstd"
+	CapabilityProduceBatch      = "produce.batch"
+	CapabilityProduceBatches    = "produce.batches"
+	CapabilityFetchBatch        = "fetch.batch"
+	CapabilityFetchWait         = "fetch.wait"
+	CapabilityTransactions      = "transactions"
+	CapabilityIdempotentProduce = "idempotent.produce"
+	CapabilityDirect            = "direct"
+	CapabilityRequestReply      = "request.reply"
+	CapabilityConsumerGroups    = "consumer.groups"
+	CapabilityRetryDelay        = "retry.delay"
+	CapabilitySchemaHeaders     = "schema.headers"
+)
+
+var supportedCapabilities = []string{
+	CapabilityCompressionZstd,
+	CapabilityProduceBatch,
+	CapabilityProduceBatches,
+	CapabilityFetchBatch,
+	CapabilityFetchWait,
+	CapabilityTransactions,
+	CapabilityIdempotentProduce,
+	CapabilityDirect,
+	CapabilityRequestReply,
+	CapabilityConsumerGroups,
+	CapabilityRetryDelay,
+	CapabilitySchemaHeaders,
+}
+
+func SupportedCapabilities() []string {
+	return collectionlist.NewList(supportedCapabilities...).Values()
+}
+
+func NegotiateCapabilities(requested []string) []string {
+	if len(requested) == 0 {
+		return SupportedCapabilities()
+	}
+	want := collectionset.NewSet[string]()
+	for _, capability := range requested {
+		capability = strings.TrimSpace(capability)
+		if capability != "" {
+			want.Add(capability)
+		}
+	}
+	out := collectionlist.NewList[string]()
+	for _, capability := range supportedCapabilities {
+		if want.Contains(capability) {
+			out.Add(capability)
+		}
+	}
+	return out.Values()
+}
