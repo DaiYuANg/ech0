@@ -67,14 +67,13 @@ func buildDLQAppend(retryRecord store.Record, origin retryOrigin) store.RecordAp
 	appendRecord.TimestampMS = &retryRecord.TimestampMS
 	appendRecord.Key = append([]byte(nil), retryRecord.Key...)
 	appendRecord.Attributes = retryRecord.Attributes
-	appendRecord.Headers = []store.RecordHeader{
-		header(dlqHeaderOriginalTopic, origin.Topic),
-		header(dlqHeaderOriginalPartition, strconv.FormatUint(uint64(origin.Partition), 10)),
-		header(dlqHeaderOriginalOffset, strconv.FormatUint(origin.Offset, 10)),
-		header(dlqHeaderRetryCount, strconv.FormatUint(uint64(origin.RetryCount), 10)),
-		header(dlqHeaderErrorCode, dlqErrorCodeRetryExhausted),
-		header(dlqHeaderErrorMessage, errorMessage),
-	}
+	appendRecord.Headers = removeHeaders(cloneRecordHeaders(retryRecord.Headers), retryHeaderDeliverAtMS)
+	upsertHeader(&appendRecord.Headers, dlqHeaderOriginalTopic, origin.Topic)
+	upsertHeader(&appendRecord.Headers, dlqHeaderOriginalPartition, strconv.FormatUint(uint64(origin.Partition), 10))
+	upsertHeader(&appendRecord.Headers, dlqHeaderOriginalOffset, strconv.FormatUint(origin.Offset, 10))
+	upsertHeader(&appendRecord.Headers, dlqHeaderRetryCount, strconv.FormatUint(uint64(origin.RetryCount), 10))
+	upsertHeader(&appendRecord.Headers, dlqHeaderErrorCode, dlqErrorCodeRetryExhausted)
+	upsertHeader(&appendRecord.Headers, dlqHeaderErrorMessage, errorMessage)
 	return appendRecord
 }
 

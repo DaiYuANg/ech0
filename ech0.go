@@ -259,3 +259,19 @@ func (b *Broker) Schedule(ctx context.Context, topic string, payload []byte, del
 	}
 	return Message{Topic: result.DelayTopic, Partition: result.Partition, Offset: result.Offset, NextOffset: result.NextOffset, Payload: append([]byte(nil), payload...)}, nil
 }
+
+func (b *Broker) ProcessRetriesOnce(ctx context.Context) (int, error) {
+	moved, err := b.broker.ProcessRetryTopicsOnce(ctx, "", 0)
+	if err != nil {
+		return 0, oops.In("embedded").Code("process_retries_failed").Wrapf(err, "process retry topics")
+	}
+	return moved, nil
+}
+
+func (b *Broker) ProcessDelayedOnce(ctx context.Context) (int, error) {
+	moved, err := b.broker.ProcessDueDelayedOnce(ctx, "", 0)
+	if err != nil {
+		return 0, oops.In("embedded").Code("process_delayed_failed").Wrapf(err, "process delayed topics")
+	}
+	return moved, nil
+}

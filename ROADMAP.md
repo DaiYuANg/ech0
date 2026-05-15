@@ -70,10 +70,12 @@ The first implementation cut should keep the public mental model small: existing
 
 ## Phase 5: Retry, Delay, And DLQ
 
-- Per-message delay and scheduled delivery.
+- Done: per-message delay and scheduled delivery.
+- Done: DLQ query by offset, timestamp range, error reason, and header filters through broker and embedded APIs.
+- Done: DLQ replay by DLQ offset with internal retry/DLQ headers stripped before republish.
 - Cron-like scheduled message support.
 - Retry policy improvements: exponential backoff, jitter, max attempts, and retry topic isolation.
-- DLQ replay by offset, time range, header filter, and error reason.
+- Bulk DLQ replay from query results by time range, header filter, and error reason.
 - DLQ query indexes for original topic, partition, offset, error reason, and retry count.
 - Poison message handling: skip, isolate, inspect, and replay.
 

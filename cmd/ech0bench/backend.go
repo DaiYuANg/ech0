@@ -105,7 +105,8 @@ func (b *embeddedBenchBroker) Fetch(ctx context.Context, consumer, topic string,
 		return benchFetchResult{}, fmt.Errorf("embedded fetch: %w", err)
 	}
 	messages := make([]benchMessage, 0, len(batch.Messages))
-	for _, msg := range batch.Messages {
+	for index := range batch.Messages {
+		msg := batch.Messages[index]
 		messages = append(messages, benchMessage{Payload: msg.Payload, NextOffset: msg.NextOffset})
 	}
 	return benchFetchResult{Messages: messages, NextOffset: batch.NextOffset}, nil

@@ -12,9 +12,15 @@ type Message struct {
 	Offset     uint64
 	Timestamp  time.Time
 	Key        []byte
+	Headers    []Header
 	Payload    []byte
 	NextOffset uint64
 	Tombstone  bool
+}
+
+type Header struct {
+	Key   string
+	Value []byte
 }
 
 type FetchResult struct {
@@ -32,10 +38,22 @@ func messageFromRecord(topic string, partition uint32, record store.Record) Mess
 		Offset:     record.Offset,
 		Timestamp:  time.UnixMilli(unixMillis(record.TimestampMS)),
 		Key:        append([]byte(nil), record.Key...),
+		Headers:    headersFromStore(record.Headers),
 		Payload:    append([]byte(nil), record.Payload...),
 		NextOffset: record.Offset + 1,
 		Tombstone:  record.IsTombstone(),
 	}
+}
+
+func headersFromStore(headers []store.RecordHeader) []Header {
+	if len(headers) == 0 {
+		return nil
+	}
+	out := make([]Header, 0, len(headers))
+	for _, header := range headers {
+		out = append(out, Header{Key: header.Key, Value: append([]byte(nil), header.Value...)})
+	}
+	return out
 }
 
 func unixMillis(value uint64) int64 {

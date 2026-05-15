@@ -195,6 +195,28 @@ func headerUint32(headers []store.RecordHeader, key string) (*uint32, error) {
 	return &value, nil
 }
 
+func requiredHeaderUint64(headers []store.RecordHeader, key string) (uint64, error) {
+	value, err := headerUint64(headers, key)
+	if err != nil {
+		return 0, err
+	}
+	if value == nil {
+		return 0, brokerStoreError(store.CodeCodec, "record missing %s header", key)
+	}
+	return *value, nil
+}
+
+func requiredHeaderUint32(headers []store.RecordHeader, key string) (uint32, error) {
+	value, err := headerUint32(headers, key)
+	if err != nil {
+		return 0, err
+	}
+	if value == nil {
+		return 0, brokerStoreError(store.CodeCodec, "record missing %s header", key)
+	}
+	return *value, nil
+}
+
 func upsertHeader(headers *[]store.RecordHeader, key, value string) {
 	for i := range *headers {
 		if (*headers)[i].Key == key {
@@ -214,6 +236,24 @@ func removeHeaders(headers []store.RecordHeader, keys ...string) []store.RecordH
 		}
 	}
 	return out
+}
+
+func internalDLQAndRetryHeaders() []string {
+	return []string{
+		retryHeaderOriginalTopic,
+		retryHeaderOriginalPartition,
+		retryHeaderOriginalOffset,
+		retryHeaderRetryCount,
+		retryHeaderDeliverAtMS,
+		retryHeaderLastError,
+		retryHeaderFailedConsumer,
+		dlqHeaderOriginalTopic,
+		dlqHeaderOriginalPartition,
+		dlqHeaderOriginalOffset,
+		dlqHeaderRetryCount,
+		dlqHeaderErrorCode,
+		dlqHeaderErrorMessage,
+	}
 }
 
 func cloneAsAppend(record store.Record) store.RecordAppend {
