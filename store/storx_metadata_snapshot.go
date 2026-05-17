@@ -35,6 +35,7 @@ type storxSnapshotRuntime struct {
 	transactions      []TransactionState
 	producerBatches   []ProducerPublishedBatch
 	aclPolicies       []ACLPolicy
+	dlqIndexes        []DLQIndexEntry
 	nextTransactionID uint64
 }
 
@@ -95,6 +96,10 @@ func (s *StorxMetadataStore) snapshotRuntimeMetadata() (storxSnapshotRuntime, er
 	if err != nil {
 		return storxSnapshotRuntime{}, err
 	}
+	dlqIndexes, err := s.ListDLQIndexes(DLQIndexFilter{})
+	if err != nil {
+		return storxSnapshotRuntime{}, err
+	}
 	nextTransactionID, err := s.loadNextTransactionID()
 	if err != nil {
 		return storxSnapshotRuntime{}, err
@@ -104,6 +109,7 @@ func (s *StorxMetadataStore) snapshotRuntimeMetadata() (storxSnapshotRuntime, er
 		transactions:      transactions,
 		producerBatches:   producerBatches,
 		aclPolicies:       aclPolicies,
+		dlqIndexes:        dlqIndexes,
 		nextTransactionID: nextTransactionID,
 	}, nil
 }
@@ -132,6 +138,7 @@ func buildStorxSnapshot(catalog storxSnapshotCatalog, runtime storxSnapshotRunti
 		Transactions:      *collectionlist.NewListWithCapacity[TransactionState](len(runtime.transactions), runtime.transactions...),
 		ProducerBatches:   *collectionlist.NewListWithCapacity[ProducerPublishedBatch](len(runtime.producerBatches), runtime.producerBatches...),
 		ACLPolicies:       *collectionlist.NewListWithCapacity[ACLPolicy](len(runtime.aclPolicies), runtime.aclPolicies...),
+		DLQIndexes:        *collectionlist.NewListWithCapacity[DLQIndexEntry](len(runtime.dlqIndexes), runtime.dlqIndexes...),
 		NextTransactionID: runtime.nextTransactionID,
 		BrokerState:       runtime.state,
 	}

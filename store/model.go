@@ -62,16 +62,18 @@ const (
 )
 
 type TopicRetryPolicy struct {
-	MaxAttempts      uint32 `json:"max_attempts"       toml:"max_attempts"`
-	BackoffInitialMS uint64 `json:"backoff_initial_ms" toml:"backoff_initial_ms"`
-	BackoffMaxMS     uint64 `json:"backoff_max_ms"     toml:"backoff_max_ms"`
+	MaxAttempts         uint32  `json:"max_attempts"          toml:"max_attempts"`
+	BackoffInitialMS    uint64  `json:"backoff_initial_ms"    toml:"backoff_initial_ms"`
+	BackoffMaxMS        uint64  `json:"backoff_max_ms"        toml:"backoff_max_ms"`
+	BackoffJitterFactor float64 `json:"backoff_jitter_factor" toml:"backoff_jitter_factor"`
 }
 
 func DefaultTopicRetryPolicy() TopicRetryPolicy {
 	return TopicRetryPolicy{
-		MaxAttempts:      16,
-		BackoffInitialMS: 100,
-		BackoffMaxMS:     30000,
+		MaxAttempts:         16,
+		BackoffInitialMS:    100,
+		BackoffMaxMS:        30000,
+		BackoffJitterFactor: 0.2,
 	}
 }
 

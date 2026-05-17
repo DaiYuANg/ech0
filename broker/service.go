@@ -68,6 +68,7 @@ type metadataStore interface {
 	store.TransactionStore
 	store.ProducerBatchStore
 	store.ACLPolicyStore
+	store.DLQIndexStore
 }
 
 func New(cfg Config, opts ...Option) (*Broker, error) {

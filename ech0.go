@@ -29,6 +29,7 @@ type metadataStore interface {
 	store.TransactionStore
 	store.ProducerBatchStore
 	store.ACLPolicyStore
+	store.DLQIndexStore
 }
 
 func Open(ctx context.Context, opts Options) (*Broker, error) {
@@ -144,9 +145,10 @@ func (b *Broker) CreateTopic(ctx context.Context, name string, opts ...TopicOpti
 	}
 	if topicOpts.retryPolicy != nil {
 		topic.RetryPolicy = store.TopicRetryPolicy{
-			MaxAttempts:      topicOpts.retryPolicy.MaxAttempts,
-			BackoffInitialMS: durationMillis(topicOpts.retryPolicy.InitialBackoff),
-			BackoffMaxMS:     durationMillis(topicOpts.retryPolicy.MaxBackoff),
+			MaxAttempts:         topicOpts.retryPolicy.MaxAttempts,
+			BackoffInitialMS:    durationMillis(topicOpts.retryPolicy.InitialBackoff),
+			BackoffMaxMS:        durationMillis(topicOpts.retryPolicy.MaxBackoff),
+			BackoffJitterFactor: topicOpts.retryPolicy.JitterFactor,
 		}
 	}
 	_, err := b.broker.CreateTopic(ctx, topic)

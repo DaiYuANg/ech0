@@ -100,8 +100,12 @@ func (b *Broker) deadLetterExpiredRecords(
 			continue
 		}
 		appendRecord := buildExpiredMessageDLQAppend(record, sourceTopic, partition)
-		if _, err := b.queue.PublishRecord(deadLetterTopic, partition, appendRecord); err != nil {
+		appended, err := b.queue.PublishRecord(deadLetterTopic, partition, appendRecord)
+		if err != nil {
 			return moved, wrapBroker("message_expiry_dead_letter_failed", err, "publish expired message to dead letter topic")
+		}
+		if err := b.saveDLQIndexFromRecord(deadLetterTopic, partition, appended); err != nil {
+			return moved, err
 		}
 		moved++
 	}

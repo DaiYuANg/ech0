@@ -18,6 +18,24 @@ func TestBrokerDLQQueryAndReplay(t *testing.T) {
 	requireDLQReplay(ctx, t, b, dlqRecord)
 }
 
+func TestBrokerDLQRetryCountIndexAndBulkReplay(t *testing.T) {
+	b := newTestBroker(t)
+	ctx := context.Background()
+	prepareDLQRecord(ctx, t, b)
+	retryCount := uint32(1)
+	query := broker.DLQQuery{SourceTopic: "orders", Partition: 0, MaxRecords: 10, RetryCount: &retryCount}
+	result, err := b.QueryDLQ(ctx, query)
+	requireNoError(t, err)
+	if len(result.Records) != 1 || result.Records[0].RetryCount != retryCount {
+		t.Fatalf("expected one indexed retry-count result, got %#v", result)
+	}
+	replayed, err := b.ReplayDLQQuery(ctx, query)
+	requireNoError(t, err)
+	if len(replayed.Replayed) != 1 || replayed.Replayed[0].Offset != 1 {
+		t.Fatalf("unexpected bulk replay result: %#v", replayed)
+	}
+}
+
 func TestBrokerMessageExpiryMovesToDLQ(t *testing.T) {
 	b := newTestBroker(t)
 	ctx := context.Background()
@@ -45,6 +63,18 @@ func TestBrokerMessageExpiryMovesToDLQ(t *testing.T) {
 	if dlq.OriginalTopic != "orders" || dlq.OriginalOffset != 0 || string(dlq.Payload) != "expired" {
 		t.Fatalf("unexpected expired dlq record: %#v", dlq)
 	}
+}
+
+func TestBrokerPoisonMessageInspectSkipIsolateAndReplay(t *testing.T) {
+	b := newTestBroker(t)
+	ctx := context.Background()
+	createTopic(ctx, t, b, store.NewTopicConfig("orders"))
+	publishOrderRecord(ctx, t, b, store.RecordAppend{Payload: []byte("bad")})
+	inspectPoisonRecord(ctx, t, b)
+	isolated := isolatePoisonRecord(ctx, t, b)
+	requirePoisonConsumerSkipped(ctx, t, b)
+	replayPoisonRecord(ctx, t, b, isolated)
+	skipPoisonRecord(ctx, t, b)
 }
 
 func prepareDLQRecord(ctx context.Context, t *testing.T, b *broker.Broker) {
@@ -93,6 +123,52 @@ func queryMessageExpiredDLQRecord(ctx context.Context, t *testing.T, b *broker.B
 		t.Fatalf("expected one message-expired dlq record, got %#v", query)
 	}
 	return query.Records[0]
+}
+
+func inspectPoisonRecord(ctx context.Context, t *testing.T, b *broker.Broker) {
+	t.Helper()
+	inspected, err := b.InspectPoisonMessage(ctx, "orders", 0, 0)
+	requireNoError(t, err)
+	if inspected.Record == nil || string(inspected.Record.Payload) != "bad" {
+		t.Fatalf("unexpected inspected poison record: %#v", inspected)
+	}
+}
+
+func isolatePoisonRecord(ctx context.Context, t *testing.T, b *broker.Broker) broker.PoisonMessageResult {
+	t.Helper()
+	isolated, err := b.IsolatePoisonMessage(ctx, "c1", "orders", 0, 0, "invalid payload")
+	requireNoError(t, err)
+	if isolated.DeadLetter == nil || isolated.DeadLetter.ErrorCode != "poison_message" {
+		t.Fatalf("unexpected poison isolation: %#v", isolated)
+	}
+	return isolated
+}
+
+func requirePoisonConsumerSkipped(ctx context.Context, t *testing.T, b *broker.Broker) {
+	t.Helper()
+	poll, err := b.Fetch(ctx, "c1", "orders", 0, nil, 1)
+	requireNoError(t, err)
+	if len(poll.Records) != 0 {
+		t.Fatalf("expected poison message to be skipped for c1, got %#v", poll)
+	}
+}
+
+func replayPoisonRecord(ctx context.Context, t *testing.T, b *broker.Broker, isolated broker.PoisonMessageResult) {
+	t.Helper()
+	replayed, err := b.ReplayPoisonMessage(ctx, "orders", isolated.DeadLetter.DLQPartition, isolated.DeadLetter.DLQOffset)
+	requireNoError(t, err)
+	if replayed.ReplayResult == nil || replayed.ReplayResult.Offset != 1 {
+		t.Fatalf("unexpected poison replay: %#v", replayed)
+	}
+}
+
+func skipPoisonRecord(ctx context.Context, t *testing.T, b *broker.Broker) {
+	t.Helper()
+	skipped, err := b.SkipPoisonMessage(ctx, "c2", "orders", 0, 1)
+	requireNoError(t, err)
+	if !skipped.Committed || skipped.CommittedNext == nil || *skipped.CommittedNext != 2 {
+		t.Fatalf("unexpected poison skip: %#v", skipped)
+	}
 }
 
 func requireDLQRecordMetadata(t *testing.T, dlqRecord broker.DLQRecord) {

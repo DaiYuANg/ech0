@@ -28,6 +28,7 @@ func (s *StorxMetadataStore) restoreMetadataSteps(snapshot Snapshot) []func() er
 		func() error { return s.restoreMetadataTransactions(snapshot) },
 		func() error { return s.restoreMetadataProducerBatches(snapshot.ProducerBatches) },
 		func() error { return s.restoreMetadataACLPolicies(snapshot.ACLPolicies) },
+		func() error { return s.restoreMetadataDLQIndexes(snapshot.DLQIndexes) },
 		func() error { return s.restoreMetadataBrokerState(snapshot.BrokerState) },
 	}
 }
@@ -46,6 +47,7 @@ func (s *StorxMetadataStore) clearMetadataBuckets() error {
 		bucketClearer[string, uint64]{s.transactionCounters},
 		bucketClearer[string, ProducerPublishedBatch]{s.producerBatches},
 		bucketClearer[string, ACLPolicy]{s.aclPolicies},
+		bucketClearer[string, DLQIndexEntry]{s.dlqIndexes},
 	} {
 		if err := bucket.Clear(context.Background()); err != nil {
 			return wrapExternal(err, "clear metadata bucket")
@@ -175,4 +177,18 @@ func (s *StorxMetadataStore) restoreMetadataProducerBatches(batches collectionli
 		return true
 	})
 	return wrapExternal(s.producerBatches.PutMany(context.Background(), entries.Values()...), "restore producer batches")
+}
+
+func (s *StorxMetadataStore) restoreMetadataDLQIndexes(indexes collectionlist.List[DLQIndexEntry]) error {
+	entries := collectionlist.NewListWithCapacity[bboltx.Entry[string, DLQIndexEntry]](indexes.Len())
+	indexes.Range(func(_ int, entry DLQIndexEntry) bool {
+		if validateDLQIndexEntry(entry) == nil {
+			entries.Add(bboltx.Entry[string, DLQIndexEntry]{
+				Key:   dlqIndexKey(entry.DLQTopic, entry.DLQPartition, entry.DLQOffset),
+				Value: cloneDLQIndexEntry(entry),
+			})
+		}
+		return true
+	})
+	return wrapExternal(s.dlqIndexes.PutMany(context.Background(), entries.Values()...), "restore dlq indexes")
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"math"
 
 	"github.com/lyonbrown4d/ech0/internal/bufferpool"
 	"github.com/samber/oops"
@@ -64,6 +65,10 @@ func (w *binaryWriter) writeU64(value uint64) {
 	if _, err := w.buf.Write(raw[:]); err != nil {
 		panic(err)
 	}
+}
+
+func (w *binaryWriter) writeF64(value float64) {
+	w.writeU64(math.Float64bits(value))
 }
 
 func (w *binaryWriter) writeString(value string) error {
@@ -187,6 +192,14 @@ func (r *binaryReader) readU64() (uint64, error) {
 		return 0, decodeWrap(err, "read u64")
 	}
 	return binary.BigEndian.Uint64(raw[:]), nil
+}
+
+func (r *binaryReader) readF64() (float64, error) {
+	value, err := r.readU64()
+	if err != nil {
+		return 0, err
+	}
+	return math.Float64frombits(value), nil
 }
 
 func (r *binaryReader) readString() (string, error) {

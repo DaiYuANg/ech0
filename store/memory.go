@@ -25,6 +25,7 @@ type MemoryStore struct {
 	transactions    *collectionmapping.Map[uint64, TransactionState]
 	producerBatches *collectionmapping.Map[string, ProducerPublishedBatch]
 	aclPolicies     *collectionmapping.Map[string, ACLPolicy]
+	dlqIndexes      *collectionmapping.Map[string, DLQIndexEntry]
 	nextTxID        uint64
 	brokerState     *BrokerState
 }
@@ -44,6 +45,7 @@ func NewMemoryStore() *MemoryStore {
 		transactions:    collectionmapping.NewMap[uint64, TransactionState](),
 		producerBatches: collectionmapping.NewMap[string, ProducerPublishedBatch](),
 		aclPolicies:     collectionmapping.NewMap[string, ACLPolicy](),
+		dlqIndexes:      collectionmapping.NewMap[string, DLQIndexEntry](),
 		nextTxID:        1,
 	}
 }

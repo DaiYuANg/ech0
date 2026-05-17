@@ -19,6 +19,7 @@ type Snapshot struct {
 	Transactions      collectionlist.List[TransactionState]        `json:"transactions"`
 	ProducerBatches   collectionlist.List[ProducerPublishedBatch]  `json:"producer_batches"`
 	ACLPolicies       collectionlist.List[ACLPolicy]               `json:"acl_policies"`
+	DLQIndexes        collectionlist.List[DLQIndexEntry]           `json:"dlq_indexes"`
 	NextTransactionID uint64                                       `json:"next_transaction_id,omitempty"`
 	BrokerState       *BrokerState                                 `json:"broker_state,omitempty"`
 }
@@ -39,6 +40,7 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 		Transactions:      *collectionlist.NewListWithCapacity[TransactionState](s.transactions.Len()),
 		ProducerBatches:   *collectionlist.NewListWithCapacity[ProducerPublishedBatch](s.producerBatches.Len()),
 		ACLPolicies:       *collectionlist.NewListWithCapacity[ACLPolicy](s.aclPolicies.Len()),
+		DLQIndexes:        *collectionlist.NewListWithCapacity[DLQIndexEntry](s.dlqIndexes.Len()),
 		NextTransactionID: s.nextTxID,
 	}
 	topics := s.topics.Values()
@@ -93,6 +95,9 @@ func (s *MemoryStore) Snapshot() (Snapshot, error) {
 	for i := range aclPolicies {
 		snap.ACLPolicies.Add(cloneACLPolicy(aclPolicies[i]))
 	}
+	for _, entry := range sortDLQIndexes(s.dlqIndexes.Values()) {
+		snap.DLQIndexes.Add(cloneDLQIndexEntry(entry))
+	}
 	if s.brokerState != nil {
 		cp := *s.brokerState
 		snap.BrokerState = &cp
@@ -120,6 +125,7 @@ func (s *MemoryStore) Restore(snapshot Snapshot) error {
 	s.transactions = state.transactions
 	s.producerBatches = state.producerBatches
 	s.aclPolicies = state.aclPolicies
+	s.dlqIndexes = state.dlqIndexes
 	s.nextTxID = state.nextTxID
 	s.brokerState = state.brokerState
 	return nil
@@ -139,6 +145,7 @@ type memoryRestoreState struct {
 	transactions    *collectionmapping.Map[uint64, TransactionState]
 	producerBatches *collectionmapping.Map[string, ProducerPublishedBatch]
 	aclPolicies     *collectionmapping.Map[string, ACLPolicy]
+	dlqIndexes      *collectionmapping.Map[string, DLQIndexEntry]
 	nextTxID        uint64
 	brokerState     *BrokerState
 }
@@ -165,6 +172,7 @@ func buildMemoryRestoreState(snapshot Snapshot) (memoryRestoreState, error) {
 		transactions:    restoreMemoryTransactions(snapshot.Transactions),
 		producerBatches: restoreMemoryProducerBatches(snapshot.ProducerBatches),
 		aclPolicies:     restoreMemoryACLPolicies(snapshot.ACLPolicies),
+		dlqIndexes:      restoreMemoryDLQIndexes(snapshot.DLQIndexes),
 		nextTxID:        restoreMemoryNextTransactionID(snapshot),
 		brokerState:     cloneBrokerState(snapshot.BrokerState),
 	}, nil
@@ -272,26 +280,4 @@ func restoreMemoryTransactions(snapshotTransactions collectionlist.List[Transact
 		return true
 	})
 	return transactions
-}
-
-func restoreMemoryNextTransactionID(snapshot Snapshot) uint64 {
-	next := snapshot.NextTransactionID
-	if next == 0 {
-		next = 1
-	}
-	snapshot.Transactions.Range(func(_ int, state TransactionState) bool {
-		if state.TxID >= next {
-			next = state.TxID + 1
-		}
-		return true
-	})
-	return next
-}
-
-func cloneBrokerState(state *BrokerState) *BrokerState {
-	if state == nil {
-		return nil
-	}
-	cp := *state
-	return &cp
 }

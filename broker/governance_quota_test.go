@@ -16,7 +16,7 @@ func TestBrokerTenantDefaultsApplyToTopicPolicies(t *testing.T) {
 		Namespace:         "default",
 		RetentionMaxBytes: 4096,
 		RetentionMS:       &retentionMS,
-		RetryPolicy:       store.TopicRetryPolicy{MaxAttempts: 3, BackoffInitialMS: 7, BackoffMaxMS: 70},
+		RetryPolicy:       store.TopicRetryPolicy{MaxAttempts: 3, BackoffInitialMS: 7, BackoffMaxMS: 70, BackoffJitterFactor: 0.3},
 		DeadLetterTopic:   "tenant-dlq",
 		DelayEnabled:      &delayEnabled,
 	}}
@@ -37,7 +37,7 @@ func requireTenantTopicDefaults(t *testing.T, topic store.TopicConfig, retention
 	if topic.RetentionMS == nil || *topic.RetentionMS != retentionMS {
 		t.Fatalf("unexpected retention ms: %#v", topic)
 	}
-	if topic.RetryPolicy != (store.TopicRetryPolicy{MaxAttempts: 3, BackoffInitialMS: 7, BackoffMaxMS: 70}) {
+	if topic.RetryPolicy != (store.TopicRetryPolicy{MaxAttempts: 3, BackoffInitialMS: 7, BackoffMaxMS: 70, BackoffJitterFactor: 0.3}) {
 		t.Fatalf("unexpected retry defaults: %#v", topic.RetryPolicy)
 	}
 	if topic.DeadLetterTopic == nil || *topic.DeadLetterTopic != "tenant-dlq" {

@@ -23,6 +23,7 @@ const (
 	bucketTransactionCounters = "transaction_counters"
 	bucketProducerBatches     = "producer_batches"
 	bucketACLPolicies         = "acl_policies"
+	bucketDLQIndexes          = "dlq_indexes"
 	brokerStateKey            = "current"
 	transactionCounterNext    = "next"
 )
@@ -44,6 +45,7 @@ type StorxMetadataStore struct {
 	transactionCounters *bboltx.Bucket[string, uint64]
 	producerBatches     *bboltx.Bucket[string, ProducerPublishedBatch]
 	aclPolicies         *bboltx.Bucket[string, ACLPolicy]
+	dlqIndexes          *bboltx.Bucket[string, DLQIndexEntry]
 	txMu                sync.Mutex
 }
 

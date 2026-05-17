@@ -115,9 +115,10 @@ func applyTopicPolicyOptions(topic *store.TopicConfig, req protocol.CreateTopicR
 	}
 	if req.RetryPolicy != nil {
 		topic.RetryPolicy = store.TopicRetryPolicy{
-			MaxAttempts:      req.RetryPolicy.MaxAttempts,
-			BackoffInitialMS: req.RetryPolicy.BackoffInitialMS,
-			BackoffMaxMS:     req.RetryPolicy.BackoffMaxMS,
+			MaxAttempts:         req.RetryPolicy.MaxAttempts,
+			BackoffInitialMS:    req.RetryPolicy.BackoffInitialMS,
+			BackoffMaxMS:        req.RetryPolicy.BackoffMaxMS,
+			BackoffJitterFactor: req.RetryPolicy.BackoffJitterFactor,
 		}
 	}
 	if req.DelayEnabled != nil {

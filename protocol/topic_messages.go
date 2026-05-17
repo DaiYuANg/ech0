@@ -32,9 +32,10 @@ type MessageHeader struct {
 }
 
 type TopicRetryPolicy struct {
-	MaxAttempts      uint32 `json:"max_attempts"`
-	BackoffInitialMS uint64 `json:"backoff_initial_ms"`
-	BackoffMaxMS     uint64 `json:"backoff_max_ms"`
+	MaxAttempts         uint32  `json:"max_attempts"`
+	BackoffInitialMS    uint64  `json:"backoff_initial_ms"`
+	BackoffMaxMS        uint64  `json:"backoff_max_ms"`
+	BackoffJitterFactor float64 `json:"backoff_jitter_factor"`
 }
 
 type MessageExpiryAction string

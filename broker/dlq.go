@@ -23,6 +23,7 @@ type DLQQuery struct {
 	OriginalOffset       *uint64
 	ErrorCode            string
 	ErrorMessageContains string
+	RetryCount           *uint32
 	Headers              []DLQHeaderFilter
 }
 
@@ -72,7 +73,7 @@ func (b *Broker) QueryDLQ(ctx context.Context, query DLQQuery) (DLQQueryResult, 
 	if err != nil {
 		return DLQQueryResult{}, err
 	}
-	result, err := b.queryDLQScoped(dlqTopic, query, limit)
+	result, err := b.queryDLQScoped(dlqTopic, scopedSource, query, limit)
 	if err != nil {
 		return DLQQueryResult{}, err
 	}
@@ -152,7 +153,7 @@ func (b *Broker) dlqTopicForSource(scopedSourceTopic string) (string, error) {
 	return dlqTopicName(scopedSourceTopic), nil
 }
 
-func (b *Broker) queryDLQScoped(dlqTopic string, query DLQQuery, limit int) (DLQQueryResult, error) {
+func (b *Broker) queryDLQScoped(dlqTopic, scopedSource string, query DLQQuery, limit int) (DLQQueryResult, error) {
 	tp := store.NewTopicPartition(dlqTopic, query.Partition)
 	exists, err := b.queue.TopicExists(dlqTopic)
 	if err != nil {
@@ -164,6 +165,13 @@ func (b *Broker) queryDLQScoped(dlqTopic string, query DLQQuery, limit int) (DLQ
 	offsets, err := b.queue.PartitionOffsets(tp)
 	if err != nil {
 		return DLQQueryResult{}, wrapBrokerStore(err, "load dlq offsets")
+	}
+	indexed, ok, err := b.queryDLQByIndex(tp, scopedSource, query, limit, offsets)
+	if err != nil {
+		return DLQQueryResult{}, err
+	}
+	if ok {
+		return indexed, nil
 	}
 	return b.scanDLQRecords(tp, query, limit, offsets)
 }
@@ -225,7 +233,8 @@ func appendMatchingDLQRecords(
 	records *collectionlist.List[DLQRecord],
 ) (uint64, bool, error) {
 	nextOffset := batch[0].Offset
-	for _, record := range batch {
+	for index := range batch {
+		record := batch[index]
 		nextOffset = record.Offset + 1
 		dlqRecord, err := dlqRecordFromStore(tp.Topic, tp.Partition, record)
 		if err != nil {

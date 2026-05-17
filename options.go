@@ -46,6 +46,7 @@ type RetryPolicy struct {
 	MaxAttempts    uint32
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration
+	JitterFactor   float64
 }
 
 type PublishOption func(*publishOptions)

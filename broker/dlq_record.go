@@ -62,6 +62,9 @@ func dlqErrorMatches(query DLQQuery, record DLQRecord) bool {
 	if query.ErrorCode != "" && record.ErrorCode != query.ErrorCode {
 		return false
 	}
+	if query.RetryCount != nil && record.RetryCount != *query.RetryCount {
+		return false
+	}
 	return query.ErrorMessageContains == "" || strings.Contains(record.ErrorMessage, query.ErrorMessageContains)
 }
 

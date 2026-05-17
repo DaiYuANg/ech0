@@ -48,6 +48,7 @@ func scheduledRuntimeEnabled(cfg Config) bool {
 	return cfg.Broker.DelaySchedulerEnabled ||
 		cfg.Broker.RetryWorkerEnabled ||
 		cfg.Broker.TransactionCleanupEnabled ||
+		len(cfg.Broker.CronSchedules) > 0 ||
 		cfg.Storage.RetentionCleanupEnabled ||
 		cfg.Storage.CompactionCleanupEnabled
 }
@@ -95,6 +96,12 @@ func scheduledJobRegistrations(cfg Config) []scheduledJobRegistration {
 			code:     "transaction_cleanup_job_create_failed",
 			message:  "create transaction cleanup job",
 			register: registerTransactionCleanupJob,
+		},
+		scheduledJobRegistration{
+			enabled:  len(cfg.Broker.CronSchedules) > 0,
+			code:     "cron_message_job_create_failed",
+			message:  "create cron message jobs",
+			register: registerCronMessageJobs,
 		},
 		scheduledJobRegistration{
 			enabled:  cfg.Storage.RetentionCleanupEnabled,

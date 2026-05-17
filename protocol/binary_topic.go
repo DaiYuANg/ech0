@@ -97,6 +97,7 @@ func writeOptionalRetryPolicy(writer *binaryWriter, policy *TopicRetryPolicy) {
 	writer.writeU32(policy.MaxAttempts)
 	writer.writeU64(policy.BackoffInitialMS)
 	writer.writeU64(policy.BackoffMaxMS)
+	writer.writeF64(policy.BackoffJitterFactor)
 }
 
 func readOptionalRetryPolicy(reader *binaryReader) (*TopicRetryPolicy, error) {
@@ -112,6 +113,9 @@ func readOptionalRetryPolicy(reader *binaryReader) (*TopicRetryPolicy, error) {
 		return nil, err
 	}
 	if policy.BackoffMaxMS, err = reader.readU64(); err != nil {
+		return nil, err
+	}
+	if policy.BackoffJitterFactor, err = reader.readF64(); err != nil {
 		return nil, err
 	}
 	return &policy, nil

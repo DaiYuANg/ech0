@@ -20,21 +20,32 @@ func retryBackoffDuration(retryCount uint32, policy store.TopicRetryPolicy) time
 	if maxDelay == 0 {
 		maxDelay = policy.BackoffInitialMS
 	}
-	delay := newRetryBackOff(policy.BackoffInitialMS, maxDelay)
+	delay := newRetryBackOff(policy.BackoffInitialMS, maxDelay, policy.BackoffJitterFactor)
 	for i := uint32(1); i < retryCount; i++ {
 		_ = delay.NextBackOff()
 	}
 	return delay.NextBackOff()
 }
 
-func newRetryBackOff(initialMS, maxMS uint64) *backoff.ExponentialBackOff {
+func newRetryBackOff(initialMS, maxMS uint64, jitterFactor float64) *backoff.ExponentialBackOff {
 	delay := backoff.NewExponentialBackOff()
 	delay.InitialInterval = boundedDuration(initialMS, time.Millisecond)
-	delay.RandomizationFactor = 0
+	delay.RandomizationFactor = boundedJitterFactor(jitterFactor)
 	delay.Multiplier = 2
 	delay.MaxInterval = boundedDuration(maxMS, time.Millisecond)
 	delay.Reset()
 	return delay
+}
+
+func boundedJitterFactor(value float64) float64 {
+	switch {
+	case value < 0:
+		return 0
+	case value > 1:
+		return 1
+	default:
+		return value
+	}
 }
 
 func retryOriginFromRecord(record store.Record, topic string, partition uint32) (retryOrigin, error) {

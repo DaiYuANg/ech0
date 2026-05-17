@@ -55,7 +55,8 @@ func (b *Broker) tenantTopicDefaults(identity Identity) (TenantDefaultsConfig, b
 	identity = normalizeIdentity(identity)
 	best := TenantDefaultsConfig{}
 	bestScore := -1
-	for _, defaults := range b.cfg.Governance.TenantDefaults {
+	for index := range b.cfg.Governance.TenantDefaults {
+		defaults := b.cfg.Governance.TenantDefaults[index]
 		score, ok := tenantDefaultsMatch(identity, defaults)
 		if ok && score >= bestScore {
 			best = defaults
@@ -91,6 +92,9 @@ func applyTenantRetryDefaults(defaults, current, base store.TopicRetryPolicy) st
 	}
 	if defaults.BackoffMaxMS > 0 && topicDefaultUint64(current.BackoffMaxMS, base.BackoffMaxMS) {
 		current.BackoffMaxMS = defaults.BackoffMaxMS
+	}
+	if defaults.BackoffJitterFactor > 0 && current.BackoffJitterFactor == base.BackoffJitterFactor {
+		current.BackoffJitterFactor = defaults.BackoffJitterFactor
 	}
 	return current
 }

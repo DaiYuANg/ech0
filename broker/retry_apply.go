@@ -206,6 +206,12 @@ func (b *Broker) moveRetryRecord(retryRecord store.Record, origin retryOrigin, o
 	if err := b.ensureAuxTopic(originTopic, deadLetterTopic); err != nil {
 		return false, err
 	}
-	_, err := b.queue.PublishRecord(deadLetterTopic, origin.Partition, buildDLQAppend(retryRecord, origin))
-	return true, wrapBroker("retry_dead_letter_failed", err, "publish retry record to dead letter topic")
+	appended, err := b.queue.PublishRecord(deadLetterTopic, origin.Partition, buildDLQAppend(retryRecord, origin))
+	if err != nil {
+		return true, wrapBroker("retry_dead_letter_failed", err, "publish retry record to dead letter topic")
+	}
+	if err := b.saveDLQIndexFromRecord(deadLetterTopic, origin.Partition, appended); err != nil {
+		return true, err
+	}
+	return true, nil
 }
