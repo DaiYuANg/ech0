@@ -21,7 +21,8 @@ func (m *MetricsRuntime) RecordCommand(ctx context.Context, commandID uint16) {
 		return
 	}
 	m.commands.Add(1)
-	m.commandsTotal.Add(ctx, 1, observabilityx.Int64("command_id", int64(commandID)))
+	attrs := append([]observabilityx.Attribute{observabilityx.Int64("command_id", int64(commandID))}, identityMetricAttrs(ctx)...)
+	m.commandsTotal.Add(ctx, 1, attrs...)
 }
 
 func (m *MetricsRuntime) RecordCommandError(ctx context.Context, code string) {
@@ -29,17 +30,40 @@ func (m *MetricsRuntime) RecordCommandError(ctx context.Context, code string) {
 		return
 	}
 	m.commandErrors.Add(1)
-	m.commandErrorsTotal.Add(ctx, 1, observabilityx.String("code", code))
+	attrs := append([]observabilityx.Attribute{observabilityx.String("code", code)}, identityMetricAttrs(ctx)...)
+	m.commandErrorsTotal.Add(ctx, 1, attrs...)
 }
 
 func (m *MetricsRuntime) RecordCommandDuration(ctx context.Context, commandID uint16, duration time.Duration, status string) {
 	if m == nil {
 		return
 	}
-	m.commandDuration.Record(ctx, duration.Seconds(),
+	attrs := append([]observabilityx.Attribute{
 		observabilityx.Int64("command_id", int64(commandID)),
 		observabilityx.String("status", status),
-	)
+	}, identityMetricAttrs(ctx)...)
+	m.commandDuration.Record(ctx, duration.Seconds(), attrs...)
+}
+
+func (m *MetricsRuntime) RecordQuotaCheck(ctx context.Context, action QuotaAction, err error) {
+	if m == nil {
+		return
+	}
+	status := statusLabel(err)
+	m.quotaChecks.Add(1)
+	attrs := append([]observabilityx.Attribute{
+		observabilityx.String("action", string(action)),
+		observabilityx.String("status", status),
+	}, identityMetricAttrs(ctx)...)
+	m.quotaChecksTotal.Add(ctx, 1, attrs...)
+	if err == nil {
+		return
+	}
+	m.quotaRejections.Add(1)
+	rejectionAttrs := append([]observabilityx.Attribute{
+		observabilityx.String("action", string(action)),
+	}, identityMetricAttrs(ctx)...)
+	m.quotaRejectionsTotal.Add(ctx, 1, rejectionAttrs...)
 }
 
 func (m *MetricsRuntime) RecordProduce(ctx context.Context, partitioning string, records uint64) {
@@ -52,8 +76,9 @@ func (m *MetricsRuntime) RecordProduce(ctx context.Context, partitioning string,
 	m.produceRequests.Add(1)
 	m.producedRecords.Add(records)
 	m.recordPartitioningProduce(partitioning, records)
-	m.produceRequestsTotal.Add(ctx, 1, observabilityx.String("partitioning", partitioning))
-	m.producedRecordsTotal.Add(ctx, safeUint64ToInt64(records), observabilityx.String("partitioning", partitioning))
+	attrs := append([]observabilityx.Attribute{observabilityx.String("partitioning", partitioning)}, identityMetricAttrs(ctx)...)
+	m.produceRequestsTotal.Add(ctx, 1, attrs...)
+	m.producedRecordsTotal.Add(ctx, safeUint64ToInt64(records), attrs...)
 }
 
 func (m *MetricsRuntime) recordPartitioningProduce(partitioning string, records uint64) {
@@ -128,4 +153,13 @@ func (m *MetricsRuntime) RefreshStream(ctx context.Context, broker *Broker) erro
 func (m *MetricsRuntime) setGauge(ctx context.Context, gauge observabilityx.Gauge, slot *atomic.Uint64, value uint64) {
 	slot.Store(value)
 	gauge.Set(ctx, float64(value))
+}
+
+func identityMetricAttrs(ctx context.Context) []observabilityx.Attribute {
+	identity := identityFromContext(ctx)
+	return []observabilityx.Attribute{
+		observabilityx.String("tenant", identity.Tenant),
+		observabilityx.String("namespace", identity.Namespace),
+		observabilityx.String("principal", identity.Principal),
+	}
 }

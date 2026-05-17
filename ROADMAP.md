@@ -12,28 +12,28 @@ Recent Docker verification covered a three-node memberlist/Dragonboat cluster wi
 
 Multi-tenancy should land before the next large MQ feature work because it changes the identity model used by topics, consumer groups, transactions, request/reply inboxes, metrics, admin queries, auth decisions, ACL checks, and quota enforcement.
 
-- Tenant and namespace model: tenant -> namespace -> topic.
-- Default tenant and namespace for embedded and single-binary usage.
-- Topic name scope isolation across tenants and namespaces.
-- Consumer group scope isolation across tenants and namespaces.
-- Transactional ID and producer ID scope isolation.
-- Internal topic scope for retry, delay, DLQ, and request/reply inboxes.
-- Tenant-aware metadata keys and storage paths.
-- Tenant-aware metrics for throughput, latency, storage, lag, and error rate.
-- Admin UI tenant and namespace views.
-- Tenant-level defaults for retention, retry, delay, and DLQ policies.
-- Auth identity model with principal, tenant, namespace, and optional client instance identity.
-- Pluggable auth provider interface with an allow-all default for embedded usage.
-- Binary/server auth configuration through configx and DIX.
-- TCP handshake authentication metadata.
-- Admin API authentication metadata.
-- ACL resource model for cluster, tenant, namespace, topic, consumer group, transactional ID, and admin operations.
-- ACL actions for create, describe, produce, consume, commit, alter, delete, transact, and admin.
-- ACL enforcement in broker service APIs and TCP handlers.
-- Quota model for tenant and principal scopes.
-- Quotas for topic count, partition count, message size, storage usage, connection count, produce rate, consume rate, request rate, and in-flight requests.
-- Quota enforcement in hot paths with low overhead.
-- Quota metrics and admin visibility.
+- Done: tenant and namespace model: tenant -> namespace -> topic.
+- Done: default tenant and namespace for embedded and single-binary usage.
+- Done: topic name scope isolation across tenants and namespaces.
+- Done: consumer group scope isolation across tenants and namespaces.
+- Done: transactional ID and producer ID scope isolation.
+- Done: internal topic scope for retry, delay, DLQ, and request/reply inboxes.
+- Done: tenant-aware metadata keys and storage paths through scoped broker names and segment paths.
+- Partial: tenant-aware metrics for throughput, latency, storage, lag, and error rate; command, produce, fetch, quota, and admin stream metrics are identity scoped, while deeper storage/raft internals can still be enriched.
+- Done: admin UI tenant and namespace views.
+- Done: tenant-level defaults for retention, retry, delay, and DLQ policies.
+- Done: auth identity model with principal, tenant, namespace, and optional client instance identity.
+- Done: pluggable auth provider interface with an allow-all default for embedded usage.
+- Partial: binary/server auth configuration through configx and DIX; config loading is DIX/configx based, while custom auth provider selection remains a library option.
+- Done: TCP handshake authentication metadata.
+- Done: admin API authentication metadata.
+- Done: ACL resource model for cluster, tenant, namespace, topic, consumer group, transactional ID, and admin operations.
+- Done: ACL actions for create, describe, produce, consume, commit, alter, delete, transact, and admin.
+- Done: ACL enforcement in broker service APIs and TCP handlers.
+- Done: quota model for tenant and principal scopes.
+- Done: quotas for topic count, partition count, message size, storage usage, connection count, produce rate, consume rate, request rate, and in-flight TCP requests.
+- Done: quota enforcement in hot paths with low overhead across create-topic, produce, fetch, request, TCP connection, storage, and TCP in-flight paths.
+- Done: quota metrics and admin visibility.
 
 The first implementation cut should keep the public mental model small: existing APIs continue to work by using the default tenant, namespace, allow-all auth, and unlimited quotas, while advanced callers can opt into explicit tenant, namespace, principal, ACL, and quota configuration.
 
@@ -64,9 +64,9 @@ The first implementation cut should keep the public mental model small: existing
 - Done: retention by size with low watermark advancement.
 - Done: compaction by key for segment-log storage.
 - Done: partition high watermark, low watermark, and log start offset in store/runtime/protocol/admin views.
-- Tombstone cleanup.
-- Topic-level policies for retention, compaction, retry, DLQ, priority, and ordering.
-- Per-message TTL with expire-or-DLQ policy.
+- Done: tombstone cleanup.
+- Partial: topic-level policies for retention, compaction, retry, DLQ, priority, and ordering; retention, compaction, retry, delay, and DLQ policies exist, while priority and ordering policies remain open.
+- Done: per-message TTL with delete-or-DLQ expiry policy.
 
 ## Phase 5: Retry, Delay, And DLQ
 
@@ -74,7 +74,7 @@ The first implementation cut should keep the public mental model small: existing
 - Done: DLQ query by offset, timestamp range, error reason, and header filters through broker and embedded APIs.
 - Done: DLQ replay by DLQ offset with internal retry/DLQ headers stripped before republish.
 - Cron-like scheduled message support.
-- Retry policy improvements: exponential backoff, jitter, max attempts, and retry topic isolation.
+- Partial: retry policy improvements: exponential backoff, max attempts, and retry topic isolation exist; jitter remains open.
 - Bulk DLQ replay from query results by time range, header filter, and error reason.
 - DLQ query indexes for original topic, partition, offset, error reason, and retry count.
 - Poison message handling: skip, isolate, inspect, and replay.
@@ -86,40 +86,40 @@ The first implementation cut should keep the public mental model small: existing
 - Routing key support beyond topic and partition.
 - Fanout topic or broadcast subject.
 - Wildcard subject matching for lightweight pub/sub routing.
-- Request/reply timeout cleanup.
+- Partial: request/reply timeout cleanup; deadlines are enforced and expired replies are rejected, while background inbox cleanup remains open.
 - Reply inbox garbage collection.
 - Multi-replier mode.
 - First-response-wins request/reply mode.
-- Correlation tracing across request, internal inbox, and reply.
-- Ordered key guarantee for messages sharing the same key.
+- Done: correlation tracing across request, internal inbox, and reply.
+- Done: ordered key guarantee for messages sharing the same key through stable key-hash partitioning.
 
 ## Phase 7: Protocol And Client Ecosystem
 
 - Done: protocol capability negotiation during handshake.
 - Done: negotiation constants for compression, batch support, transaction support, fetch wait behavior, direct, request/reply, consumer groups, retry/delay, idempotency, and schema headers.
-- Non-Go client codec documentation.
+- Done: non-Go client codec documentation.
 - Go client split into producer, consumer, admin, and transactional producer packages.
-- Standardized error codes.
-- Schema hints through headers such as `content-type`, `schema-id`, and `encoding`.
-- Keep zstd compression as the default and record compression metadata at message or batch boundaries.
+- Done: standardized error codes.
+- Done: schema hints through headers such as `content-type`, `schema-id`, and `encoding`.
+- Done: keep zstd compression as the default and record compression metadata at message or batch boundaries.
 
 ## Phase 8: Storage And Recovery Reliability
 
 - Done: self-describing segment frame header with body length for new writes.
 - Done: startup rebuild of missing `.idx` files from self-describing segment frames.
-- Offset index strengthening.
-- Timestamp index.
+- Done: offset index strengthening.
+- Done: timestamp index.
 - Optional key index for compaction and query support.
-- Zero-copy or mmap read path experiments.
+- Done: zero-copy or mmap read path experiments.
 - Crash recovery fault tests.
 - Done: graceful Raft snapshot-on-stop and replay correctness coverage for follower restart from existing data.
-- Compaction correctness tests.
-- Segment checksum and corruption detection.
+- Done: compaction correctness tests.
+- Done: segment checksum and corruption detection.
 - Log repair tooling.
 
 ## Phase 9: Cluster Behavior
 
-- Dragonboat group management improvements.
+- Partial: Dragonboat group management improvements; metadata and data shard groups exist, while membership management remains open.
 - Node join and leave flows.
 - Partition reassignment.
 - Leader balance.
@@ -131,7 +131,7 @@ The first implementation cut should keep the public mental model small: existing
 
 ## Phase 10: Ecosystem Integrations
 
-- Continuous Kafka and NATS comparison benchmarks.
+- Partial: continuous Kafka and NATS comparison benchmarks; benchmark tooling and same-host comparison docs exist, while continuous automation remains open.
 - HTTP gateway.
 - Webhook sink.
 - Database outbox connector.

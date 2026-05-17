@@ -77,6 +77,42 @@ func TestMemoryRetentionMaxBytesAdvancesLowWatermark(t *testing.T) {
 	expectPartitionOffsets(t, st, store.NewTopicPartition("orders", 0), 1, &low, &high, 2, 1)
 }
 
+func TestMemoryMessageTTLExpiresIndependentOfCleanupPolicy(t *testing.T) {
+	st := store.NewMemoryStore()
+	topic := store.NewTopicConfig("orders")
+	topic.CleanupPolicy = store.TopicCleanupCompact
+	ttlMS := uint64(10)
+	topic.MessageTTLMS = &ttlMS
+	requireNoError(t, st.CreateTopic(topic))
+	oldMS := uint64(100)
+	appendRecord(t, st, store.RecordAppend{TimestampMS: &oldMS, Payload: []byte("old")})
+
+	result, err := st.EnforceRetention(context.Background(), 110)
+	requireNoError(t, err)
+	if result.RemovedRecords != 1 {
+		t.Fatalf("expected one expired message to be removed, got %#v", result)
+	}
+	records, err := st.ReadFrom(store.NewTopicPartition("orders", 0), 0, 10)
+	requireNoError(t, err)
+	if len(records) != 0 {
+		t.Fatalf("expected expired message to be removed, got %#v", records)
+	}
+}
+
+func TestMemoryExplicitMessageExpiry(t *testing.T) {
+	st := store.NewMemoryStore()
+	topic := store.NewTopicConfig("orders")
+	requireNoError(t, st.CreateTopic(topic))
+	expiresAt := uint64(50)
+	appendRecord(t, st, store.RecordAppend{ExpiresAtMS: &expiresAt, Payload: []byte("old")})
+
+	result, err := st.EnforceRetention(context.Background(), 50)
+	requireNoError(t, err)
+	if result.RemovedRecords != 1 {
+		t.Fatalf("expected one explicitly expired message to be removed, got %#v", result)
+	}
+}
+
 func TestStorxRetentionRestoresWatermarksAfterReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "segments")
 	st := openLogStore(t, path)

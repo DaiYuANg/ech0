@@ -47,7 +47,7 @@ func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning P
 	if err := b.authorize(ctx, identity, ACLActionProduce, topicResource(identity, topic)); err != nil {
 		return ProduceResult{}, err
 	}
-	if err := b.checkQuota(ctx, QuotaRequest{Identity: identity, Action: QuotaActionProduce, Topic: topic, Records: 1, Bytes: len(record.Payload)}); err != nil {
+	if err := b.checkProduceQuota(ctx, identity, topic, 1, len(record.Payload), store.RecordAppendStorageBytes(record)); err != nil {
 		return ProduceResult{}, err
 	}
 	return b.publishRecordScoped(ctx, scopedTopicName(identity, topic), partitioning, record)
@@ -73,13 +73,7 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning Pu
 	if err := b.authorize(ctx, identity, ACLActionProduce, topicResource(identity, topic)); err != nil {
 		return ProduceBatchResult{}, err
 	}
-	if err := b.checkQuota(ctx, QuotaRequest{
-		Identity: identity,
-		Action:   QuotaActionProduce,
-		Topic:    topic,
-		Records:  len(records),
-		Bytes:    batchPayloadBytes(records),
-	}); err != nil {
+	if err := b.checkProduceQuota(ctx, identity, topic, len(records), batchPayloadBytes(records), batchStorageBytes(records)); err != nil {
 		return ProduceBatchResult{}, err
 	}
 	return b.publishBatchScoped(ctx, scopedTopicName(identity, topic), partitioning, records)
@@ -105,13 +99,7 @@ func (b *Broker) publishBatches(ctx context.Context, requests []produceBatchComm
 			if err := b.authorize(ctx, identity, ACLActionProduce, topicResource(identity, request.Topic)); err != nil {
 				return produceBatchesResult{}, err
 			}
-			if err := b.checkQuota(ctx, QuotaRequest{
-				Identity: identity,
-				Action:   QuotaActionProduce,
-				Topic:    request.Topic,
-				Records:  len(request.Records),
-				Bytes:    batchPayloadBytes(request.Records),
-			}); err != nil {
+			if err := b.checkProduceQuota(ctx, identity, request.Topic, len(request.Records), batchPayloadBytes(request.Records), batchStorageBytes(request.Records)); err != nil {
 				return produceBatchesResult{}, err
 			}
 			request.Topic = scopedTopicName(identity, request.Topic)
@@ -273,4 +261,27 @@ func batchPayloadBytes(records []store.RecordAppend) int {
 		total += len(record.Payload)
 	}
 	return total
+}
+
+func batchStorageBytes(records []store.RecordAppend) uint64 {
+	var total uint64
+	for _, record := range records {
+		total += store.RecordAppendStorageBytes(record)
+	}
+	return total
+}
+
+func (b *Broker) checkProduceQuota(ctx context.Context, identity Identity, topic string, records, payloadBytes int, storageBytes uint64) error {
+	req := QuotaRequest{
+		Identity:               identity,
+		Action:                 QuotaActionProduce,
+		Topic:                  topic,
+		Records:                records,
+		Bytes:                  payloadBytes,
+		AdditionalStorageBytes: storageBytes,
+	}
+	if err := b.populateStorageQuotaUsage(identity, &req); err != nil {
+		return err
+	}
+	return b.checkQuota(ctx, req)
 }

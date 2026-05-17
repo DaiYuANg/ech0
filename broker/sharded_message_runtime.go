@@ -223,6 +223,24 @@ func (r *shardedMessageRuntime) OffsetForTimestamp(topicPartition store.TopicPar
 	return offset, matched, nil
 }
 
+func (r *shardedMessageRuntime) StorageUsage(topic string) (uint64, error) {
+	var total uint64
+	var result error
+	r.shards.Range(func(shardID store.ShardID, shard *messageShard) bool {
+		if shard == nil {
+			return true
+		}
+		usage, err := shard.log.StorageUsage(topic)
+		if err != nil && store.ErrorCode(err) != store.CodeTopicNotFound {
+			result = errors.Join(result, wrapBroker("sharded_storage_usage_failed", err, "load message shard %d storage usage", shardID))
+			return true
+		}
+		total += usage
+		return true
+	})
+	return total, result
+}
+
 func (r *shardedMessageRuntime) ReadPage(topicPartition store.TopicPartition, cursor string, maxRecords int) (store.RecordPage, error) {
 	shard, err := r.shardForTopicPartition(topicPartition)
 	if err != nil {

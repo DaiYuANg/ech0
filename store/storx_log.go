@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	collectionset "github.com/arcgolabs/collectionx/set"
 )
 
 type StorxLogStore struct {
@@ -43,6 +44,13 @@ type segmentRecordPointer struct {
 	Length      int    `json:"length"`
 	TimestampMS uint64 `json:"timestamp_ms"`
 	Attributes  uint16 `json:"attributes"`
+}
+
+type segmentStorageFrameKey struct {
+	partition uint32
+	segmentID uint64
+	position  int64
+	length    int
 }
 
 func OpenStorxLogStore(path string) (*StorxLogStore, error) {
@@ -174,6 +182,38 @@ func (s *StorxLogStore) TopicExists(topic string) (bool, error) {
 	return exists, nil
 }
 
+func (s *StorxLogStore) StorageUsage(topic string) (uint64, error) {
+	s.indexMu.RLock()
+	defer s.indexMu.RUnlock()
+	cfg, ok := s.topics.Get(topic)
+	if !ok {
+		return 0, E(CodeTopicNotFound, "topic %s not found", topic)
+	}
+	seen := collectionset.NewSet[segmentStorageFrameKey]()
+	var total uint64
+	for partition := range cfg.Partitions {
+		tp := NewTopicPartition(topic, partition)
+		for _, pointer := range s.records.GetOrDefault(tp, nil) {
+			key := segmentStorageFrameKey{
+				partition: pointer.Partition,
+				segmentID: pointer.SegmentID,
+				position:  pointer.Position,
+				length:    pointer.Length,
+			}
+			if seen.Contains(key) {
+				continue
+			}
+			length, err := nonNegativeIntToUint64(pointer.Length, "segment pointer length")
+			if err != nil {
+				return 0, err
+			}
+			total += length
+			seen.Add(key)
+		}
+	}
+	return total, nil
+}
+
 func (s *StorxLogStore) Append(topicPartition TopicPartition, payload []byte) (Record, error) {
 	return s.AppendRecord(topicPartition, NewRecordAppend(payload))
 }
@@ -201,18 +241,6 @@ func (s *StorxLogStore) partitionLock(topicPartition TopicPartition) *sync.Mutex
 	return lock
 }
 
-func newStoredRecord(offset uint64, appendRecord RecordAppend) Record {
-	timestamp := NowMS()
-	if appendRecord.TimestampMS != nil {
-		timestamp = *appendRecord.TimestampMS
-	}
-	return Record{
-		Offset:      offset,
-		TimestampMS: timestamp,
-		Key:         cloneBytes(appendRecord.Key),
-		Headers:     cloneHeaders(appendRecord.Headers),
-		Attributes:  appendRecord.Attributes,
-		Transaction: cloneTransactionRecordMetadata(appendRecord.Transaction),
-		Payload:     cloneBytes(appendRecord.Payload),
-	}
+func newStoredRecord(offset uint64, topic TopicConfig, appendRecord RecordAppend) (Record, error) {
+	return recordFromAppend(offset, topic, appendRecord)
 }

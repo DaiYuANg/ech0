@@ -1,5 +1,7 @@
 package broker
 
+import "strings"
+
 func DefaultConfig() Config {
 	return Config{
 		Broker: BrokerConfig{
@@ -184,6 +186,12 @@ func normalizeGovernanceConfig(cfg *GovernanceConfig) {
 	}
 	if cfg.DefaultNamespace == "" {
 		cfg.DefaultNamespace = DefaultNamespace
+	}
+	for index := range cfg.TenantDefaults {
+		defaults := &cfg.TenantDefaults[index]
+		defaults.Tenant = strings.TrimSpace(defaults.Tenant)
+		defaults.Namespace = strings.TrimSpace(defaults.Namespace)
+		defaults.DeadLetterTopic = strings.TrimSpace(defaults.DeadLetterTopic)
 	}
 	if !cfg.Auth.Enabled {
 		cfg.Auth.AllowAnonymous = true

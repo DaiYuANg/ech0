@@ -18,6 +18,35 @@ func TestBrokerDLQQueryAndReplay(t *testing.T) {
 	requireDLQReplay(ctx, t, b, dlqRecord)
 }
 
+func TestBrokerMessageExpiryMovesToDLQ(t *testing.T) {
+	b := newTestBroker(t)
+	ctx := context.Background()
+	topic := store.NewTopicConfig("orders")
+	topic.MessageExpiryAction = store.MessageExpiryDLQ
+	createTopic(ctx, t, b, topic)
+	expiresAt := uint64(10)
+	publishOrderRecord(ctx, t, b, store.RecordAppend{
+		ExpiresAtMS: &expiresAt,
+		Headers:     []store.RecordHeader{{Key: "trace_id", Value: []byte("ttl-1")}},
+		Payload:     []byte("expired"),
+	})
+
+	result, err := b.EnforceRetentionOnce(ctx)
+	requireNoError(t, err)
+	if result.RemovedRecords != 1 || result.DeadLetteredRecords != 1 {
+		t.Fatalf("unexpected message expiry result: %#v", result)
+	}
+	poll, err := b.Fetch(ctx, "c1", "orders", 0, nil, 10)
+	requireNoError(t, err)
+	if len(poll.Records) != 0 {
+		t.Fatalf("expected expired source message to be removed, got %#v", poll.Records)
+	}
+	dlq := queryMessageExpiredDLQRecord(ctx, t, b)
+	if dlq.OriginalTopic != "orders" || dlq.OriginalOffset != 0 || string(dlq.Payload) != "expired" {
+		t.Fatalf("unexpected expired dlq record: %#v", dlq)
+	}
+}
+
 func prepareDLQRecord(ctx context.Context, t *testing.T, b *broker.Broker) {
 	t.Helper()
 	createTopic(ctx, t, b, retryTopic("orders", 1))
@@ -47,6 +76,21 @@ func querySingleDLQRecord(ctx context.Context, t *testing.T, b *broker.Broker) b
 	requireNoError(t, err)
 	if len(query.Records) != 1 {
 		t.Fatalf("expected one dlq record, got %#v", query)
+	}
+	return query.Records[0]
+}
+
+func queryMessageExpiredDLQRecord(ctx context.Context, t *testing.T, b *broker.Broker) broker.DLQRecord {
+	t.Helper()
+	query, err := b.QueryDLQ(ctx, broker.DLQQuery{
+		SourceTopic: "orders",
+		Partition:   0,
+		MaxRecords:  10,
+		ErrorCode:   "message_expired",
+	})
+	requireNoError(t, err)
+	if len(query.Records) != 1 {
+		t.Fatalf("expected one message-expired dlq record, got %#v", query)
 	}
 	return query.Records[0]
 }

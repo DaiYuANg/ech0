@@ -47,12 +47,19 @@ func normalizeTopic(topic *TopicConfig) {
 	if topic.RetryPolicy.MaxAttempts == 0 {
 		topic.RetryPolicy = DefaultTopicRetryPolicy()
 	}
+	if topic.MessageExpiryAction == "" {
+		topic.MessageExpiryAction = MessageExpiryDelete
+	}
 }
 
 func cloneTopic(topic TopicConfig) TopicConfig {
 	if topic.RetentionMS != nil {
 		v := *topic.RetentionMS
 		topic.RetentionMS = &v
+	}
+	if topic.MessageTTLMS != nil {
+		v := *topic.MessageTTLMS
+		topic.MessageTTLMS = &v
 	}
 	if topic.DeadLetterTopic != nil {
 		v := *topic.DeadLetterTopic
@@ -70,6 +77,10 @@ func cloneRecord(record Record) Record {
 	record.Payload = cloneBytes(record.Payload)
 	record.Headers = cloneHeaders(record.Headers)
 	record.Transaction = cloneTransactionRecordMetadata(record.Transaction)
+	if record.ExpiresAtMS != nil {
+		v := *record.ExpiresAtMS
+		record.ExpiresAtMS = &v
+	}
 	return record
 }
 
@@ -108,6 +119,46 @@ func cloneBytes(in []byte) []byte {
 		return nil
 	}
 	return append([]byte(nil), in...)
+}
+
+func recordFromAppend(offset uint64, topic TopicConfig, appendRecord RecordAppend) (Record, error) {
+	timestamp := NowMS()
+	if appendRecord.TimestampMS != nil {
+		timestamp = *appendRecord.TimestampMS
+	}
+	expiresAt, err := appendRecordExpiresAt(timestamp, topic, appendRecord)
+	if err != nil {
+		return Record{}, err
+	}
+	return Record{
+		Offset:      offset,
+		TimestampMS: timestamp,
+		Key:         cloneBytes(appendRecord.Key),
+		Headers:     cloneHeaders(appendRecord.Headers),
+		Attributes:  appendRecord.Attributes,
+		Transaction: cloneTransactionRecordMetadata(appendRecord.Transaction),
+		ExpiresAtMS: expiresAt,
+		Payload:     cloneBytes(appendRecord.Payload),
+	}, nil
+}
+
+func appendRecordExpiresAt(timestamp uint64, topic TopicConfig, appendRecord RecordAppend) (*uint64, error) {
+	if appendRecord.ExpiresAtMS != nil {
+		value := *appendRecord.ExpiresAtMS
+		return &value, nil
+	}
+	if topic.MessageTTLMS == nil {
+		return noRecordExpiry(), nil
+	}
+	if timestamp > ^uint64(0)-*topic.MessageTTLMS {
+		return nil, E(CodeInvalidArgument, "message ttl overflows expires_at_ms")
+	}
+	value := timestamp + *topic.MessageTTLMS
+	return &value, nil
+}
+
+func noRecordExpiry() *uint64 {
+	return nil
 }
 
 func nextOffsetFromRecords(records []Record) uint64 {

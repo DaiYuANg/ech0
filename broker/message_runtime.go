@@ -65,6 +65,7 @@ type messageRuntime interface {
 	LastOffset(store.TopicPartition) (*uint64, error)
 	PartitionOffsets(store.TopicPartition) (store.PartitionOffsetState, error)
 	OffsetForTimestamp(store.TopicPartition, uint64) (uint64, *uint64, error)
+	StorageUsage(string) (uint64, error)
 	Close() error
 }
 
@@ -211,6 +212,18 @@ func (r singleMessageRuntime) OffsetForTimestamp(topicPartition store.TopicParti
 		return 0, nil, wrapBrokerStore(err, "lookup message timestamp offset")
 	}
 	return offset, matched, nil
+}
+
+func (r singleMessageRuntime) StorageUsage(topic string) (uint64, error) {
+	reporter, ok := r.log.(store.StorageUsageReporter)
+	if !ok {
+		return 0, nil
+	}
+	usage, err := reporter.StorageUsage(topic)
+	if err != nil {
+		return 0, wrapBrokerStore(err, "load message storage usage")
+	}
+	return usage, nil
 }
 
 func (r singleMessageRuntime) ReadPage(topicPartition store.TopicPartition, cursor string, maxRecords int) (store.RecordPage, error) {

@@ -111,6 +111,7 @@ func (s *TCPServer) handleProduceFrame(ctx context.Context, frame transport.Fram
 	record := store.NewRecordAppend(req.Payload)
 	record.Key = append([]byte(nil), req.Key...)
 	record.Headers = storeHeadersFromProtocol(req.Headers)
+	record.ExpiresAtMS = cloneUint64Ptr(req.ExpiresAtMS)
 	if req.Tombstone {
 		record.Attributes |= store.RecordAttributeTombstone
 	}

@@ -9,7 +9,8 @@ import (
 )
 
 type RetentionCleanupResult struct {
-	RemovedRecords int `json:"removed_records"`
+	RemovedRecords      int `json:"removed_records"`
+	DeadLetteredRecords int `json:"dead_lettered_records,omitempty"`
 }
 
 type CompactionCleanupResult struct {
@@ -19,12 +20,21 @@ type CompactionCleanupResult struct {
 
 func retentionRemovableOffsets(topic TopicConfig, records []Record, nowMS uint64) *collectionset.Set[uint64] {
 	remove := collectionset.NewSet[uint64]()
+	markExpiredMessages(records, nowMS, remove)
 	if !retentionApplies(topic) {
 		return remove
 	}
 	markExpiredRecords(topic, records, nowMS, remove)
 	markOversizedRecords(topic, records, remove)
 	return remove
+}
+
+func markExpiredMessages(records []Record, nowMS uint64, remove *collectionset.Set[uint64]) {
+	for _, record := range records {
+		if messageExpired(record, nowMS) {
+			remove.Add(record.Offset)
+		}
+	}
 }
 
 func markExpiredRecords(topic TopicConfig, records []Record, nowMS uint64, remove *collectionset.Set[uint64]) {
@@ -146,6 +156,10 @@ func recordExpired(record Record, retentionMS, nowMS uint64) bool {
 	return nowMS-record.TimestampMS >= retentionMS
 }
 
+func messageExpired(record Record, nowMS uint64) bool {
+	return record.ExpiresAtMS != nil && *record.ExpiresAtMS <= nowMS
+}
+
 func compactedTombstoneExpired(topic TopicConfig, record Record, nowMS uint64) bool {
 	if !record.IsTombstone() {
 		return false
@@ -157,7 +171,25 @@ func compactedTombstoneExpired(topic TopicConfig, record Record, nowMS uint64) b
 }
 
 func recordStorageBytes(record Record) uint64 {
+	return RecordStorageBytes(record)
+}
+
+func RecordStorageBytes(record Record) uint64 {
 	total := uint64(len(record.Payload) + len(record.Key) + 24)
+	if record.ExpiresAtMS != nil {
+		total += 9
+	}
+	for _, header := range record.Headers {
+		total += uint64(len(header.Key) + len(header.Value) + 8)
+	}
+	return total
+}
+
+func RecordAppendStorageBytes(record RecordAppend) uint64 {
+	total := uint64(len(record.Payload) + len(record.Key) + 24)
+	if record.ExpiresAtMS != nil {
+		total += 9
+	}
 	for _, header := range record.Headers {
 		total += uint64(len(header.Key) + len(header.Value) + 8)
 	}

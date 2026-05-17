@@ -2,6 +2,7 @@ package ech0_test
 
 import (
 	"context"
+	"net"
 	"testing"
 
 	ech0 "github.com/lyonbrown4d/ech0"
@@ -74,9 +75,27 @@ func TestEmbeddedSeekOffset(t *testing.T) {
 
 func openEmbeddedBroker(ctx context.Context, t *testing.T) *ech0.Broker {
 	t.Helper()
-	b, err := ech0.Open(ctx, ech0.Options{DataDir: t.TempDir()})
+	return openEmbeddedBrokerWithOptions(ctx, t, ech0.Options{})
+}
+
+func openEmbeddedBrokerWithOptions(ctx context.Context, t *testing.T, opts ech0.Options) *ech0.Broker {
+	t.Helper()
+	opts.DataDir = t.TempDir()
+	opts.Raft = &ech0.RaftOptions{BindAddr: freeTCPAddr(ctx, t)}
+	b, err := ech0.Open(ctx, opts)
 	requireNoError(t, err)
 	return b
+}
+
+func freeTCPAddr(ctx context.Context, t *testing.T) string {
+	t.Helper()
+	listenConfig := net.ListenConfig{}
+	listener, err := listenConfig.Listen(ctx, "tcp", "127.0.0.1:0")
+	requireNoError(t, err)
+	defer func() {
+		requireNoError(t, listener.Close())
+	}()
+	return listener.Addr().String()
 }
 
 func closeEmbeddedBroker(ctx context.Context, t *testing.T, b *ech0.Broker) {

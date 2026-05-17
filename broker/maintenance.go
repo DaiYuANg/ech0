@@ -7,14 +7,20 @@ import (
 )
 
 func (b *Broker) EnforceRetentionOnce(ctx context.Context) (store.RetentionCleanupResult, error) {
+	nowMS := store.NowMS()
+	deadLettered, err := b.deadLetterExpiredMessages(ctx, nowMS)
+	if err != nil {
+		return store.RetentionCleanupResult{}, err
+	}
 	cleaner, ok := b.queue.(store.RetentionCleaner)
 	if !ok {
-		return store.RetentionCleanupResult{}, nil
+		return store.RetentionCleanupResult{DeadLetteredRecords: deadLettered}, nil
 	}
-	result, err := cleaner.EnforceRetention(ctx, store.NowMS())
+	result, err := cleaner.EnforceRetention(ctx, nowMS)
 	if err != nil {
 		return store.RetentionCleanupResult{}, wrapBroker("retention_cleanup_failed", err, "enforce retention cleanup")
 	}
+	result.DeadLetteredRecords = deadLettered
 	if b.metrics != nil {
 		b.metrics.RecordRetentionCleanup(ctx, safeIntToUint64(result.RemovedRecords))
 	}

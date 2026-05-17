@@ -37,19 +37,28 @@ type TopicRetryPolicy struct {
 	BackoffMaxMS     uint64 `json:"backoff_max_ms"`
 }
 
+type MessageExpiryAction string
+
+const (
+	MessageExpiryDelete MessageExpiryAction = "delete"
+	MessageExpiryDLQ    MessageExpiryAction = "dlq"
+)
+
 type CreateTopicRequest struct {
-	Topic                          string              `json:"topic"`
-	Partitions                     uint32              `json:"partitions"`
-	RetentionMaxBytes              *uint64             `json:"retention_max_bytes,omitempty"`
-	CleanupPolicy                  *TopicCleanupPolicy `json:"cleanup_policy,omitempty"`
-	MaxMessageBytes                *uint32             `json:"max_message_bytes,omitempty"`
-	MaxBatchBytes                  *uint32             `json:"max_batch_bytes,omitempty"`
-	RetentionMS                    *uint64             `json:"retention_ms,omitempty"`
-	RetryPolicy                    *TopicRetryPolicy   `json:"retry_policy,omitempty"`
-	DeadLetterTopic                *string             `json:"dead_letter_topic,omitempty"`
-	DelayEnabled                   *bool               `json:"delay_enabled,omitempty"`
-	CompactionEnabled              *bool               `json:"compaction_enabled,omitempty"`
-	CompactionTombstoneRetentionMS *uint64             `json:"compaction_tombstone_retention_ms,omitempty"`
+	Topic                          string               `json:"topic"`
+	Partitions                     uint32               `json:"partitions"`
+	RetentionMaxBytes              *uint64              `json:"retention_max_bytes,omitempty"`
+	CleanupPolicy                  *TopicCleanupPolicy  `json:"cleanup_policy,omitempty"`
+	MaxMessageBytes                *uint32              `json:"max_message_bytes,omitempty"`
+	MaxBatchBytes                  *uint32              `json:"max_batch_bytes,omitempty"`
+	RetentionMS                    *uint64              `json:"retention_ms,omitempty"`
+	RetryPolicy                    *TopicRetryPolicy    `json:"retry_policy,omitempty"`
+	DeadLetterTopic                *string              `json:"dead_letter_topic,omitempty"`
+	DelayEnabled                   *bool                `json:"delay_enabled,omitempty"`
+	MessageTTLMS                   *uint64              `json:"message_ttl_ms,omitempty"`
+	MessageExpiryAction            *MessageExpiryAction `json:"message_expiry_action,omitempty"`
+	CompactionEnabled              *bool                `json:"compaction_enabled,omitempty"`
+	CompactionTombstoneRetentionMS *uint64              `json:"compaction_tombstone_retention_ms,omitempty"`
 }
 
 type CreateTopicResponse struct {
@@ -65,6 +74,7 @@ type ProduceRequest struct {
 	Key          []byte              `json:"key,omitempty"`
 	Headers      []MessageHeader     `json:"headers,omitempty"`
 	Tombstone    bool                `json:"tombstone,omitempty"`
+	ExpiresAtMS  *uint64             `json:"expires_at_ms,omitempty"`
 	Payload      []byte              `json:"payload"`
 }
 
@@ -75,10 +85,11 @@ type ProduceResponse struct {
 }
 
 type ProduceBatchRecord struct {
-	Key       []byte          `json:"key,omitempty"`
-	Headers   []MessageHeader `json:"headers,omitempty"`
-	Tombstone bool            `json:"tombstone,omitempty"`
-	Payload   []byte          `json:"payload"`
+	Key         []byte          `json:"key,omitempty"`
+	Headers     []MessageHeader `json:"headers,omitempty"`
+	Tombstone   bool            `json:"tombstone,omitempty"`
+	ExpiresAtMS *uint64         `json:"expires_at_ms,omitempty"`
+	Payload     []byte          `json:"payload"`
 }
 
 type ProduceIdempotency struct {
@@ -156,6 +167,7 @@ type FetchRecord struct {
 	Key         []byte                     `json:"key,omitempty"`
 	Headers     []MessageHeader            `json:"headers,omitempty"`
 	Tombstone   bool                       `json:"tombstone,omitempty"`
+	ExpiresAtMS *uint64                    `json:"expires_at_ms,omitempty"`
 	Transaction *TransactionRecordMetadata `json:"transaction,omitempty"`
 	Payload     []byte                     `json:"payload"`
 }

@@ -104,6 +104,7 @@ func (s *AdminServer) registerRoutes() {
 	httpx.MustGet(server, "/healthz", s.apiHealth)
 	httpx.MustGet(server, "/topics", s.apiTopics)
 	httpx.MustGet(server, "/metrics", s.apiMetrics)
+	httpx.MustGet(server, "/quota", s.apiQuota)
 	if s.cfg.Admin.DebugEnabled {
 		httpx.MustGet(server, "/runtime/events", s.apiRuntimeEvents)
 		httpx.MustGetSSE(server, "/runtime/events/stream", map[string]any{
@@ -202,8 +203,10 @@ func adminIdentityValue(c *fiber.Ctx, header, query, fallback string) string {
 type dashboardView struct {
 	Health           RuntimeHealth
 	Metrics          MetricsSnapshot
+	Quota            QuotaSummary
 	Topics           []TopicSummary
 	TopicsError      string
+	QuotaError       string
 	CommandErrorRate string
 }
 

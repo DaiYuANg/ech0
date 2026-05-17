@@ -6,6 +6,7 @@ import (
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/configx"
+	"github.com/lyonbrown4d/ech0/store"
 	"github.com/spf13/pflag"
 )
 
@@ -118,10 +119,11 @@ type DiscoveryConfig struct {
 }
 
 type GovernanceConfig struct {
-	DefaultTenant    string      `json:"default_tenant"    koanf:"default_tenant"    mapstructure:"default_tenant"    toml:"default_tenant"`
-	DefaultNamespace string      `json:"default_namespace" koanf:"default_namespace" mapstructure:"default_namespace" toml:"default_namespace"`
-	Auth             AuthConfig  `json:"auth"              koanf:"auth"              mapstructure:"auth"              toml:"auth"`
-	Quota            QuotaConfig `json:"quota"             koanf:"quota"             mapstructure:"quota"             toml:"quota"`
+	DefaultTenant    string                 `json:"default_tenant"    koanf:"default_tenant"    mapstructure:"default_tenant"    toml:"default_tenant"`
+	DefaultNamespace string                 `json:"default_namespace" koanf:"default_namespace" mapstructure:"default_namespace" toml:"default_namespace"`
+	Auth             AuthConfig             `json:"auth"              koanf:"auth"              mapstructure:"auth"              toml:"auth"`
+	Quota            QuotaConfig            `json:"quota"             koanf:"quota"             mapstructure:"quota"             toml:"quota"`
+	TenantDefaults   []TenantDefaultsConfig `json:"tenant_defaults"   koanf:"tenant_defaults"   mapstructure:"tenant_defaults"   toml:"tenant_defaults"`
 }
 
 type AuthConfig struct {
@@ -140,6 +142,18 @@ type QuotaConfig struct {
 	RequestRateLimitPerSecond float64 `json:"request_rate_limit_per_second" koanf:"request_rate_limit_per_second" mapstructure:"request_rate_limit_per_second" toml:"request_rate_limit_per_second"`
 	MaxInflightRequests       int64   `json:"max_inflight_requests"         koanf:"max_inflight_requests"         mapstructure:"max_inflight_requests"         toml:"max_inflight_requests"`
 	MaxStorageBytes           uint64  `json:"max_storage_bytes"             koanf:"max_storage_bytes"             mapstructure:"max_storage_bytes"             toml:"max_storage_bytes"`
+}
+
+type TenantDefaultsConfig struct {
+	Tenant              string                    `json:"tenant"                koanf:"tenant"                mapstructure:"tenant"                toml:"tenant"`
+	Namespace           string                    `json:"namespace"             koanf:"namespace"             mapstructure:"namespace"             toml:"namespace"`
+	RetentionMaxBytes   uint64                    `json:"retention_max_bytes"   koanf:"retention_max_bytes"   mapstructure:"retention_max_bytes"   toml:"retention_max_bytes"`
+	RetentionMS         *uint64                   `json:"retention_ms"          koanf:"retention_ms"          mapstructure:"retention_ms"          toml:"retention_ms"`
+	RetryPolicy         store.TopicRetryPolicy    `json:"retry_policy"          koanf:"retry_policy"          mapstructure:"retry_policy"          toml:"retry_policy"`
+	DeadLetterTopic     string                    `json:"dead_letter_topic"     koanf:"dead_letter_topic"     mapstructure:"dead_letter_topic"     toml:"dead_letter_topic"`
+	DelayEnabled        *bool                     `json:"delay_enabled"         koanf:"delay_enabled"         mapstructure:"delay_enabled"         toml:"delay_enabled"`
+	MessageTTLMS        *uint64                   `json:"message_ttl_ms"        koanf:"message_ttl_ms"        mapstructure:"message_ttl_ms"        toml:"message_ttl_ms"`
+	MessageExpiryAction store.MessageExpiryAction `json:"message_expiry_action" koanf:"message_expiry_action" mapstructure:"message_expiry_action" toml:"message_expiry_action"`
 }
 
 type RaftPeerConfig struct {

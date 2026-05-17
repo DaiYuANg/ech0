@@ -74,7 +74,11 @@ func (s *StorxLogStore) prepareAppendBatch(
 			s.recordAppendStage(operation, "encode_frame", index+1, encodeStart, offsetErr)
 			return appendBatchPlan{}, offsetErr
 		}
-		record := newStoredRecord(offset, appendRecord)
+		record, recordErr := newStoredRecord(offset, topic, appendRecord)
+		if recordErr != nil {
+			s.recordAppendStage(operation, "encode_frame", index+1, encodeStart, recordErr)
+			return appendBatchPlan{}, recordErr
+		}
 		records[index] = record
 	}
 	s.recordAppendStage(operation, "encode_frame", len(appendRecords), encodeStart, nil)

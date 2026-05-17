@@ -11,6 +11,7 @@ type Message struct {
 	Partition  uint32
 	Offset     uint64
 	Timestamp  time.Time
+	ExpiresAt  *time.Time
 	Key        []byte
 	Headers    []Header
 	Payload    []byte
@@ -37,6 +38,7 @@ func messageFromRecord(topic string, partition uint32, record store.Record) Mess
 		Partition:  partition,
 		Offset:     record.Offset,
 		Timestamp:  time.UnixMilli(unixMillis(record.TimestampMS)),
+		ExpiresAt:  timeFromUnixMillisPtr(record.ExpiresAtMS),
 		Key:        append([]byte(nil), record.Key...),
 		Headers:    headersFromStore(record.Headers),
 		Payload:    append([]byte(nil), record.Payload...),
@@ -73,4 +75,20 @@ func unixMillis(value uint64) int64 {
 		return int64(maxInt64)
 	}
 	return int64(value)
+}
+
+func timeFromUnixMillisPtr(value *uint64) *time.Time {
+	if value == nil {
+		return nil
+	}
+	out := time.UnixMilli(unixMillis(*value))
+	return &out
+}
+
+func cloneUint64(value *uint64) *uint64 {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }

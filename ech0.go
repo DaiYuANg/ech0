@@ -137,6 +137,8 @@ func (b *Broker) CreateTopic(ctx context.Context, name string, opts ...TopicOpti
 	topic := store.NewTopicConfig(name)
 	topic.Partitions = topicOpts.partitions
 	topic.DelayEnabled = topicOpts.delayEnabled
+	topic.MessageTTLMS = cloneUint64(topicOpts.messageTTLMS)
+	topic.MessageExpiryAction = topicOpts.expiryAction
 	if topicOpts.deadLetterTopic != "" {
 		topic.DeadLetterTopic = &topicOpts.deadLetterTopic
 	}
@@ -159,7 +161,13 @@ func (b *Broker) Publish(ctx context.Context, topic string, payload []byte, opts
 		}
 	}
 	partitioning := publishPartitioning(publishOpts)
-	result, err := b.broker.Publish(ctx, topic, partitioning, publishOpts.key, publishOpts.tombstone, payload)
+	record := store.NewRecordAppend(payload)
+	record.Key = append([]byte(nil), publishOpts.key...)
+	record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
+	if publishOpts.tombstone {
+		record.Attributes |= store.RecordAttributeTombstone
+	}
+	result, err := b.broker.PublishRecord(ctx, topic, partitioning, record)
 	if err != nil {
 		return Message{}, oops.In("embedded").Code("publish_failed").With("topic", topic).Wrapf(err, "publish message")
 	}
@@ -178,6 +186,7 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, payloads [][]by
 	for _, payload := range payloads {
 		record := store.NewRecordAppend(payload)
 		record.Key = append([]byte(nil), publishOpts.key...)
+		record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
 		if publishOpts.tombstone {
 			record.Attributes |= store.RecordAttributeTombstone
 		}

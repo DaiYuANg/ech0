@@ -18,6 +18,7 @@ func writeProduceRequest(writer *binaryWriter, req ProduceRequest) error {
 		return err
 	}
 	writer.writeBool(req.Tombstone)
+	writer.writeOptionalU64(req.ExpiresAtMS)
 	return writer.writeBytes(req.Payload)
 }
 
@@ -47,6 +48,9 @@ func readProduceRequest(reader *binaryReader) (ProduceRequest, error) {
 		return ProduceRequest{}, err
 	}
 	if req.Tombstone, err = reader.readBool(); err != nil {
+		return ProduceRequest{}, err
+	}
+	if req.ExpiresAtMS, err = reader.readOptionalU64(); err != nil {
 		return ProduceRequest{}, err
 	}
 	if req.Payload, err = reader.readBytes(); err != nil {
@@ -182,6 +186,7 @@ func writeBatchRecord(writer *binaryWriter, record ProduceBatchRecord) error {
 		return err
 	}
 	writer.writeBool(record.Tombstone)
+	writer.writeOptionalU64(record.ExpiresAtMS)
 	return writer.writeBytes(record.Payload)
 }
 
@@ -215,6 +220,9 @@ func readBatchRecord(reader *binaryReader) (ProduceBatchRecord, error) {
 		return ProduceBatchRecord{}, err
 	}
 	if record.Tombstone, err = reader.readBool(); err != nil {
+		return ProduceBatchRecord{}, err
+	}
+	if record.ExpiresAtMS, err = reader.readOptionalU64(); err != nil {
 		return ProduceBatchRecord{}, err
 	}
 	if record.Payload, err = reader.readBytes(); err != nil {

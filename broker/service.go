@@ -31,6 +31,7 @@ type Broker struct {
 	metrics                 *MetricsRuntime
 	auth                    *authx.Engine
 	quota                   QuotaLimiter
+	quotaUsage              *quotaUsageTracker
 	topicCache              *ristretto.Cache[string, store.TopicConfig]
 	groupRebalanceHistory   *collectionlist.ConcurrentRingBuffer[GroupRebalanceHistorySummary]
 	commands                brokerCommandRouter
@@ -95,6 +96,7 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		logger:     slog.Default(),
 		auth:       newDefaultAuthEngine(slog.Default()),
 		quota:      newConfiguredQuotaLimiter(cfg.Governance.Quota),
+		quotaUsage: newQuotaUsageTracker(),
 		topicCache: topicCache,
 		groupRebalanceHistory: collectionlist.NewConcurrentRingBuffer[GroupRebalanceHistorySummary](
 			brokerLifecycleEvents,
@@ -142,6 +144,9 @@ func (b *Broker) applyRuntimeDefaults() {
 	}
 	if b.quota == nil {
 		b.quota = UnlimitedQuotaLimiter{}
+	}
+	if b.quotaUsage == nil {
+		b.quotaUsage = newQuotaUsageTracker()
 	}
 	if b.events == nil {
 		b.events = newBrokerEventBus(b.cfg, b.logger, b.metrics)

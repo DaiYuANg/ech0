@@ -90,6 +90,7 @@ func topicConfigFromProtocol(req protocol.CreateTopicRequest) store.TopicConfig 
 	topic.Partitions = req.Partitions
 	topic.RetentionMS = req.RetentionMS
 	topic.DeadLetterTopic = req.DeadLetterTopic
+	topic.MessageTTLMS = req.MessageTTLMS
 	topic.CompactionTombstoneRetentionMS = req.CompactionTombstoneRetentionMS
 	applyTopicLimitOptions(&topic, req)
 	applyTopicPolicyOptions(&topic, req)
@@ -121,6 +122,9 @@ func applyTopicPolicyOptions(topic *store.TopicConfig, req protocol.CreateTopicR
 	}
 	if req.DelayEnabled != nil {
 		topic.DelayEnabled = *req.DelayEnabled
+	}
+	if req.MessageExpiryAction != nil {
+		topic.MessageExpiryAction = store.MessageExpiryAction(*req.MessageExpiryAction)
 	}
 	if req.CompactionEnabled != nil {
 		topic.CompactionEnabled = *req.CompactionEnabled
@@ -183,6 +187,7 @@ func recordItemFromProtocol(record protocol.ProduceBatchRecord) store.RecordAppe
 	appendRecord := store.NewRecordAppend(record.Payload)
 	appendRecord.Key = append([]byte(nil), record.Key...)
 	appendRecord.Headers = storeHeadersFromProtocol(record.Headers)
+	appendRecord.ExpiresAtMS = cloneUint64Ptr(record.ExpiresAtMS)
 	if record.Tombstone {
 		appendRecord.Attributes |= store.RecordAttributeTombstone
 	}

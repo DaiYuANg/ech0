@@ -19,6 +19,8 @@ func writeCreateTopicRequest(writer *binaryWriter, req CreateTopicRequest) error
 		return err
 	}
 	writer.writeOptionalBool(req.DelayEnabled)
+	writer.writeOptionalU64(req.MessageTTLMS)
+	writeMessageExpiryAction(writer, req.MessageExpiryAction)
 	writer.writeOptionalBool(req.CompactionEnabled)
 	writer.writeOptionalU64(req.CompactionTombstoneRetentionMS)
 	return nil
@@ -69,6 +71,12 @@ func readCreateTopicRemainingOptions(reader *binaryReader, req CreateTopicReques
 		return CreateTopicRequest{}, err
 	}
 	if req.DelayEnabled, err = reader.readOptionalBool(); err != nil {
+		return CreateTopicRequest{}, err
+	}
+	if req.MessageTTLMS, err = reader.readOptionalU64(); err != nil {
+		return CreateTopicRequest{}, err
+	}
+	if req.MessageExpiryAction, err = readMessageExpiryAction(reader); err != nil {
 		return CreateTopicRequest{}, err
 	}
 	if req.CompactionEnabled, err = reader.readOptionalBool(); err != nil {

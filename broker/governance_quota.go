@@ -74,12 +74,59 @@ func topicQuotaUsageNeeded(cfg QuotaConfig) bool {
 	return cfg.MaxTopics > 0 || cfg.MaxPartitions > 0
 }
 
+func (b *Broker) populateStorageQuotaUsage(identity Identity, req *QuotaRequest) error {
+	if req == nil || !storageQuotaUsageNeeded(b.cfg.Governance.Quota) {
+		return nil
+	}
+	usage, err := b.storageUsageForScope(identity)
+	if err != nil {
+		return err
+	}
+	req.CurrentStorageBytes = usage
+	return nil
+}
+
+func (b *Broker) storageUsageForScope(identity Identity) (uint64, error) {
+	if b == nil || b.queue == nil {
+		return 0, nil
+	}
+	topics, err := b.queue.ListTopics()
+	if err != nil {
+		return 0, wrapBroker("quota_storage_topics_failed", err, "load topics for storage quota usage")
+	}
+	var total uint64
+	for index := range topics {
+		topic := topics[index]
+		if !topicStorageInScope(identity, topic.Name) {
+			continue
+		}
+		usage, usageErr := b.queue.StorageUsage(topic.Name)
+		if usageErr != nil {
+			return 0, wrapBroker("quota_storage_usage_failed", usageErr, "load storage quota usage")
+		}
+		total += usage
+	}
+	return total, nil
+}
+
+func topicStorageInScope(identity Identity, topic string) bool {
+	if nameInScope(identity, "topic", topic) {
+		return true
+	}
+	_, source, ok := splitAuxTopicName(topic)
+	return ok && nameInScope(identity, "topic", source)
+}
+
 func (l *configuredQuotaLimiter) checkStatic(req QuotaRequest) error {
 	switch req.Action {
 	case QuotaActionCreateTopic:
 		return l.checkCreateTopicQuota(req)
 	case QuotaActionProduce:
 		return l.checkProduceQuota(req)
+	case QuotaActionConnect:
+		return l.checkConnectionQuota(req)
+	case QuotaActionInflight:
+		return l.checkInflightQuota(req)
 	case QuotaActionConsume, QuotaActionRequest:
 		return nil
 	}
@@ -103,6 +150,23 @@ func (l *configuredQuotaLimiter) checkProduceQuota(req QuotaRequest) error {
 	}
 	if l.cfg.MaxBatchBytes > 0 && req.Records > 1 && req.Bytes > l.cfg.MaxBatchBytes {
 		return quotaExceeded("batch bytes %d exceeds max_batch_bytes %d", req.Bytes, l.cfg.MaxBatchBytes)
+	}
+	if l.cfg.MaxStorageBytes > 0 && req.CurrentStorageBytes+req.AdditionalStorageBytes > l.cfg.MaxStorageBytes {
+		return quotaExceeded("storage bytes %d exceeds max_storage_bytes %d", req.CurrentStorageBytes+req.AdditionalStorageBytes, l.cfg.MaxStorageBytes)
+	}
+	return nil
+}
+
+func (l *configuredQuotaLimiter) checkConnectionQuota(req QuotaRequest) error {
+	if l.cfg.MaxConnections > 0 && req.CurrentConnections+1 > l.cfg.MaxConnections {
+		return quotaExceeded("connection count %d exceeds max_connections %d", req.CurrentConnections+1, l.cfg.MaxConnections)
+	}
+	return nil
+}
+
+func (l *configuredQuotaLimiter) checkInflightQuota(req QuotaRequest) error {
+	if l.cfg.MaxInflightRequests > 0 && req.CurrentInflightRequests+1 > l.cfg.MaxInflightRequests {
+		return quotaExceeded("in-flight request count %d exceeds max_inflight_requests %d", req.CurrentInflightRequests+1, l.cfg.MaxInflightRequests)
 	}
 	return nil
 }
@@ -131,6 +195,8 @@ func (l *configuredQuotaLimiter) rateLimit(action QuotaAction) float64 {
 		return l.cfg.ConsumeRateLimitPerSecond
 	case QuotaActionRequest:
 		return l.cfg.RequestRateLimitPerSecond
+	case QuotaActionConnect, QuotaActionInflight:
+		return 0
 	default:
 		return 0
 	}
@@ -146,4 +212,8 @@ func quotaTokens(req QuotaRequest) int {
 func quotaRateKey(req QuotaRequest) string {
 	identity := normalizeIdentity(req.Identity)
 	return fmt.Sprintf("%s/%s/%s/%s", identity.Tenant, identity.Namespace, identity.Principal, req.Action)
+}
+
+func storageQuotaUsageNeeded(cfg QuotaConfig) bool {
+	return cfg.MaxStorageBytes > 0
 }

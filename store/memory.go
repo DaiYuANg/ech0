@@ -103,18 +103,9 @@ func (s *MemoryStore) AppendRecord(topicPartition TopicPartition, appendRecord R
 
 	existing := s.records.GetOrDefault(topicPartition, nil)
 	offset := s.nextOffsets.GetOrDefault(topicPartition, nextOffsetFromRecords(existing))
-	timestamp := NowMS()
-	if appendRecord.TimestampMS != nil {
-		timestamp = *appendRecord.TimestampMS
-	}
-	record := Record{
-		Offset:      offset,
-		TimestampMS: timestamp,
-		Key:         cloneBytes(appendRecord.Key),
-		Headers:     cloneHeaders(appendRecord.Headers),
-		Attributes:  appendRecord.Attributes,
-		Transaction: cloneTransactionRecordMetadata(appendRecord.Transaction),
-		Payload:     cloneBytes(appendRecord.Payload),
+	record, err := recordFromAppend(offset, topic, appendRecord)
+	if err != nil {
+		return Record{}, err
 	}
 	s.records.Set(topicPartition, append(existing, record))
 	s.nextOffsets.Set(topicPartition, offset+1)
@@ -248,4 +239,21 @@ func (s *MemoryStore) ListTopics() ([]TopicConfig, error) {
 		out.Add(cloneTopic(topic))
 	}
 	return out.Values(), nil
+}
+
+func (s *MemoryStore) StorageUsage(topic string) (uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cfg, ok := s.topics.Get(topic)
+	if !ok {
+		return 0, E(CodeTopicNotFound, "topic %s not found", topic)
+	}
+	var total uint64
+	for partition := range cfg.Partitions {
+		tp := NewTopicPartition(topic, partition)
+		for _, record := range s.records.GetOrDefault(tp, nil) {
+			total += RecordStorageBytes(record)
+		}
+	}
+	return total, nil
 }

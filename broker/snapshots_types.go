@@ -8,6 +8,8 @@ type TopicSummary struct {
 	RetentionMaxBytes              uint64  `json:"retention_max_bytes"`
 	CleanupPolicy                  string  `json:"cleanup_policy"`
 	RetentionMS                    *uint64 `json:"retention_ms,omitempty"`
+	MessageTTLMS                   *uint64 `json:"message_ttl_ms,omitempty"`
+	MessageExpiryAction            string  `json:"message_expiry_action"`
 	CompactionTombstoneRetentionMS *uint64 `json:"compaction_tombstone_retention_ms,omitempty"`
 	MaxMessageBytes                uint32  `json:"max_message_bytes"`
 	MaxBatchBytes                  uint32  `json:"max_batch_bytes"`
@@ -25,6 +27,7 @@ type TopicSummary struct {
 type TopicMessageSummary struct {
 	Offset             uint64  `json:"offset"`
 	TimestampMS        uint64  `json:"timestamp_ms"`
+	ExpiresAtMS        *uint64 `json:"expires_at_ms,omitempty"`
 	PayloadSize        int     `json:"payload_size"`
 	PayloadUTF8Preview string  `json:"payload_utf8_preview"`
 	PayloadHexPreview  string  `json:"payload_hex_preview"`
@@ -152,4 +155,14 @@ type StreamMetricsSnapshot struct {
 	TotalConsumerGroupBacklogRecords uint64 `json:"total_consumer_group_backlog_records"`
 	TotalConsumerGroupLagRecords     uint64 `json:"total_consumer_group_lag_records"`
 	MaxConsumerGroupLagRecords       uint64 `json:"max_consumer_group_lag_records"`
+}
+
+type QuotaSummary struct {
+	Identity                Identity    `json:"identity"`
+	Limits                  QuotaConfig `json:"limits"`
+	CurrentTopics           int         `json:"current_topics"`
+	CurrentPartitions       int         `json:"current_partitions"`
+	CurrentStorageBytes     uint64      `json:"current_storage_bytes"`
+	CurrentConnections      int64       `json:"current_connections"`
+	CurrentInflightRequests int64       `json:"current_inflight_requests"`
 }

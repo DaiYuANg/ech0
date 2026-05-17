@@ -25,6 +25,12 @@ type metricsOutput struct {
 	} `json:"body"`
 }
 
+type quotaOutput struct {
+	Body struct {
+		Quota QuotaSummary `json:"quota"`
+	} `json:"body"`
+}
+
 type runtimeEventsOutput struct {
 	Body struct {
 		Events       []runtimeEventSummary `json:"events"`
@@ -67,6 +73,16 @@ func (s *AdminServer) apiMetrics(ctx context.Context, _ *struct{}) (*metricsOutp
 	out := &metricsOutput{}
 	out.Body.Snapshot = s.metrics.Snapshot()
 	out.Body.Runtime = s.broker.RuntimeHealth().RuntimeMode
+	return out, nil
+}
+
+func (s *AdminServer) apiQuota(ctx context.Context, _ *struct{}) (*quotaOutput, error) {
+	quota, err := s.broker.QuotaSummaryFor(ctx)
+	if err != nil {
+		return nil, oops.In("admin").Code("quota_summary_failed").Wrapf(err, "build quota summary")
+	}
+	out := &quotaOutput{}
+	out.Body.Quota = quota
 	return out, nil
 }
 

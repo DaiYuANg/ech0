@@ -65,6 +65,7 @@ func buildDLQAppend(retryRecord store.Record, origin retryOrigin) store.RecordAp
 	errorMessage := valueOr(headerString(retryRecord.Headers, retryHeaderLastError), "unknown")
 	appendRecord := store.NewRecordAppend(retryRecord.Payload)
 	appendRecord.TimestampMS = &retryRecord.TimestampMS
+	appendRecord.ExpiresAtMS = nil
 	appendRecord.Key = append([]byte(nil), retryRecord.Key...)
 	appendRecord.Attributes = retryRecord.Attributes
 	appendRecord.Headers = removeHeaders(cloneRecordHeaders(retryRecord.Headers), retryHeaderDeliverAtMS)

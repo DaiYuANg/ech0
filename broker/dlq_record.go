@@ -89,6 +89,7 @@ func dlqHeaderMatches(filter DLQHeaderFilter, headers []store.RecordHeader) bool
 
 func dlqReplayAppend(record store.Record) store.RecordAppend {
 	appendRecord := cloneAsAppend(record)
+	appendRecord.ExpiresAtMS = nil
 	appendRecord.Headers = removeHeaders(appendRecord.Headers, internalDLQAndRetryHeaders()...)
 	return appendRecord
 }

@@ -142,6 +142,7 @@ func readBinaryProduceIdempotency(reader *raftBinaryReader) (*ProduceIdempotency
 
 func writeBinaryRecordAppend(writer *raftBinaryWriter, record store.RecordAppend) error {
 	writer.writeOptionalU64(record.TimestampMS)
+	writer.writeOptionalU64(record.ExpiresAtMS)
 	if err := writer.writeBytes(record.Key); err != nil {
 		return err
 	}
@@ -195,6 +196,10 @@ func readBinaryRecordAppend(reader *raftBinaryReader) (store.RecordAppend, error
 	if err != nil {
 		return store.RecordAppend{}, err
 	}
+	expiresAtMS, err := reader.readOptionalU64()
+	if err != nil {
+		return store.RecordAppend{}, err
+	}
 	key, err := reader.readBytes()
 	if err != nil {
 		return store.RecordAppend{}, err
@@ -217,6 +222,7 @@ func readBinaryRecordAppend(reader *raftBinaryReader) (store.RecordAppend, error
 	}
 	record := store.RecordAppend{
 		TimestampMS: timestampMS,
+		ExpiresAtMS: expiresAtMS,
 		Key:         key,
 		Headers:     headers,
 		Attributes:  attributes,

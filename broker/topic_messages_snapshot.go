@@ -115,6 +115,7 @@ func topicMessageSummary(record store.Record) TopicMessageSummary {
 	return TopicMessageSummary{
 		Offset:             record.Offset,
 		TimestampMS:        record.TimestampMS,
+		ExpiresAtMS:        cloneUint64Ptr(record.ExpiresAtMS),
 		PayloadSize:        len(record.Payload),
 		PayloadUTF8Preview: strings.TrimSpace(string(bytes.ToValidUTF8(preview, []byte(".")))),
 		PayloadHexPreview:  hex.EncodeToString(preview),

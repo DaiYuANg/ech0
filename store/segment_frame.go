@@ -74,7 +74,10 @@ func appendSegmentRecordBody(out []byte, record Record) []byte {
 }
 
 func segmentRecordBodySize(record Record) int {
-	size := 8 + 8 + 2
+	size := 8 + 8 + 1 + 2
+	if record.ExpiresAtMS != nil {
+		size += 8
+	}
 	size += segmentBytesEncodedLen(len(record.Key))
 	size++
 	if record.Transaction != nil {
@@ -92,8 +95,17 @@ func segmentRecordBodySize(record Record) int {
 func appendSegmentRecordFields(out []byte, record Record) []byte {
 	out = binary.BigEndian.AppendUint64(out, record.Offset)
 	out = binary.BigEndian.AppendUint64(out, record.TimestampMS)
+	out = appendSegmentOptionalU64(out, record.ExpiresAtMS)
 	out = binary.BigEndian.AppendUint16(out, record.Attributes)
 	return appendSegmentBytes(out, record.Key)
+}
+
+func appendSegmentOptionalU64(out []byte, value *uint64) []byte {
+	if value == nil {
+		return append(out, 0)
+	}
+	out = append(out, 1)
+	return binary.BigEndian.AppendUint64(out, *value)
 }
 
 func appendSegmentTransaction(out []byte, metadata *TransactionRecordMetadata) []byte {

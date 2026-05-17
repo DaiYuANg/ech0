@@ -20,6 +20,8 @@ type MetricsRuntime struct {
 	commandsTotal                 observabilityx.Counter
 	commandErrorsTotal            observabilityx.Counter
 	commandDuration               observabilityx.Histogram
+	quotaChecksTotal              observabilityx.Counter
+	quotaRejectionsTotal          observabilityx.Counter
 	rebalancesTotal               observabilityx.Counter
 	rebalanceAssignmentsTotal     observabilityx.Counter
 	rebalanceMovedPartitionsTotal observabilityx.Counter
@@ -63,6 +65,8 @@ type MetricsRuntime struct {
 	tcpConnections           atomic.Uint64
 	commands                 atomic.Uint64
 	commandErrors            atomic.Uint64
+	quotaChecks              atomic.Uint64
+	quotaRejections          atomic.Uint64
 	rebalances               atomic.Uint64
 	rebalanceAssignments     atomic.Uint64
 	rebalanceMovedPartitions atomic.Uint64
@@ -99,6 +103,8 @@ type MetricsSnapshot struct {
 	TCPConnectionsTotal                 uint64 `json:"tcp_connections_total"`
 	CommandsTotal                       uint64 `json:"commands_total"`
 	CommandErrorsTotal                  uint64 `json:"command_errors_total"`
+	QuotaChecksTotal                    uint64 `json:"quota_checks_total"`
+	QuotaRejectionsTotal                uint64 `json:"quota_rejections_total"`
 	RebalancesTotal                     uint64 `json:"rebalances_total"`
 	RebalanceAssignmentsTotal           uint64 `json:"rebalance_assignments_total"`
 	RebalanceMovedPartitionsTotal       uint64 `json:"rebalance_moved_partitions_total"`
@@ -174,6 +180,8 @@ func (m *MetricsRuntime) Snapshot() MetricsSnapshot {
 		TCPConnectionsTotal:                 m.tcpConnections.Load(),
 		CommandsTotal:                       m.commands.Load(),
 		CommandErrorsTotal:                  m.commandErrors.Load(),
+		QuotaChecksTotal:                    m.quotaChecks.Load(),
+		QuotaRejectionsTotal:                m.quotaRejections.Load(),
 		RebalancesTotal:                     m.rebalances.Load(),
 		RebalanceAssignmentsTotal:           m.rebalanceAssignments.Load(),
 		RebalanceMovedPartitionsTotal:       m.rebalanceMovedPartitions.Load(),

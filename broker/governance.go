@@ -36,11 +36,11 @@ const (
 )
 
 type Identity struct {
-	Principal string
-	Tenant    string
-	Namespace string
-	ClientID  string
-	Instance  string
+	Principal string `json:"principal"`
+	Tenant    string `json:"tenant"`
+	Namespace string `json:"namespace"`
+	ClientID  string `json:"client_id,omitempty"`
+	Instance  string `json:"instance,omitempty"`
 }
 
 type AuthRequest struct {
@@ -92,17 +92,23 @@ const (
 	QuotaActionProduce     QuotaAction = "produce"
 	QuotaActionConsume     QuotaAction = "consume"
 	QuotaActionRequest     QuotaAction = "request"
+	QuotaActionConnect     QuotaAction = "connect"
+	QuotaActionInflight    QuotaAction = "inflight_request"
 )
 
 type QuotaRequest struct {
-	Identity          Identity
-	Action            QuotaAction
-	Topic             string
-	Partitions        uint32
-	Records           int
-	Bytes             int
-	CurrentTopics     int
-	CurrentPartitions int
+	Identity                Identity
+	Action                  QuotaAction
+	Topic                   string
+	Partitions              uint32
+	Records                 int
+	Bytes                   int
+	CurrentTopics           int
+	CurrentPartitions       int
+	CurrentStorageBytes     uint64
+	AdditionalStorageBytes  uint64
+	CurrentConnections      int64
+	CurrentInflightRequests int64
 }
 
 type QuotaLimiter interface {
@@ -232,9 +238,12 @@ func (b *Broker) checkQuota(ctx context.Context, req QuotaRequest) error {
 		b.quota = UnlimitedQuotaLimiter{}
 	}
 	req.Identity = normalizeIdentity(req.Identity)
-	if err := b.quota.CheckQuota(ctx, req); err != nil {
+	metricCtx := WithIdentity(ctx, req.Identity)
+	if err := b.quota.CheckQuota(metricCtx, req); err != nil {
+		b.metrics.RecordQuotaCheck(metricCtx, req.Action, err)
 		return wrapBroker("quota_exceeded", err, "check %s quota", req.Action)
 	}
+	b.metrics.RecordQuotaCheck(metricCtx, req.Action, nil)
 	return nil
 }
 

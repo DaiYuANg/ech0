@@ -10,6 +10,7 @@ import (
 
 func (b *Broker) scopedTopicConfig(ctx context.Context, topic store.TopicConfig) (Identity, store.TopicConfig) {
 	identity := b.identity(ctx)
+	topic = b.applyTenantTopicDefaults(identity, topic)
 	topic.Name = scopedTopicName(identity, topic.Name)
 	if topic.DeadLetterTopic != nil {
 		value := scopedTopicName(identity, *topic.DeadLetterTopic)

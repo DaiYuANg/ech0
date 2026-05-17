@@ -15,7 +15,7 @@ func (b *Broker) ScheduleDelay(ctx context.Context, topic string, partition uint
 	if err := b.authorize(ctx, identity, ACLActionProduce, topicResource(identity, topic)); err != nil {
 		return DelayScheduleResult{}, err
 	}
-	if err := b.checkQuota(ctx, QuotaRequest{Identity: identity, Action: QuotaActionProduce, Topic: topic, Records: 1, Bytes: len(payload)}); err != nil {
+	if err := b.checkProduceQuota(ctx, identity, topic, 1, len(payload), store.RecordAppendStorageBytes(store.NewRecordAppend(payload))); err != nil {
 		return DelayScheduleResult{}, err
 	}
 	scopedTopic := scopedTopicName(identity, topic)

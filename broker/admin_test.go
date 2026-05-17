@@ -125,6 +125,26 @@ func TestAdminACLPoliciesUIAndAPI(t *testing.T) {
 	}
 }
 
+func TestAdminQuotaAPIReportsTenantUsage(t *testing.T) {
+	ctx := context.Background()
+	cfg := broker.DefaultConfig()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BindAddr = freeTCPAddr(t)
+	cfg.Governance.Quota.MaxTopics = 5
+	b, err := broker.New(cfg)
+	requireNoError(t, err)
+	createTopic(tenantContext("tenant-a"), t, b, store.NewTopicConfig("orders"))
+	server := broker.NewAdminServer(cfg, b, nil, nil)
+
+	requireNoError(t, server.Start(ctx))
+	defer stopAdminServer(t, server)
+
+	body := getAdminPage(t, cfg.Admin.BindAddr, "/api/quota?tenant=tenant-a&namespace=default&principal=admin")
+	if !strings.Contains(body, `"current_topics":1`) || !strings.Contains(body, `"max_topics":5`) {
+		t.Fatalf("expected quota usage and limits in api, got %s", body)
+	}
+}
+
 func getAdminPage(t *testing.T, addr, path string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

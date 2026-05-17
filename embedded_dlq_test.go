@@ -11,12 +11,10 @@ import (
 
 func TestEmbeddedDLQQueryAndReplay(t *testing.T) {
 	ctx := context.Background()
-	b, err := ech0.Open(ctx, ech0.Options{
-		DataDir:      t.TempDir(),
+	b := openEmbeddedBrokerWithOptions(ctx, t, ech0.Options{
 		DisableRetry: true,
 		DisableDelay: true,
 	})
-	requireNoError(t, err)
 	defer func() {
 		requireNoError(t, b.Close(ctx))
 	}()

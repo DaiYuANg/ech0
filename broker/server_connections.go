@@ -24,30 +24,33 @@ func newTCPConnectionIndex() *tcpConnectionIndex {
 	}
 }
 
-func (i *tcpConnectionIndex) Register(clientID, connectionID string, identity Identity) {
+func (i *tcpConnectionIndex) Register(clientID, connectionID string, identity Identity) (Identity, bool) {
 	clientID = strings.TrimSpace(clientID)
 	connectionID = strings.TrimSpace(connectionID)
 	if i == nil || connectionID == "" {
-		return
+		return Identity{}, false
 	}
 	i.mu.Lock()
+	previous, replaced := i.identities.Get(connectionID)
 	if clientID != "" {
 		i.clients.Put(clientID, connectionID)
 	}
 	i.identities.Set(connectionID, normalizeIdentity(identity))
 	i.mu.Unlock()
+	return previous, replaced
 }
 
-func (i *tcpConnectionIndex) DeleteConnection(connectionID string) bool {
+func (i *tcpConnectionIndex) DeleteConnection(connectionID string) (Identity, bool) {
 	connectionID = strings.TrimSpace(connectionID)
 	if i == nil || connectionID == "" {
-		return false
+		return Identity{}, false
 	}
 	i.mu.Lock()
-	deleted := i.clients.DeleteByValue(connectionID)
+	i.clients.DeleteByValue(connectionID)
+	identity, deleted := i.identities.Get(connectionID)
 	i.identities.Delete(connectionID)
 	i.mu.Unlock()
-	return deleted
+	return identity, deleted
 }
 
 func (i *tcpConnectionIndex) ConnectionForClient(clientID string) (string, bool) {
@@ -112,7 +115,17 @@ func (s *TCPServer) contextFromHandshake(ctx context.Context, connectionID strin
 		response := errorFromErr(err)
 		return ctx, &response
 	}
-	s.clients.Register(req.ClientID, connectionID, identity)
+	previous, replaced := s.clients.IdentityForConnection(connectionID)
+	if !replaced || quotaIdentityKey(previous) != quotaIdentityKey(identity) {
+		if err := s.broker.quotaUsage.acquireConnection(ctx, s.broker, identity); err != nil {
+			response := errorFromErr(err)
+			return ctx, &response
+		}
+	}
+	replacedIdentity, replaced := s.clients.Register(req.ClientID, connectionID, identity)
+	if replaced && quotaIdentityKey(replacedIdentity) != quotaIdentityKey(identity) {
+		s.broker.quotaUsage.releaseConnection(replacedIdentity)
+	}
 	return WithIdentity(ctx, identity), nil
 }
 
@@ -120,7 +133,10 @@ func (s *TCPServer) unregisterConnection(conn net.Conn) {
 	if s == nil || s.clients == nil {
 		return
 	}
-	s.clients.DeleteConnection(tcpConnectionID(conn))
+	identity, ok := s.clients.DeleteConnection(tcpConnectionID(conn))
+	if ok {
+		s.broker.quotaUsage.releaseConnection(identity)
+	}
 }
 
 func tcpConnectionID(conn net.Conn) string {

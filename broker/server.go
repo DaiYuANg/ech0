@@ -190,6 +190,11 @@ func (s *TCPServer) handleConnFrame(ctx context.Context, conn net.Conn) bool {
 	if authResponse != nil {
 		return s.writeResponseFrame(conn, *authResponse)
 	}
+	releaseInflight, quotaErr := s.acquireInflightRequest(frameCtx)
+	if quotaErr != nil {
+		return s.writeResponseFrame(conn, errorFromErr(quotaErr))
+	}
+	defer releaseInflight()
 	handleStart := time.Now()
 	response, err := s.HandleFrame(frameCtx, frame)
 	if err != nil {

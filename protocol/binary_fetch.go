@@ -160,6 +160,7 @@ func readFetchRecords(reader *binaryReader) ([]FetchRecord, error) {
 func writeFetchRecord(writer *binaryWriter, record FetchRecord) error {
 	writer.writeU64(record.Offset)
 	writer.writeU64(record.TimestampMS)
+	writer.writeOptionalU64(record.ExpiresAtMS)
 	if err := writer.writeBytes(record.Key); err != nil {
 		return err
 	}
@@ -178,6 +179,9 @@ func readFetchRecord(reader *binaryReader) (FetchRecord, error) {
 		return FetchRecord{}, err
 	}
 	if record.TimestampMS, err = reader.readU64(); err != nil {
+		return FetchRecord{}, err
+	}
+	if record.ExpiresAtMS, err = reader.readOptionalU64(); err != nil {
 		return FetchRecord{}, err
 	}
 	if record.Key, err = reader.readBytes(); err != nil {

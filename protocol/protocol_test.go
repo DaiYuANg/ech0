@@ -52,6 +52,52 @@ func TestProtocolVersionStaysV1BeforeRelease(t *testing.T) {
 	}
 }
 
+func TestCreateTopicMessageExpiryBinaryRoundTrip(t *testing.T) {
+	retentionMS := uint64(60_000)
+	messageTTLMS := uint64(5_000)
+	action := protocol.MessageExpiryDLQ
+	req := protocol.CreateTopicRequest{
+		Topic:               "orders",
+		Partitions:          3,
+		RetentionMS:         &retentionMS,
+		MessageTTLMS:        &messageTTLMS,
+		MessageExpiryAction: &action,
+	}
+	data, err := protocol.EncodeBody(protocol.CmdCreateTopicRequest, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got protocol.CreateTopicRequest
+	if err := protocol.DecodeBody(protocol.CmdCreateTopicRequest, data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, req) {
+		t.Fatalf("got %#v, want %#v", got, req)
+	}
+}
+
+func TestProduceMessageExpiryBinaryRoundTrip(t *testing.T) {
+	expiresAt := uint64(1700000005000)
+	req := protocol.ProduceRequest{
+		Topic:        "orders",
+		Partitioning: protocol.ProducePartitioningRoundRobin,
+		Key:          []byte("k1"),
+		ExpiresAtMS:  &expiresAt,
+		Payload:      []byte("payload"),
+	}
+	data, err := protocol.EncodeBody(protocol.CmdProduceRequest, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got protocol.ProduceRequest
+	if err := protocol.DecodeBody(protocol.CmdProduceRequest, data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, req) {
+		t.Fatalf("got %#v, want %#v", got, req)
+	}
+}
+
 func TestTransactionBeginBinaryRoundTrip(t *testing.T) {
 	req := protocol.TxBeginRequest{TransactionalID: "orders-worker-1", TimeoutMS: 30_000}
 	data, err := protocol.EncodeBody(protocol.CmdTxBeginRequest, req)

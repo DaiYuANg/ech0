@@ -33,6 +33,7 @@ const (
 	dlqHeaderErrorCode         = "x-dlq-error-code"
 	dlqHeaderErrorMessage      = "x-dlq-error-message"
 	dlqErrorCodeRetryExhausted = "retry_exhausted"
+	dlqErrorCodeMessageExpired = "message_expired"
 	raftCommandNack            = "nack"
 	raftCommandProcessRetry    = "process_retry"
 	raftCommandScheduleDelay   = "schedule_delay"
@@ -98,6 +99,8 @@ func (b *Broker) ensureAuxTopic(source store.TopicConfig, auxTopic string) error
 	cfg.RetryPolicy = source.RetryPolicy
 	cfg.DeadLetterTopic = source.DeadLetterTopic
 	cfg.DelayEnabled = source.DelayEnabled
+	cfg.MessageTTLMS = nil
+	cfg.MessageExpiryAction = store.MessageExpiryDelete
 	cfg.CompactionEnabled = false
 	exists, err := b.queue.TopicExists(auxTopic)
 	if err != nil {
@@ -259,6 +262,7 @@ func internalDLQAndRetryHeaders() []string {
 func cloneAsAppend(record store.Record) store.RecordAppend {
 	return store.RecordAppend{
 		TimestampMS: &record.TimestampMS,
+		ExpiresAtMS: cloneUint64Ptr(record.ExpiresAtMS),
 		Key:         append([]byte(nil), record.Key...),
 		Headers:     cloneRecordHeaders(record.Headers),
 		Attributes:  record.Attributes,

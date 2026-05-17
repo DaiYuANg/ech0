@@ -13,6 +13,7 @@ func (m *MetricsRuntime) initInstruments() {
 }
 
 func (m *MetricsRuntime) initCoreCounters(obs observabilityx.Observability) {
+	identityLabels := []string{"tenant", "namespace", "principal"}
 	m.tcpConnectionsTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"broker_tcp_connections_total",
 		observabilityx.WithDescription("Accepted TCP connections"),
@@ -20,18 +21,28 @@ func (m *MetricsRuntime) initCoreCounters(obs observabilityx.Observability) {
 	m.commandsTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"broker_commands_total",
 		observabilityx.WithDescription("Handled broker commands"),
-		observabilityx.WithLabelKeys("command_id"),
+		observabilityx.WithLabelKeys(append([]string{"command_id"}, identityLabels...)...),
 	))
 	m.commandErrorsTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"broker_command_errors_total",
 		observabilityx.WithDescription("Broker command errors by code"),
-		observabilityx.WithLabelKeys("code"),
+		observabilityx.WithLabelKeys(append([]string{"code"}, identityLabels...)...),
 	))
 	m.commandDuration = obs.Histogram(observabilityx.NewHistogramSpec(
 		"broker_command_duration_seconds",
 		observabilityx.WithDescription("Broker command handler duration"),
 		observabilityx.WithUnit("s"),
-		observabilityx.WithLabelKeys("command_id", "status"),
+		observabilityx.WithLabelKeys(append([]string{"command_id", "status"}, identityLabels...)...),
+	))
+	m.quotaChecksTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"broker_quota_checks_total",
+		observabilityx.WithDescription("Broker quota checks"),
+		observabilityx.WithLabelKeys(append([]string{"action", "status"}, identityLabels...)...),
+	))
+	m.quotaRejectionsTotal = obs.Counter(observabilityx.NewCounterSpec(
+		"broker_quota_rejections_total",
+		observabilityx.WithDescription("Broker quota rejections"),
+		observabilityx.WithLabelKeys(append([]string{"action"}, identityLabels...)...),
 	))
 	m.rebalancesTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"broker_rebalances_total",
@@ -88,15 +99,16 @@ func (m *MetricsRuntime) initStorageCounters(obs observabilityx.Observability) {
 }
 
 func (m *MetricsRuntime) initProduceCounters(obs observabilityx.Observability) {
+	identityLabels := []string{"tenant", "namespace", "principal"}
 	m.produceRequestsTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"broker_produce_requests_total",
 		observabilityx.WithDescription("Produce requests by partitioning mode"),
-		observabilityx.WithLabelKeys("partitioning"),
+		observabilityx.WithLabelKeys(append([]string{"partitioning"}, identityLabels...)...),
 	))
 	m.producedRecordsTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"broker_produced_records_total",
 		observabilityx.WithDescription("Records appended by produce operations"),
-		observabilityx.WithLabelKeys("partitioning"),
+		observabilityx.WithLabelKeys(append([]string{"partitioning"}, identityLabels...)...),
 	))
 }
 
@@ -149,7 +161,7 @@ func (m *MetricsRuntime) initFSMHotPathMetrics(obs observabilityx.Observability,
 }
 
 func (m *MetricsRuntime) initFetchHotPathMetrics(obs observabilityx.Observability) {
-	fetchLabels := []string{"operation", "stage", "status"}
+	fetchLabels := []string{"operation", "stage", "status", "tenant", "namespace", "principal"}
 	m.fetchStageDuration = obs.Histogram(observabilityx.NewHistogramSpec(
 		"broker_fetch_stage_duration_seconds",
 		observabilityx.WithDescription("Broker fetch stage duration"),
@@ -159,12 +171,12 @@ func (m *MetricsRuntime) initFetchHotPathMetrics(obs observabilityx.Observabilit
 	m.fetchRequestsTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"broker_fetch_requests_total",
 		observabilityx.WithDescription("Broker fetch requests"),
-		observabilityx.WithLabelKeys("operation", "status"),
+		observabilityx.WithLabelKeys("operation", "status", "tenant", "namespace", "principal"),
 	))
 	m.fetchRecordsTotal = obs.Counter(observabilityx.NewCounterSpec(
 		"broker_fetch_records_total",
 		observabilityx.WithDescription("Broker fetch records"),
-		observabilityx.WithLabelKeys("operation", "status"),
+		observabilityx.WithLabelKeys("operation", "status", "tenant", "namespace", "principal"),
 	))
 }
 

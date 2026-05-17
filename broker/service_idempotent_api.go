@@ -52,13 +52,7 @@ func (b *Broker) PublishBatchIdempotent(
 	if err := b.authorize(ctx, identity, ACLActionProduce, topicResource(identity, topic)); err != nil {
 		return ProduceBatchResult{}, err
 	}
-	if err := b.checkQuota(ctx, QuotaRequest{
-		Identity: identity,
-		Action:   QuotaActionProduce,
-		Topic:    topic,
-		Records:  len(records),
-		Bytes:    batchPayloadBytes(records),
-	}); err != nil {
+	if err := b.checkProduceQuota(ctx, identity, topic, len(records), batchPayloadBytes(records), batchStorageBytes(records)); err != nil {
 		return ProduceBatchResult{}, err
 	}
 	return b.publishBatchScopedIdempotent(ctx, scopedTopicName(identity, topic), partitioning, records, idempotency)

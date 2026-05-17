@@ -33,6 +33,12 @@ func (s *AdminServer) uiDashboard(c *fiber.Ctx) error {
 	} else {
 		view.Topics = topics
 	}
+	quota, quotaErr := s.broker.QuotaSummaryFor(c.UserContext())
+	if quotaErr != nil {
+		view.QuotaError = quotaErr.Error()
+	} else {
+		view.Quota = quota
+	}
 	view.CommandErrorRate = commandErrorRate(view.Metrics)
 	return adminRender(c, "admin_templates/dashboard", view)
 }

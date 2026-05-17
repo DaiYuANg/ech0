@@ -174,6 +174,8 @@ func (b *Broker) topicSummary(topic store.TopicConfig) (TopicSummary, error) {
 		RetentionMaxBytes:              topic.RetentionMaxBytes,
 		CleanupPolicy:                  string(topic.CleanupPolicy),
 		RetentionMS:                    topic.RetentionMS,
+		MessageTTLMS:                   topic.MessageTTLMS,
+		MessageExpiryAction:            string(topic.MessageExpiryAction),
 		CompactionTombstoneRetentionMS: topic.CompactionTombstoneRetentionMS,
 		MaxMessageBytes:                topic.MaxMessageBytes,
 		MaxBatchBytes:                  topic.MaxBatchBytes,

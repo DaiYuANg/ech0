@@ -17,6 +17,10 @@ type MessageLogPager interface {
 	ReadPage(topicPartition TopicPartition, cursor string, maxRecords int) (RecordPage, error)
 }
 
+type StorageUsageReporter interface {
+	StorageUsage(topic string) (uint64, error)
+}
+
 type RetentionCleaner interface {
 	EnforceRetention(ctx context.Context, nowMS uint64) (RetentionCleanupResult, error)
 }

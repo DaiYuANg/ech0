@@ -16,6 +16,10 @@ func (d *segmentRecordDecoder) readRecordFields(record *Record) error {
 	if err != nil {
 		return err
 	}
+	expiresAt, err := d.readOptionalU64("expires_at_ms")
+	if err != nil {
+		return err
+	}
 	attributes, err := d.readU16("attributes")
 	if err != nil {
 		return err
@@ -26,9 +30,28 @@ func (d *segmentRecordDecoder) readRecordFields(record *Record) error {
 	}
 	record.Offset = offset
 	record.TimestampMS = timestamp
+	record.ExpiresAtMS = expiresAt
 	record.Attributes = attributes
 	record.Key = key
 	return nil
+}
+
+func (d *segmentRecordDecoder) readOptionalU64(field string) (*uint64, error) {
+	present, err := d.readByte()
+	if err != nil {
+		return nil, err
+	}
+	if present == 0 {
+		return noRecordExpiry(), nil
+	}
+	if present != 1 {
+		return nil, E(CodeCodec, "invalid segment optional %s marker %d", field, present)
+	}
+	value, err := d.readU64(field)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
 }
 
 func (d *segmentRecordDecoder) readU64(field string) (uint64, error) {

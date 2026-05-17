@@ -5,6 +5,7 @@ import (
 	"time"
 
 	internalbroker "github.com/lyonbrown4d/ech0/broker"
+	"github.com/lyonbrown4d/ech0/store"
 )
 
 type Options struct {
@@ -37,6 +38,8 @@ type topicOptions struct {
 	delayEnabled    bool
 	deadLetterTopic string
 	retryPolicy     *RetryPolicy
+	messageTTLMS    *uint64
+	expiryAction    store.MessageExpiryAction
 }
 
 type RetryPolicy struct {
@@ -51,6 +54,7 @@ type publishOptions struct {
 	key       []byte
 	partition *uint32
 	tombstone bool
+	expiresAt *uint64
 }
 
 type FetchOption func(*fetchOptions)

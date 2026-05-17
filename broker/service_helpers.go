@@ -64,6 +64,7 @@ func cloneAppend(record store.RecordAppend) store.RecordAppend {
 		v := *record.TimestampMS
 		out.TimestampMS = &v
 	}
+	out.ExpiresAtMS = cloneUint64Ptr(record.ExpiresAtMS)
 	if len(record.Headers) > 0 {
 		headers := collectionlist.NewListWithCapacity[store.RecordHeader](len(record.Headers))
 		for _, header := range record.Headers {
@@ -83,6 +84,7 @@ func fetchRecordsFromStore(records []store.Record) []protocol.FetchRecord {
 			Key:         append([]byte(nil), record.Key...),
 			Headers:     protocolHeadersFromStore(record.Headers),
 			Tombstone:   record.IsTombstone(),
+			ExpiresAtMS: cloneUint64Ptr(record.ExpiresAtMS),
 			Transaction: transactionRecordMetadataToProtocol(record.Transaction),
 			Payload:     append([]byte(nil), record.Payload...),
 		})
@@ -109,6 +111,14 @@ func transactionRecordMetadataToProtocol(metadata *store.TransactionRecordMetada
 		Sequence:      metadata.Sequence,
 		ControlType:   protocol.TransactionControlType(metadata.ControlType),
 	}
+}
+
+func cloneUint64Ptr(value *uint64) *uint64 {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 func (b *Broker) publishEvent(ctx context.Context, event eventx.Event) {

@@ -57,20 +57,18 @@ func (m *MetricsRuntime) RecordFetchStage(ctx context.Context, operation, stage 
 	if m == nil {
 		return
 	}
-	attrs := storeStageAttrs(operation, stage, err)
+	attrs := append(storeStageAttrs(operation, stage, err), identityMetricAttrs(ctx)...)
 	m.fetchStageDuration.Record(ctx, duration.Seconds(), attrs...)
 	if stage != "total" {
 		return
 	}
 	status := statusLabel(err)
-	m.fetchRequestsTotal.Add(ctx, 1,
+	summaryAttrs := append([]observabilityx.Attribute{
 		observabilityx.String("operation", operation),
 		observabilityx.String("status", status),
-	)
-	m.fetchRecordsTotal.Add(ctx, safeIntToInt64(records),
-		observabilityx.String("operation", operation),
-		observabilityx.String("status", status),
-	)
+	}, identityMetricAttrs(ctx)...)
+	m.fetchRequestsTotal.Add(ctx, 1, summaryAttrs...)
+	m.fetchRecordsTotal.Add(ctx, safeIntToInt64(records), summaryAttrs...)
 }
 
 func (b *Broker) recordFetchStage(ctx context.Context, operation, stage string, records int, start time.Time, err error) {

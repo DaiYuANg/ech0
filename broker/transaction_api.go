@@ -30,7 +30,7 @@ func (b *Broker) PublishTransactionalRecord(
 	if err := b.authorize(ctx, scope, ACLActionProduce, topicResource(scope, topic)); err != nil {
 		return TransactionPublishResult{}, err
 	}
-	if err := b.checkQuota(ctx, QuotaRequest{Identity: scope, Action: QuotaActionProduce, Topic: topic, Records: 1, Bytes: len(record.Payload)}); err != nil {
+	if err := b.checkProduceQuota(ctx, scope, topic, 1, len(record.Payload), store.RecordAppendStorageBytes(record)); err != nil {
 		return TransactionPublishResult{}, err
 	}
 	scopedTopic := scopedTopicName(scope, topic)
@@ -60,7 +60,7 @@ func (b *Broker) PublishTransactionalBatch(
 	if err := b.authorize(ctx, scope, ACLActionProduce, topicResource(scope, topic)); err != nil {
 		return TransactionPublishBatchResult{}, err
 	}
-	if err := b.checkQuota(ctx, QuotaRequest{Identity: scope, Action: QuotaActionProduce, Topic: topic, Records: len(records), Bytes: batchPayloadBytes(records)}); err != nil {
+	if err := b.checkProduceQuota(ctx, scope, topic, len(records), batchPayloadBytes(records), batchStorageBytes(records)); err != nil {
 		return TransactionPublishBatchResult{}, err
 	}
 	copied := collectionlist.NewListWithCapacity[store.RecordAppend](len(records))
