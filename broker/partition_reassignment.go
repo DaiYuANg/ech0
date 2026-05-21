@@ -16,14 +16,34 @@ func (b *Broker) ReassignPartition(ctx context.Context, topic string, partition 
 		return err
 	}
 	req := reassignPartitionCommand{Topic: scopedTopic, Partition: partition, ShardID: targetShardID}
-	_, err := routeMetadataCommand(ctx, b, raftCommandReassignPartition, req, b.applyReassignPartition)
+	_, err := routePartitionCommand(ctx, b, exactPartitionCommandTarget(scopedTopic, partition), raftCommandReassignPartition, req, b.applyReassignPartition)
 	return err
+}
+
+type partitionDataReassignmentRuntime interface {
+	ReassignPartitionData(store.TopicPartition, store.ShardID, func() error) error
 }
 
 func (b *Broker) applyReassignPartition(_ context.Context, req reassignPartitionCommand) (store.ShardPlacement, error) {
 	if err := b.validatePartitionReassignment(req.Topic, req.Partition, req.ShardID); err != nil {
 		return store.ShardPlacement{}, err
 	}
+	if mover, ok := b.queue.(partitionDataReassignmentRuntime); ok {
+		var placement store.ShardPlacement
+		err := mover.ReassignPartitionData(store.NewTopicPartition(req.Topic, req.Partition), req.ShardID, func() error {
+			saved, saveErr := b.saveReassignedPartitionPlacement(req)
+			placement = saved
+			return saveErr
+		})
+		if err != nil {
+			return store.ShardPlacement{}, wrapBroker("partition_reassignment_failed", err, "reassign partition data")
+		}
+		return placement, nil
+	}
+	return b.saveReassignedPartitionPlacement(req)
+}
+
+func (b *Broker) saveReassignedPartitionPlacement(req reassignPartitionCommand) (store.ShardPlacement, error) {
 	placement := store.NewShardPlacement(req.Topic, req.Partition, req.ShardID)
 	placements, ok := b.meta.(store.ShardPlacementStore)
 	if !ok {
@@ -54,13 +74,6 @@ func (b *Broker) validatePartitionReassignment(topic string, partition uint32, t
 	}
 	if partition >= topicConfig.Partitions {
 		return brokerStoreError(store.CodeInvalidArgument, "partition %d is outside topic %s partition count %d", partition, topic, topicConfig.Partitions)
-	}
-	offsets, err := b.queue.PartitionOffsets(store.NewTopicPartition(topic, partition))
-	if err != nil {
-		return wrapBrokerStore(err, "load partition offsets before reassignment")
-	}
-	if offsets.RetainedRecords > 0 || offsets.NextOffset > offsets.LogStartOffset {
-		return brokerStoreError(store.CodeInvalidArgument, "live partition reassignment requires data movement and is not supported yet")
 	}
 	return nil
 }

@@ -27,6 +27,25 @@ func TestBrokerShardedStorxMessageRuntimePersistsByShard(t *testing.T) {
 	assertShardPayload(t, cfg, 1, 1, "p1")
 }
 
+func TestBrokerShardedStorxLivePartitionReassignmentMovesData(t *testing.T) {
+	cfg, b, stop := newShardedStorxTestBroker(t)
+	defer stop()
+	ctx := context.Background()
+	topic := store.NewTopicConfig("orders")
+	topic.Partitions = 2
+	createTopic(ctx, t, b, topic)
+	publishPartition(ctx, t, b, 1, []byte("p1-a"))
+	publishPartition(ctx, t, b, 1, []byte("p1-b"))
+
+	requireNoError(t, b.ReassignPartition(ctx, "orders", 1, 0))
+	publishPartition(ctx, t, b, 1, []byte("p1-c"))
+	assertPartitionPayloads(ctx, t, b, 1, "p1-a", "p1-b", "p1-c")
+
+	stop()
+	assertShardPayloads(t, cfg, 0, 1, "p1-a", "p1-b", "p1-c")
+	assertShardEmpty(t, cfg, 1, 1)
+}
+
 func TestBrokerShardedStorxMaintenanceRunsAcrossShards(t *testing.T) {
 	_, b, stop := newShardedStorxTestBroker(t)
 	defer stop()
@@ -93,11 +112,15 @@ func publishPartitionRecord(ctx context.Context, t *testing.T, b *broker.Broker,
 
 func assertPartitionPayload(ctx context.Context, t *testing.T, b *broker.Broker, partition uint32, want string) {
 	t.Helper()
-	poll, err := b.Fetch(ctx, "c1", "orders", partition, nil, 10)
+	assertPartitionPayloads(ctx, t, b, partition, want)
+}
+
+func assertPartitionPayloads(ctx context.Context, t *testing.T, b *broker.Broker, partition uint32, want ...string) {
+	t.Helper()
+	offset := uint64(0)
+	poll, err := b.Fetch(ctx, "c1", "orders", partition, &offset, 10)
 	requireNoError(t, err)
-	if len(poll.Records) != 1 || string(poll.Records[0].Payload) != want {
-		t.Fatalf("unexpected partition %d poll result: %#v", partition, poll)
-	}
+	requireShardedRecordPayloads(t, poll.Records, want...)
 }
 
 func assertPartitionEmpty(ctx context.Context, t *testing.T, b *broker.Broker, partition uint32) {
@@ -120,12 +143,41 @@ func assertTopicMessageSnapshot(t *testing.T, b *broker.Broker, partition uint32
 
 func assertShardPayload(t *testing.T, cfg broker.Config, shardID store.ShardID, partition uint32, want string) {
 	t.Helper()
+	assertShardPayloads(t, cfg, shardID, partition, want)
+}
+
+func assertShardPayloads(t *testing.T, cfg broker.Config, shardID store.ShardID, partition uint32, want ...string) {
+	t.Helper()
 	logStore := openBrokerStorxLog(t, cfg.ShardSegmentLogPath(shardID))
 	defer closeBrokerStorxLog(t, logStore)
 	records, err := logStore.ReadFrom(store.NewTopicPartition("orders", partition), 0, 10)
 	requireNoError(t, err)
-	if len(records) != 1 || string(records[0].Payload) != want {
-		t.Fatalf("unexpected shard %d records: %#v", shardID, records)
+	requireShardedRecordPayloads(t, records, want...)
+}
+
+func assertShardEmpty(t *testing.T, cfg broker.Config, shardID store.ShardID, partition uint32) {
+	t.Helper()
+	logStore := openBrokerStorxLog(t, cfg.ShardSegmentLogPath(shardID))
+	defer closeBrokerStorxLog(t, logStore)
+	records, err := logStore.ReadFrom(store.NewTopicPartition("orders", partition), 0, 10)
+	requireNoError(t, err)
+	if len(records) != 0 {
+		t.Fatalf("expected empty shard %d partition %d, got: %#v", shardID, partition, records)
+	}
+}
+
+func requireShardedRecordPayloads(t *testing.T, records []store.Record, want ...string) {
+	t.Helper()
+	if len(records) != len(want) {
+		t.Fatalf("unexpected records: %#v", records)
+	}
+	for i, payload := range want {
+		if string(records[i].Payload) != payload {
+			t.Fatalf("unexpected record %d payload: got %q want %q in %#v", i, records[i].Payload, payload, records)
+		}
+		if records[i].Offset != uint64(i) {
+			t.Fatalf("unexpected record %d offset: got %d want %d in %#v", i, records[i].Offset, i, records)
+		}
 	}
 }
 

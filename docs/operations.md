@@ -100,9 +100,9 @@ Cluster control endpoints are exposed on the admin API:
 - `POST /api/cluster/nodes/leave` asks Dragonboat to remove a voting replica from every configured broker group. Body field: `node_id`.
 - `POST /api/cluster/leadership/transfer` asks Dragonboat to transfer one group leader. Body fields: `group_id`, `target_node`.
 - `POST /api/cluster/leadership/balance` requests best-effort leader transfers from overloaded nodes to less-loaded nodes.
-- `POST /api/cluster/partitions/reassign` updates the shard placement for an empty partition. Body fields: `topic`, `partition`, `shard_id`.
+- `POST /api/cluster/partitions/reassign` updates the shard placement for a partition and moves live segment data when needed. Body fields: `topic`, `partition`, `shard_id`.
 
-Live partition reassignment is intentionally rejected until data movement is implemented; moving a partition with retained records would otherwise make existing segment data unreachable.
+Live partition reassignment copies the source partition segment data to the target shard, commits the new placement, and then clears the old source shard copy. The operation is serialized per partition, so producers and readers are briefly blocked for the moved partition while other partitions continue.
 
 ## Scheduled Jobs
 

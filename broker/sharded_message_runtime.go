@@ -3,6 +3,7 @@ package broker
 import (
 	"errors"
 	"log/slog"
+	"sync"
 
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/lyonbrown4d/ech0/queue"
@@ -10,9 +11,12 @@ import (
 )
 
 type shardedMessageRuntime struct {
-	meta     metadataStore
-	resolver *brokerShardResolver
-	shards   *collectionmapping.Map[store.ShardID, *messageShard]
+	meta             metadataStore
+	resolver         *brokerShardResolver
+	shards           *collectionmapping.Map[store.ShardID, *messageShard]
+	logger           *slog.Logger
+	partitionLocks   *collectionmapping.Map[store.TopicPartition, *sync.Mutex]
+	partitionLocksMu sync.Mutex
 }
 
 type messageShard struct {
@@ -36,9 +40,11 @@ func newShardedMessageRuntime(
 		resolver = newBrokerShardResolver(meta, cfg.Broker.DataShardCount)
 	}
 	runtime := &shardedMessageRuntime{
-		meta:     meta,
-		resolver: resolver,
-		shards:   collectionmapping.NewMapWithCapacity[store.ShardID, *messageShard](len(specs)),
+		meta:           meta,
+		resolver:       resolver,
+		shards:         collectionmapping.NewMapWithCapacity[store.ShardID, *messageShard](len(specs)),
+		logger:         logger,
+		partitionLocks: collectionmapping.NewMap[store.TopicPartition, *sync.Mutex](),
 	}
 	for _, spec := range specs {
 		shard, err := openMessageShard(spec, cfg.Storage.SegmentReadMode, meta, logger, metrics)
@@ -111,7 +117,10 @@ func (r *shardedMessageRuntime) TopicExists(topic string) (bool, error) {
 }
 
 func (r *shardedMessageRuntime) PublishRecord(topic string, partition uint32, record store.RecordAppend) (store.Record, error) {
-	shard, err := r.shardForPartition(topic, partition)
+	tp := store.NewTopicPartition(topic, partition)
+	unlock := r.lockTopicPartition(tp)
+	defer unlock()
+	shard, err := r.shardForTopicPartition(tp)
 	if err != nil {
 		return store.Record{}, err
 	}
@@ -123,7 +132,10 @@ func (r *shardedMessageRuntime) PublishRecord(topic string, partition uint32, re
 }
 
 func (r *shardedMessageRuntime) PublishBatchRecords(topic string, partition uint32, records []store.RecordAppend) ([]store.Record, error) {
-	shard, err := r.shardForPartition(topic, partition)
+	tp := store.NewTopicPartition(topic, partition)
+	unlock := r.lockTopicPartition(tp)
+	defer unlock()
+	shard, err := r.shardForTopicPartition(tp)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +153,10 @@ func (r *shardedMessageRuntime) Fetch(
 	offset *uint64,
 	maxRecords int,
 ) (store.PollResult, error) {
-	shard, err := r.shardForPartition(topic, partition)
+	tp := store.NewTopicPartition(topic, partition)
+	unlock := r.lockTopicPartition(tp)
+	defer unlock()
+	shard, err := r.shardForTopicPartition(tp)
 	if err != nil {
 		return store.PollResult{}, err
 	}
@@ -153,7 +168,10 @@ func (r *shardedMessageRuntime) Fetch(
 }
 
 func (r *shardedMessageRuntime) Ack(consumer, topic string, partition uint32, nextOffset uint64) error {
-	shard, err := r.shardForPartition(topic, partition)
+	tp := store.NewTopicPartition(topic, partition)
+	unlock := r.lockTopicPartition(tp)
+	defer unlock()
+	shard, err := r.shardForTopicPartition(tp)
 	if err != nil {
 		return err
 	}
@@ -169,6 +187,8 @@ func (r *shardedMessageRuntime) ListTopics() ([]store.TopicConfig, error) {
 }
 
 func (r *shardedMessageRuntime) ReadFrom(topicPartition store.TopicPartition, offset uint64, maxRecords int) ([]store.Record, error) {
+	unlock := r.lockTopicPartition(topicPartition)
+	defer unlock()
 	shard, err := r.shardForTopicPartition(topicPartition)
 	if err != nil {
 		return nil, err
@@ -181,6 +201,8 @@ func (r *shardedMessageRuntime) ReadFrom(topicPartition store.TopicPartition, of
 }
 
 func (r *shardedMessageRuntime) LastOffset(topicPartition store.TopicPartition) (*uint64, error) {
+	unlock := r.lockTopicPartition(topicPartition)
+	defer unlock()
 	shard, err := r.shardForTopicPartition(topicPartition)
 	if err != nil {
 		return nil, err
@@ -193,6 +215,8 @@ func (r *shardedMessageRuntime) LastOffset(topicPartition store.TopicPartition) 
 }
 
 func (r *shardedMessageRuntime) PartitionOffsets(topicPartition store.TopicPartition) (store.PartitionOffsetState, error) {
+	unlock := r.lockTopicPartition(topicPartition)
+	defer unlock()
 	shard, err := r.shardForTopicPartition(topicPartition)
 	if err != nil {
 		return store.PartitionOffsetState{}, err
@@ -205,6 +229,8 @@ func (r *shardedMessageRuntime) PartitionOffsets(topicPartition store.TopicParti
 }
 
 func (r *shardedMessageRuntime) OffsetForTimestamp(topicPartition store.TopicPartition, timestampMS uint64) (uint64, *uint64, error) {
+	unlock := r.lockTopicPartition(topicPartition)
+	defer unlock()
 	shard, err := r.shardForTopicPartition(topicPartition)
 	if err != nil {
 		return 0, nil, err
@@ -242,6 +268,8 @@ func (r *shardedMessageRuntime) StorageUsage(topic string) (uint64, error) {
 }
 
 func (r *shardedMessageRuntime) ReadPage(topicPartition store.TopicPartition, cursor string, maxRecords int) (store.RecordPage, error) {
+	unlock := r.lockTopicPartition(topicPartition)
+	defer unlock()
 	shard, err := r.shardForTopicPartition(topicPartition)
 	if err != nil {
 		return store.RecordPage{}, err
@@ -253,32 +281,10 @@ func (r *shardedMessageRuntime) ReadPage(topicPartition store.TopicPartition, cu
 	return out, nil
 }
 
-func (r *shardedMessageRuntime) Close() error {
-	if r == nil || r.shards == nil {
-		return nil
-	}
-	var result error
-	r.shards.Range(func(shardID store.ShardID, shard *messageShard) bool {
-		if shard != nil {
-			result = errors.Join(result, wrapBroker("message_shard_close_failed", shard.log.Close(), "close message shard %d", shardID))
-		}
-		return true
-	})
-	return result
-}
-
-func (r *shardedMessageRuntime) shardForPartition(topic string, partition uint32) (*messageShard, error) {
-	return r.shardForTopicPartition(store.NewTopicPartition(topic, partition))
-}
-
 func (r *shardedMessageRuntime) shardForTopicPartition(tp store.TopicPartition) (*messageShard, error) {
 	placement, err := r.resolver.Resolve(tp)
 	if err != nil {
 		return nil, err
 	}
-	shard, ok := r.shards.Get(placement.ShardID)
-	if !ok || shard == nil {
-		return nil, brokerStoreError(store.CodeInvalidArgument, "message shard %d is not registered", placement.ShardID)
-	}
-	return shard, nil
+	return r.shardByID(placement.ShardID)
 }

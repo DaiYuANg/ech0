@@ -28,7 +28,7 @@ func TestBrokerReassignsEmptyPartitionPlacement(t *testing.T) {
 	}
 }
 
-func TestBrokerRejectsLivePartitionReassignment(t *testing.T) {
+func TestBrokerReassignsLivePartitionPlacementForSingleRuntime(t *testing.T) {
 	ctx := context.Background()
 	cfg := broker.DefaultConfig()
 	cfg.Broker.DataShardCount = 2
@@ -38,7 +38,12 @@ func TestBrokerRejectsLivePartitionReassignment(t *testing.T) {
 	createTopic(ctx, t, b, store.NewTopicConfig("orders"))
 	publishOrder(ctx, t, b, []byte("m1"))
 
-	if err := b.ReassignPartition(ctx, "orders", 0, 1); err == nil {
-		t.Fatal("expected live partition reassignment to be rejected")
+	requireNoError(t, b.ReassignPartition(ctx, "orders", 0, 1))
+	placement, err := st.LoadShardPlacement(store.NewTopicPartition("orders", 0))
+	requireNoError(t, err)
+	if placement == nil || placement.ShardID != 1 {
+		t.Fatalf("unexpected placement: %#v", placement)
 	}
+	poll := fetchTopic(t, b, "c1", "orders", nil, 10)
+	requirePollM1(t, poll)
 }

@@ -124,7 +124,7 @@ The first implementation cut should keep the public mental model small: existing
 
 - Done: Dragonboat group management improvements with metadata and data shard groups plus admin-triggered group membership requests.
 - Done: node join and leave flows through Dragonboat add/remove replica requests across configured broker groups.
-- Done: partition reassignment for empty partitions with live reassignment rejected until data movement is implemented.
+- Done: partition reassignment supports live Storx shard data movement by copying the source partition to the target shard, committing placement, and clearing source shard data.
 - Done: leader balance observability and best-effort active leader transfer/balance requests.
 - Done: cluster metadata admin API for configured peers, raft health, discovery, and data shards.
 - Done: gossip discovery convergence and metadata stability test for memberlist provider.
