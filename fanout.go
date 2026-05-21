@@ -18,6 +18,7 @@ func (b *Broker) PublishFanout(ctx context.Context, topic string, payload []byte
 	record := store.NewRecordAppend(payload)
 	record.Key = append([]byte(nil), publishOpts.key...)
 	applyEmbeddedRoutingKey(&record, publishOpts.routingKey)
+	applyEmbeddedPriority(&record, publishOpts.priority)
 	record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
 	if publishOpts.tombstone {
 		record.Attributes |= store.RecordAttributeTombstone

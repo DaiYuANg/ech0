@@ -95,6 +95,7 @@ type TopicConfig struct {
 	CompactionEnabled              bool                `json:"compaction_enabled"                          toml:"compaction_enabled"`
 	CompactionTombstoneRetentionMS *uint64             `json:"compaction_tombstone_retention_ms,omitempty" toml:"compaction_tombstone_retention_ms"`
 	OrderingPolicy                 TopicOrderingPolicy `json:"ordering_policy"                             toml:"ordering_policy"`
+	PriorityPolicy                 TopicPriorityPolicy `json:"priority_policy"                             toml:"priority_policy"`
 }
 
 func NewTopicConfig(name string) TopicConfig {

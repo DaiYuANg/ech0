@@ -39,12 +39,13 @@ func normalizeTopicPolicies(topic *store.TopicConfig) {
 	if topic.RetryPolicy.MaxAttempts == 0 {
 		topic.RetryPolicy = defaults.RetryPolicy
 	}
+	topic.PriorityPolicy = store.NormalizeTopicPriorityPolicy(topic.PriorityPolicy)
 }
 
 func validateTopicPolicies(topic store.TopicConfig) error {
 	switch topic.OrderingPolicy {
 	case store.TopicOrderingNone, store.TopicOrderingPartition, store.TopicOrderingKey, store.TopicOrderingRoutingKey:
-		return nil
+		return validateTopicPriorityPolicy(topic)
 	default:
 		return brokerStoreError(store.CodeInvalidArgument, "topic %s has invalid ordering policy %q", topic.Name, topic.OrderingPolicy)
 	}

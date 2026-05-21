@@ -17,6 +17,11 @@ func (b *Broker) FetchWithIsolation(
 	maxRecords int,
 	isolation FetchIsolation,
 ) (poll store.PollResult, err error) {
+	ctx, span := b.brokerTracer().Start(ctx, "ech0.broker.fetch_with_isolation", b.consumerSpanOptions(ctx, consumer, topic, partition)...)
+	defer func() {
+		recordBrokerSpanError(span, err)
+		span.End()
+	}()
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionConsume, topicResource(identity, topic)); err != nil {
 		return store.PollResult{}, err
@@ -47,18 +52,18 @@ func (b *Broker) fetchWithIsolationScoped(
 	if maxRecords <= 0 || maxRecords > b.cfg.Broker.MaxFetchRecords {
 		maxRecords = b.cfg.Broker.MaxFetchRecords
 	}
-	if readErr := b.waitForRaftRead(ctx, topic, partition); readErr != nil {
-		return store.PollResult{}, readErr
-	}
-	paused, isPaused, err := b.pausedPollResult(consumer, topic, partition, offset)
-	if err != nil || isPaused {
-		return paused, err
-	}
-	nextOffset, err := b.fetchStartOffset(consumer, topic, partition, offset)
+	nextOffset, paused, err := b.readCommittedFetchStart(ctx, consumer, topic, partition, offset)
 	if err != nil {
 		return store.PollResult{}, err
 	}
+	if paused != nil {
+		return *paused, nil
+	}
 	records, committedNextOffset, err := b.readCommittedRecords(topic, partition, nextOffset, maxRecords)
+	if err != nil {
+		return store.PollResult{}, err
+	}
+	records, err = b.prepareFetchedRecords(consumer, topic, partition, records)
 	if err != nil {
 		return store.PollResult{}, err
 	}
@@ -73,6 +78,30 @@ func (b *Broker) fetchWithIsolationScoped(
 		LowWatermark:   offsets.LowWatermark,
 		LogStartOffset: offsets.LogStartOffset,
 	}, nil
+}
+
+func (b *Broker) readCommittedFetchStart(
+	ctx context.Context,
+	consumer string,
+	topic string,
+	partition uint32,
+	offset *uint64,
+) (uint64, *store.PollResult, error) {
+	if readErr := b.waitForRaftRead(ctx, topic, partition); readErr != nil {
+		return 0, nil, readErr
+	}
+	paused, isPaused, err := b.pausedPollResult(consumer, topic, partition, offset)
+	if err != nil {
+		return 0, nil, err
+	}
+	if isPaused {
+		return 0, &paused, nil
+	}
+	nextOffset, err := b.fetchStartOffset(consumer, topic, partition, offset)
+	if err != nil {
+		return 0, nil, err
+	}
+	return nextOffset, nil, nil
 }
 
 func (b *Broker) fetchStartOffset(consumer, topic string, partition uint32, offset *uint64) (uint64, error) {
@@ -115,6 +144,15 @@ func (b *Broker) readCommittedRecords(topic string, partition uint32, offset uin
 		}
 	}
 	return visible.Values(), cursor, nil
+}
+
+func (b *Broker) prepareFetchedRecords(consumer, topic string, partition uint32, records []store.Record) ([]store.Record, error) {
+	tp := store.NewTopicPartition(topic, partition)
+	records, err := b.removePendingAckedRecords(consumer, tp, records)
+	if err != nil {
+		return nil, err
+	}
+	return b.orderRecordsByPriority(topic, records)
 }
 
 func (b *Broker) collectCommittedRecords(

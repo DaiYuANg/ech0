@@ -7,6 +7,7 @@ import (
 )
 
 func (s *MemoryStore) SaveConsumerOffsetState(state ConsumerOffsetState) error {
+	state = NormalizeConsumerOffsetState(state)
 	if err := validateConsumerOffsetState(state); err != nil {
 		return err
 	}

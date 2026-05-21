@@ -141,6 +141,9 @@ func (b *Broker) CreateTopic(ctx context.Context, name string, opts ...TopicOpti
 	topic.MessageTTLMS = cloneUint64(topicOpts.messageTTLMS)
 	topic.MessageExpiryAction = topicOpts.expiryAction
 	topic.OrderingPolicy = topicOpts.orderingPolicy
+	if topicOpts.priorityPolicy != nil {
+		topic.PriorityPolicy = *topicOpts.priorityPolicy
+	}
 	if topicOpts.deadLetterTopic != "" {
 		topic.DeadLetterTopic = &topicOpts.deadLetterTopic
 	}
@@ -167,6 +170,7 @@ func (b *Broker) Publish(ctx context.Context, topic string, payload []byte, opts
 	record := store.NewRecordAppend(payload)
 	record.Key = append([]byte(nil), publishOpts.key...)
 	applyEmbeddedRoutingKey(&record, publishOpts.routingKey)
+	applyEmbeddedPriority(&record, publishOpts.priority)
 	record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
 	if publishOpts.tombstone {
 		record.Attributes |= store.RecordAttributeTombstone
@@ -191,6 +195,7 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, payloads [][]by
 		record := store.NewRecordAppend(payload)
 		record.Key = append([]byte(nil), publishOpts.key...)
 		applyEmbeddedRoutingKey(&record, publishOpts.routingKey)
+		applyEmbeddedPriority(&record, publishOpts.priority)
 		record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
 		if publishOpts.tombstone {
 			record.Attributes |= store.RecordAttributeTombstone
@@ -247,7 +252,7 @@ func publishPartitioning(opts publishOptions) internalbroker.PublishPartitioning
 
 func (b *Broker) Ack(ctx context.Context, consumer string, msg Message) error {
 	return oops.In("embedded").Code("ack_failed").With("consumer", consumer, "topic", msg.Topic).Wrapf(
-		b.broker.CommitOffset(ctx, consumer, msg.Topic, msg.Partition, msg.NextOffset),
+		b.broker.AckRecord(ctx, consumer, msg.Topic, msg.Partition, msg.Offset),
 		"ack message",
 	)
 }

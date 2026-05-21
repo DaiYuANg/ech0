@@ -24,6 +24,7 @@ func writeCreateTopicRequest(writer *binaryWriter, req CreateTopicRequest) error
 	writer.writeOptionalBool(req.CompactionEnabled)
 	writer.writeOptionalU64(req.CompactionTombstoneRetentionMS)
 	writeTopicOrderingPolicy(writer, req.OrderingPolicy)
+	writeTopicPriorityPolicy(writer, req.PriorityPolicy)
 	return nil
 }
 
@@ -87,6 +88,9 @@ func readCreateTopicRemainingOptions(reader *binaryReader, req CreateTopicReques
 		return CreateTopicRequest{}, err
 	}
 	if req.OrderingPolicy, err = readTopicOrderingPolicy(reader); err != nil {
+		return CreateTopicRequest{}, err
+	}
+	if req.PriorityPolicy, err = readTopicPriorityPolicy(reader); err != nil {
 		return CreateTopicRequest{}, err
 	}
 	return req, nil

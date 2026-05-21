@@ -1,0 +1,218 @@
+package broker
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-co-op/gocron/v2"
+	"github.com/lyonbrown4d/ech0/store"
+)
+
+const (
+	s3SinkDefaultInterval = 5 * time.Second
+	s3SinkDefaultTimeout  = 5 * time.Second
+	s3SinkDefaultRecords  = 100
+	s3SinkDefaultConsumer = "__s3_sink"
+	s3SinkPrincipal       = "s3-sink"
+	s3SinkDefaultRegion   = "us-east-1"
+)
+
+type S3SinkResult = SinkResult
+
+type s3SinkEnvelope struct {
+	Sink      string                `json:"sink"`
+	Consumer  string                `json:"consumer"`
+	Topic     string                `json:"topic"`
+	Partition uint32                `json:"partition"`
+	Record    gatewayRecordResponse `json:"record"`
+}
+
+func registerS3SinkJobs(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
+	for index := range cfg.Broker.S3Sinks {
+		sink := cfg.Broker.S3Sinks[index]
+		if err := registerS3SinkJob(scheduler, broker, logger, sink); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func registerS3SinkJob(
+	scheduler gocron.Scheduler,
+	broker *Broker,
+	logger *slog.Logger,
+	sink S3SinkConfig,
+) error {
+	if err := validateS3SinkConfig(sink); err != nil {
+		return err
+	}
+	name := s3SinkName(sink)
+	_, err := scheduler.NewJob(
+		gocron.DurationJob(durationFromSeconds(sink.IntervalSecs, s3SinkDefaultInterval)),
+		gocron.NewTask(func(ctx context.Context) error {
+			result, err := broker.ProcessS3SinkOnce(ctx, sink)
+			if err != nil {
+				return err
+			}
+			if result.Delivered > 0 && logger != nil {
+				logger.Info("s3 sink wrote records", "name", name, "topic", sink.Topic, "partition", sink.Partition, "delivered", result.Delivered)
+			}
+			return nil
+		}),
+		gocron.WithName("ech0.s3_sink."+name),
+		gocron.WithTags("ech0", "s3", "sink"),
+	)
+	return wrapBroker("s3_sink_job_register_failed", err, "register s3 sink job")
+}
+
+func (b *Broker) ProcessS3SinkOnce(ctx context.Context, sink S3SinkConfig) (S3SinkResult, error) {
+	if err := validateS3SinkConfig(sink); err != nil {
+		return S3SinkResult{}, err
+	}
+	consumer := s3SinkConsumer(sink)
+	client := &http.Client{Timeout: s3SinkTimeout(sink)}
+	return b.processRecordSinkOnce(ctx, recordSinkRun{
+		Identity:   s3SinkIdentity(b.cfg, sink),
+		Consumer:   consumer,
+		Topic:      sink.Topic,
+		Partition:  sink.Partition,
+		MaxRecords: s3SinkMaxRecords(sink),
+		Metadata:   "s3:" + s3SinkName(sink),
+	}, func(ctx context.Context, record store.Record) error {
+		return deliverS3SinkRecord(ctx, client, sink, consumer, record)
+	})
+}
+
+func deliverS3SinkRecord(ctx context.Context, client *http.Client, sink S3SinkConfig, consumer string, record store.Record) (err error) {
+	payload, err := marshalJSON(s3SinkRecordEnvelope(sink, consumer, record))
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, s3SinkObjectURL(sink, record), bytes.NewReader(payload))
+	if err != nil {
+		return wrapBroker("s3_sink_request_create_failed", err, "create s3 sink request")
+	}
+	configureS3SinkRequest(request, sink, payload)
+	response, err := client.Do(request)
+	if err != nil {
+		return wrapBroker("s3_sink_request_failed", err, "deliver s3 sink record")
+	}
+	defer func() {
+		_, drainErr := io.Copy(io.Discard, response.Body)
+		closeErr := response.Body.Close()
+		if err == nil {
+			err = wrapBroker("s3_sink_response_close_failed", errors.Join(drainErr, closeErr), "close s3 sink response")
+		}
+	}()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return brokerStoreError(store.CodeUnavailable, "s3 sink %q returned status %d", s3SinkName(sink), response.StatusCode)
+	}
+	return nil
+}
+
+func configureS3SinkRequest(request *http.Request, sink S3SinkConfig, payload []byte) {
+	request.Header.Set("Content-Type", "application/json")
+	for index := range sink.Headers {
+		header := sink.Headers[index]
+		if strings.TrimSpace(header.Key) != "" {
+			request.Header.Set(header.Key, header.Value)
+		}
+	}
+	signS3SinkRequest(request, sink, payload, time.Now().UTC())
+}
+
+func s3SinkRecordEnvelope(sink S3SinkConfig, consumer string, record store.Record) s3SinkEnvelope {
+	return s3SinkEnvelope{
+		Sink:      s3SinkName(sink),
+		Consumer:  consumer,
+		Topic:     sink.Topic,
+		Partition: sink.Partition,
+		Record:    gatewayRecord(record),
+	}
+}
+
+func validateS3SinkConfig(sink S3SinkConfig) error {
+	if strings.TrimSpace(sink.Topic) == "" || s3SinkEndpoint(sink) == "" || strings.TrimSpace(sink.Bucket) == "" {
+		return brokerStoreError(store.CodeInvalidArgument, "s3 sink requires topic, endpoint_url, and bucket")
+	}
+	parsed, err := url.ParseRequestURI(s3SinkEndpoint(sink))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return brokerStoreError(store.CodeInvalidArgument, "s3 sink %q has invalid endpoint_url", s3SinkName(sink))
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return brokerStoreError(store.CodeInvalidArgument, "s3 sink %q requires http or https endpoint_url", s3SinkName(sink))
+	}
+	if sink.MaxRecords < 0 {
+		return brokerStoreError(store.CodeInvalidArgument, "s3 sink %q max_records cannot be negative", s3SinkName(sink))
+	}
+	return nil
+}
+
+func s3SinkIdentity(cfg Config, sink S3SinkConfig) Identity {
+	return Identity{
+		Tenant:    valueOr(sink.Tenant, cfg.Governance.DefaultTenant),
+		Namespace: valueOr(sink.Namespace, cfg.Governance.DefaultNamespace),
+		Principal: valueOr(sink.Principal, s3SinkPrincipal),
+	}
+}
+
+func s3SinkName(sink S3SinkConfig) string {
+	if strings.TrimSpace(sink.Name) != "" {
+		return strings.TrimSpace(sink.Name)
+	}
+	return sink.Topic + "." + strconv.FormatUint(uint64(sink.Partition), 10)
+}
+
+func s3SinkConsumer(sink S3SinkConfig) string {
+	if strings.TrimSpace(sink.Consumer) != "" {
+		return strings.TrimSpace(sink.Consumer)
+	}
+	return s3SinkDefaultConsumer + "." + s3SinkName(sink)
+}
+
+func s3SinkEndpoint(sink S3SinkConfig) string {
+	return strings.TrimRight(strings.TrimSpace(sink.EndpointURL), "/")
+}
+
+func s3SinkObjectURL(sink S3SinkConfig, record store.Record) string {
+	return s3SinkEndpoint(sink) + "/" + url.PathEscape(strings.TrimSpace(sink.Bucket)) + "/" + s3SinkObjectKey(sink, record)
+}
+
+func s3SinkObjectKey(sink S3SinkConfig, record store.Record) string {
+	parts := []string{s3SinkKeyComponent(sink.Topic), strconv.FormatUint(uint64(sink.Partition), 10), strconv.FormatUint(record.Offset, 10) + ".json"}
+	prefix := strings.Trim(strings.TrimSpace(sink.Prefix), "/")
+	if prefix != "" {
+		parts = append([]string{s3SinkKeyComponent(prefix)}, parts...)
+	}
+	return strings.Join(parts, "/")
+}
+
+func s3SinkKeyComponent(value string) string {
+	return strings.Trim(url.PathEscape(strings.Trim(value, "/")), "/")
+}
+
+func s3SinkRegion(sink S3SinkConfig) string {
+	return valueOr(strings.TrimSpace(sink.Region), s3SinkDefaultRegion)
+}
+
+func s3SinkMaxRecords(sink S3SinkConfig) int {
+	if sink.MaxRecords == 0 {
+		return s3SinkDefaultRecords
+	}
+	return sink.MaxRecords
+}
+
+func s3SinkTimeout(sink S3SinkConfig) time.Duration {
+	if sink.TimeoutMS == 0 {
+		return s3SinkDefaultTimeout
+	}
+	return durationFromMillis(sink.TimeoutMS)
+}

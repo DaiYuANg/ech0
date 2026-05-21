@@ -162,6 +162,26 @@ func TestAdminClusterAPIReportsClusterMetadata(t *testing.T) {
 	}
 }
 
+func TestAdminOperationsUIRendersConfiguredIntegrations(t *testing.T) {
+	ctx := context.Background()
+	cfg := broker.DefaultConfig()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BindAddr = freeTCPAddr(t)
+	cfg.Broker.WebhookSinks = []broker.WebhookSinkConfig{{Name: "orders-webhook", Topic: "orders", URL: "http://127.0.0.1:8088/events"}}
+	cfg.Broker.FileSinks = []broker.FileSinkConfig{{Name: "orders-file", Topic: "orders", Path: "orders.jsonl"}}
+	cfg.Broker.S3Sinks = []broker.S3SinkConfig{{Name: "orders-s3", Topic: "orders", EndpointURL: "http://127.0.0.1:9000", Bucket: "archive"}}
+	b := newTestBroker(t)
+	server := broker.NewAdminServer(cfg, b, nil, nil)
+
+	requireNoError(t, server.Start(ctx))
+	defer stopAdminServer(t, server)
+
+	body := getAdminPage(t, cfg.Admin.BindAddr, "/ui/ops")
+	if !strings.Contains(body, "Operations") || !strings.Contains(body, "orders-webhook") || !strings.Contains(body, "orders-s3") {
+		t.Fatalf("admin operations ui did not render configured integrations: %s", body)
+	}
+}
+
 func TestAdminUsesConfiguredStaticToken(t *testing.T) {
 	ctx := context.Background()
 	cfg := broker.DefaultConfig()

@@ -110,8 +110,9 @@ func (b *Broker) planProduceBatchShardCommand(req produceBatchCommand) (store.Sh
 	if err != nil {
 		return 0, produceBatchCommand{}, err
 	}
-	req.Partitioning = PublishPartitioning{Mode: PartitionExplicit, Partition: plan.tp.Partition}
-	return placement.ShardID, req, nil
+	planned := plan.request
+	planned.Partitioning = PublishPartitioning{Mode: PartitionExplicit, Partition: plan.tp.Partition}
+	return placement.ShardID, planned, nil
 }
 
 func (b *Broker) routeProduceBatchShardGroup(ctx context.Context, group produceBatchShardGroup, items []produceBatchItemResult) {

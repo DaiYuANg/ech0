@@ -5,13 +5,19 @@ import (
 	"time"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
-	"github.com/lyonbrown4d/ech0/direct"
 	"github.com/lyonbrown4d/ech0/store"
 )
 
 func (b *Broker) CreateTopic(ctx context.Context, topic store.TopicConfig) (store.TopicConfig, error) {
+	ctx, span := b.brokerTracer().Start(ctx, "ech0.broker.create_topic", b.topicSpanOptions(ctx, topic.Name, nil)...)
+	var spanErr error
+	defer func() {
+		recordBrokerSpanError(span, spanErr)
+		span.End()
+	}()
 	identity, scopedTopic := b.scopedTopicConfig(ctx, topic)
 	if err := b.authorize(ctx, identity, ACLActionCreate, topicResource(identity, topic.Name)); err != nil {
+		spanErr = err
 		return store.TopicConfig{}, err
 	}
 	quotaReq := QuotaRequest{
@@ -21,13 +27,16 @@ func (b *Broker) CreateTopic(ctx context.Context, topic store.TopicConfig) (stor
 		Partitions: topic.Partitions,
 	}
 	if err := b.populateTopicQuotaUsage(identity, &quotaReq); err != nil {
+		spanErr = err
 		return store.TopicConfig{}, err
 	}
 	if err := b.checkQuota(ctx, quotaReq); err != nil {
+		spanErr = err
 		return store.TopicConfig{}, err
 	}
 	created, err := routeMetadataCommand(ctx, b, raftCommandCreateTopic, scopedTopic, b.applyCreateTopic)
 	if err != nil {
+		spanErr = err
 		return store.TopicConfig{}, err
 	}
 	return b.visibleTopicConfig(identity, created), nil
@@ -42,7 +51,12 @@ func (b *Broker) Publish(ctx context.Context, topic string, partitioning Publish
 	return b.PublishRecord(ctx, topic, partitioning, record)
 }
 
-func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning PublishPartitioning, record store.RecordAppend) (ProduceResult, error) {
+func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning PublishPartitioning, record store.RecordAppend) (result ProduceResult, err error) {
+	ctx, span := b.brokerTracer().Start(ctx, "ech0.broker.publish", b.topicSpanOptions(ctx, topic, nil)...)
+	defer func() {
+		recordBrokerSpanError(span, err)
+		span.End()
+	}()
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionProduce, topicResource(identity, topic)); err != nil {
 		return ProduceResult{}, err
@@ -69,7 +83,12 @@ func (b *Broker) publishRecordScoped(ctx context.Context, topic string, partitio
 	return routePartitionCommand(ctx, b, publishPartitionCommandTarget(topic, partitioning), raftCommandProduce, req, b.applyProduce)
 }
 
-func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning PublishPartitioning, records []store.RecordAppend) (ProduceBatchResult, error) {
+func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning PublishPartitioning, records []store.RecordAppend) (result ProduceBatchResult, err error) {
+	ctx, span := b.brokerTracer().Start(ctx, "ech0.broker.publish_batch", b.topicSpanOptions(ctx, topic, nil)...)
+	defer func() {
+		recordBrokerSpanError(span, err)
+		span.End()
+	}()
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionProduce, topicResource(identity, topic)); err != nil {
 		return ProduceBatchResult{}, err
@@ -120,6 +139,11 @@ func (b *Broker) publishBatches(ctx context.Context, requests []produceBatchComm
 }
 
 func (b *Broker) Fetch(ctx context.Context, consumer, topic string, partition uint32, offset *uint64, maxRecords int) (poll store.PollResult, err error) {
+	ctx, span := b.brokerTracer().Start(ctx, "ech0.broker.fetch", b.consumerSpanOptions(ctx, consumer, topic, partition)...)
+	defer func() {
+		recordBrokerSpanError(span, err)
+		span.End()
+	}()
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionConsume, topicResource(identity, topic)); err != nil {
 		return store.PollResult{}, err
@@ -152,6 +176,10 @@ func (b *Broker) fetchScoped(ctx context.Context, consumer, topic string, partit
 	if err != nil {
 		return store.PollResult{}, wrapBroker("queue_fetch_failed", err, "fetch records")
 	}
+	poll.Records, err = b.prepareFetchedRecords(consumer, topic, partition, poll.Records)
+	if err != nil {
+		return store.PollResult{}, err
+	}
 	return poll, nil
 }
 
@@ -159,7 +187,33 @@ func (b *Broker) CommitOffset(ctx context.Context, consumer, topic string, parti
 	return b.CommitOffsetWithMetadata(ctx, consumer, topic, partition, nextOffset, "")
 }
 
-func (b *Broker) CommitOffsetWithMetadata(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64, metadata string) error {
+func (b *Broker) AckRecord(ctx context.Context, consumer, topic string, partition uint32, offset uint64) error {
+	return b.AckRecordWithMetadata(ctx, consumer, topic, partition, offset, "")
+}
+
+func (b *Broker) AckRecordWithMetadata(ctx context.Context, consumer, topic string, partition uint32, offset uint64, metadata string) error {
+	identity := b.identity(ctx)
+	if err := b.authorize(ctx, identity, ACLActionCommit, topicResource(identity, topic)); err != nil {
+		return err
+	}
+	req := commitOffsetCommand{
+		Consumer:    scopedName(identity, "consumer", consumer),
+		Topic:       scopedTopicName(identity, topic),
+		Partition:   partition,
+		NextOffset:  offset + 1,
+		AckOffset:   &offset,
+		Metadata:    metadata,
+		UpdatedAtMS: store.NowMS(),
+	}
+	return b.routeCommitOffset(ctx, req)
+}
+
+func (b *Broker) CommitOffsetWithMetadata(ctx context.Context, consumer, topic string, partition uint32, nextOffset uint64, metadata string) (err error) {
+	ctx, span := b.brokerTracer().Start(ctx, "ech0.broker.commit_offset", b.consumerSpanOptions(ctx, consumer, topic, partition)...)
+	defer func() {
+		recordBrokerSpanError(span, err)
+		span.End()
+	}()
 	identity := b.identity(ctx)
 	if err := b.authorize(ctx, identity, ACLActionCommit, topicResource(identity, topic)); err != nil {
 		return err
@@ -208,56 +262,6 @@ func (b *Broker) ListTopicsFor(ctx context.Context) ([]store.TopicConfig, error)
 		}
 	}
 	return out.Values(), nil
-}
-
-func (b *Broker) SendDirect(ctx context.Context, sender, recipient string, conversationID *string, payload []byte) (direct.SendResult, error) {
-	identity := b.identity(ctx)
-	if err := b.authorize(ctx, identity, ACLActionProduce, directInboxResource(identity, recipient)); err != nil {
-		return direct.SendResult{}, err
-	}
-	req := directCommand{
-		Sender:         scopedName(identity, "direct", sender),
-		Recipient:      scopedName(identity, "direct", recipient),
-		ConversationID: conversationID,
-		Payload:        append([]byte(nil), payload...),
-	}
-	return routePartitionCommand(ctx, b, topicCommandTarget(direct.InternalInboxTopicPrefix), raftCommandDirectSend, req, b.applyDirectSend)
-}
-
-func (b *Broker) FetchInbox(recipient string, maxRecords int) (direct.FetchInboxResult, error) {
-	return b.FetchInboxFor(context.Background(), recipient, maxRecords)
-}
-
-func (b *Broker) FetchInboxFor(ctx context.Context, recipient string, maxRecords int) (direct.FetchInboxResult, error) {
-	identity := b.identity(ctx)
-	if err := b.authorize(ctx, identity, ACLActionConsume, directInboxResource(identity, recipient)); err != nil {
-		return direct.FetchInboxResult{}, err
-	}
-	if maxRecords <= 0 || maxRecords > b.cfg.Broker.MaxFetchRecords {
-		maxRecords = b.cfg.Broker.MaxFetchRecords
-	}
-	scopedRecipient := scopedName(identity, "direct", recipient)
-	inbox, err := b.direct.FetchInbox(scopedRecipient, maxRecords)
-	if err != nil {
-		return direct.FetchInboxResult{}, wrapBroker("fetch_inbox_failed", err, "fetch inbox")
-	}
-	inbox.Recipient = recipient
-	for index := range inbox.Records {
-		message := &inbox.Records[index].Message
-		message.Sender = visibleName(identity, "direct", message.Sender)
-		message.Recipient = visibleName(identity, "direct", message.Recipient)
-	}
-	return inbox, nil
-}
-
-func (b *Broker) AckDirect(ctx context.Context, recipient string, nextOffset uint64) error {
-	identity := b.identity(ctx)
-	if err := b.authorize(ctx, identity, ACLActionCommit, directInboxResource(identity, recipient)); err != nil {
-		return err
-	}
-	req := ackDirectCommand{Recipient: scopedName(identity, "direct", recipient), NextOffset: nextOffset}
-	_, err := routePartitionCommand(ctx, b, topicCommandTarget(direct.InternalInboxTopicPrefix), raftCommandDirectAck, req, b.applyDirectAck)
-	return err
 }
 
 func batchPayloadBytes(records []store.RecordAppend) int {

@@ -8,6 +8,8 @@ ech0 currently has a Go library API, a Cobra-based binary, a custom binary TCP p
 
 Recent Docker verification covered a three-node memberlist/Dragonboat cluster with successful TCP produce/fetch/commit traffic.
 
+Recent integration work added configured webhook, file, S3-compatible, and HTTP mirror sinks, a database outbox connector, OpenTelemetry tracer injection, and an Admin UI operations panel for manually triggering configured integration jobs.
+
 ## Phase 1: Multi-Tenant Governance
 
 Multi-tenancy should land before the next large MQ feature work because it changes the identity model used by topics, consumer groups, transactions, request/reply inboxes, metrics, admin queries, auth decisions, ACL checks, and quota enforcement.
@@ -19,7 +21,7 @@ Multi-tenancy should land before the next large MQ feature work because it chang
 - Done: transactional ID and producer ID scope isolation.
 - Done: internal topic scope for retry, delay, DLQ, and request/reply inboxes.
 - Done: tenant-aware metadata keys and storage paths through scoped broker names and segment paths.
-- Partial: tenant-aware metrics for throughput, latency, storage, lag, and error rate; command, produce, fetch, quota, and admin stream metrics are identity scoped, while deeper storage/raft internals can still be enriched.
+- Done: tenant-aware metrics for throughput, latency, storage, lag, and error rate across command, produce, fetch, quota, admin stream, and operational runtime surfaces; deeper Dragonboat internals remain node/group scoped because they are not tenant-owned resources.
 - Done: admin UI tenant and namespace views.
 - Done: tenant-level defaults for retention, retry, delay, and DLQ policies.
 - Done: auth identity model with principal, tenant, namespace, and optional client instance identity.
@@ -65,7 +67,8 @@ The first implementation cut should keep the public mental model small: existing
 - Done: compaction by key for segment-log storage.
 - Done: partition high watermark, low watermark, and log start offset in store/runtime/protocol/admin views.
 - Done: tombstone cleanup.
-- Partial: topic-level policies for retention, compaction, retry, DLQ, priority, and ordering; retention, compaction, retry, delay, DLQ, and ordering policies exist, while priority policies remain open.
+- Done: topic-level policies for retention, compaction, retry, DLQ, priority, and ordering.
+- Done: priority-aware batch delivery with high-priority records ordered first inside a contiguous fetch batch, plus pending offset tracking so embedded record acks do not skip lower offsets.
 - Done: per-message TTL with delete-or-DLQ expiry policy.
 
 ## Phase 5: Retry, Delay, And DLQ
@@ -96,7 +99,7 @@ The first implementation cut should keep the public mental model small: existing
 ## Phase 7: Protocol And Client Ecosystem
 
 - Done: protocol capability negotiation during handshake.
-- Done: negotiation constants for compression, batch support, transaction support, fetch wait behavior, direct, request/reply, multi-replier request/reply, consumer groups, retry/delay, idempotency, routing keys, fanout, subject wildcards, and schema headers.
+- Done: negotiation constants for compression, batch support, transaction support, fetch wait behavior, direct, request/reply, multi-replier request/reply, consumer groups, retry/delay, idempotency, routing keys, fanout, topic ordering, topic priority, subject wildcards, and schema headers.
 - Done: non-Go client codec documentation.
 - Done: Go client split into producer, consumer, admin, and transactional producer packages.
 - Done: standardized error codes.
@@ -119,25 +122,26 @@ The first implementation cut should keep the public mental model small: existing
 
 ## Phase 9: Cluster Behavior
 
-- Partial: Dragonboat group management improvements; metadata and data shard groups exist, while membership management remains open.
-- Node join and leave flows.
-- Partition reassignment.
-- Partial: leader balance observability through cluster leader distribution metadata; active balancing remains open.
+- Done: Dragonboat group management improvements with metadata and data shard groups plus admin-triggered group membership requests.
+- Done: node join and leave flows through Dragonboat add/remove replica requests across configured broker groups.
+- Done: partition reassignment for empty partitions with live reassignment rejected until data movement is implemented.
+- Done: leader balance observability and best-effort active leader transfer/balance requests.
 - Done: cluster metadata admin API for configured peers, raft health, discovery, and data shards.
 - Done: gossip discovery convergence and metadata stability test for memberlist provider.
 - Done: rolling restart test for one-at-a-time Dragonboat broker restarts with continued read/write availability.
 - Done: follower restart-from-existing-data test for a multi-node Dragonboat cluster.
-- Cross-cluster mirror or replicator.
+- Done: cross-cluster mirror sink through the Admin HTTP gateway with source-offset commit after remote 2xx acknowledgement.
 
 ## Phase 10: Ecosystem Integrations
 
-- Partial: continuous Kafka and NATS comparison benchmarks; benchmark tooling and same-host comparison docs exist, while continuous automation remains open.
-- HTTP gateway.
-- Webhook sink.
-- Database outbox connector.
-- File and S3 sinks.
-- OpenTelemetry tracing.
-- Admin UI operation panels.
+- Done: continuous Kafka and NATS comparison benchmark harness through `scripts/bench-compare.ps1` and Docker Compose benchmark services.
+- Done: HTTP gateway for JSON produce, fetch, and commit through the Admin/httpx surface.
+- Done: webhook sink with configured topic-partition polling, JSON delivery, and commit-on-2xx semantics.
+- Done: file sink with JSONL append, fsync, and commit-after-durable-write semantics.
+- Done: S3-compatible sink with path-style object PUT, optional SigV4 signing, and commit-after-2xx semantics.
+- Done: database outbox connector for library-first row processing and binary-configured SQL polling.
+- Done: OpenTelemetry tracing through broker tracer-provider injection with a noop default.
+- Done: Admin UI operation panels for configured webhook, file, mirror, S3, and database outbox jobs.
 
 ## Suggested Execution Order
 

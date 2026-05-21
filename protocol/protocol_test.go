@@ -57,6 +57,7 @@ func TestCreateTopicMessageExpiryBinaryRoundTrip(t *testing.T) {
 	messageTTLMS := uint64(5_000)
 	action := protocol.MessageExpiryDLQ
 	ordering := protocol.TopicOrderingKey
+	priority := protocol.TopicPriorityPolicy{Enabled: true, Min: 1, Max: 7, Default: 3}
 	req := protocol.CreateTopicRequest{
 		Topic:               "orders",
 		Partitions:          3,
@@ -64,6 +65,7 @@ func TestCreateTopicMessageExpiryBinaryRoundTrip(t *testing.T) {
 		MessageTTLMS:        &messageTTLMS,
 		MessageExpiryAction: &action,
 		OrderingPolicy:      &ordering,
+		PriorityPolicy:      &priority,
 	}
 	data, err := protocol.EncodeBody(protocol.CmdCreateTopicRequest, req)
 	if err != nil {

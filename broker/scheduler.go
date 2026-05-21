@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strconv"
 	"time"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
@@ -45,13 +44,29 @@ type scheduledJobRegistration struct {
 }
 
 func scheduledRuntimeEnabled(cfg Config) bool {
-	return cfg.Broker.DelaySchedulerEnabled ||
-		cfg.Broker.RetryWorkerEnabled ||
-		cfg.Broker.TransactionCleanupEnabled ||
-		cfg.Broker.RequestReplyCleanupEnabled ||
-		len(cfg.Broker.CronSchedules) > 0 ||
-		cfg.Storage.RetentionCleanupEnabled ||
-		cfg.Storage.CompactionCleanupEnabled
+	for _, enabled := range scheduledRuntimeFlags(cfg) {
+		if enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func scheduledRuntimeFlags(cfg Config) []bool {
+	return []bool{
+		cfg.Broker.DelaySchedulerEnabled,
+		cfg.Broker.RetryWorkerEnabled,
+		cfg.Broker.TransactionCleanupEnabled,
+		cfg.Broker.RequestReplyCleanupEnabled,
+		len(cfg.Broker.CronSchedules) > 0,
+		len(cfg.Broker.WebhookSinks) > 0,
+		len(cfg.Broker.FileSinks) > 0,
+		len(cfg.Broker.MirrorSinks) > 0,
+		len(cfg.Broker.S3Sinks) > 0,
+		len(cfg.Broker.DatabaseOutboxes) > 0,
+		cfg.Storage.RetentionCleanupEnabled,
+		cfg.Storage.CompactionCleanupEnabled,
+	}
 }
 
 func newScheduledRuntimeScheduler(broker *Broker) (gocron.Scheduler, error) {
@@ -109,6 +124,36 @@ func scheduledJobRegistrations(cfg Config) []scheduledJobRegistration {
 			code:     "cron_message_job_create_failed",
 			message:  "create cron message jobs",
 			register: registerCronMessageJobs,
+		},
+		scheduledJobRegistration{
+			enabled:  len(cfg.Broker.WebhookSinks) > 0,
+			code:     "webhook_sink_job_create_failed",
+			message:  "create webhook sink jobs",
+			register: registerWebhookSinkJobs,
+		},
+		scheduledJobRegistration{
+			enabled:  len(cfg.Broker.FileSinks) > 0,
+			code:     "file_sink_job_create_failed",
+			message:  "create file sink jobs",
+			register: registerFileSinkJobs,
+		},
+		scheduledJobRegistration{
+			enabled:  len(cfg.Broker.MirrorSinks) > 0,
+			code:     "mirror_sink_job_create_failed",
+			message:  "create mirror sink jobs",
+			register: registerMirrorSinkJobs,
+		},
+		scheduledJobRegistration{
+			enabled:  len(cfg.Broker.S3Sinks) > 0,
+			code:     "s3_sink_job_create_failed",
+			message:  "create s3 sink jobs",
+			register: registerS3SinkJobs,
+		},
+		scheduledJobRegistration{
+			enabled:  len(cfg.Broker.DatabaseOutboxes) > 0,
+			code:     "database_outbox_job_create_failed",
+			message:  "create database outbox jobs",
+			register: registerDatabaseOutboxJobs,
 		},
 		scheduledJobRegistration{
 			enabled:  cfg.Storage.RetentionCleanupEnabled,
@@ -182,44 +227,6 @@ func registerTransactionCleanupJob(scheduler gocron.Scheduler, cfg Config, broke
 	return wrapBroker("transaction_cleanup_job_register_failed", err, "register transaction cleanup job")
 }
 
-func registerRetentionCleanupJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
-	interval := durationFromSeconds(cfg.Storage.RetentionCleanupIntervalSecs, 30*time.Second)
-	_, err := scheduler.NewJob(
-		gocron.DurationJob(interval),
-		gocron.NewTask(func(ctx context.Context) error {
-			result, err := broker.EnforceRetentionOnce(ctx)
-			if err != nil {
-				return err
-			}
-			logMoved(logger, "retention cleanup removed records", result.RemovedRecords)
-			return nil
-		}),
-		gocron.WithName("ech0.retention_cleanup"),
-		gocron.WithTags("ech0", "storage", "retention"),
-	)
-	return wrapBroker("retention_cleanup_job_register_failed", err, "register retention cleanup job")
-}
-
-func registerCompactionCleanupJob(scheduler gocron.Scheduler, cfg Config, broker *Broker, logger *slog.Logger) error {
-	interval := durationFromSeconds(cfg.Storage.CompactionCleanupIntervalSecs, 60*time.Second)
-	_, err := scheduler.NewJob(
-		gocron.DurationJob(interval),
-		gocron.NewTask(func(ctx context.Context) error {
-			result, err := broker.CompactOnce(ctx)
-			if err != nil {
-				return err
-			}
-			if result.RemovedRecords > 0 && logger != nil {
-				logger.Info("compaction cleanup removed records", "removed", result.RemovedRecords, "partitions", result.CompactedPartitions)
-			}
-			return nil
-		}),
-		gocron.WithName("ech0.compaction_cleanup"),
-		gocron.WithTags("ech0", "storage", "compaction"),
-	)
-	return wrapBroker("compaction_cleanup_job_register_failed", err, "register compaction cleanup job")
-}
-
 func (r *ScheduledRuntime) Start(ctx context.Context) error {
 	_ = ctx
 	if r == nil || r.scheduler == nil {
@@ -259,39 +266,4 @@ func (b *Broker) canRunScheduledJobs() bool {
 	}
 	health := b.RuntimeHealth()
 	return health.Raft != nil && health.Raft.LocalIsLeader
-}
-
-func durationFromSeconds(seconds uint64, fallback time.Duration) time.Duration {
-	if seconds == 0 {
-		return fallback
-	}
-	return boundedDuration(seconds, time.Second)
-}
-
-func durationFromMillis(milliseconds uint64) time.Duration {
-	return boundedDuration(milliseconds, time.Millisecond)
-}
-
-func boundedDuration(value uint64, unit time.Duration) time.Duration {
-	const maxDuration = time.Duration(1<<63 - 1)
-	maxValue, err := durationMaxValue(maxDuration, unit)
-	if err != nil {
-		return maxDuration
-	}
-	if value > maxValue {
-		return maxDuration
-	}
-	parsed, err := strconv.ParseInt(strconv.FormatUint(value, 10), 10, 64)
-	if err != nil {
-		return maxDuration
-	}
-	return time.Duration(parsed) * unit
-}
-
-func durationMaxValue(maxDuration, unit time.Duration) (uint64, error) {
-	value, err := strconv.ParseUint(strconv.FormatInt(int64(maxDuration/unit), 10), 10, 64)
-	if err != nil {
-		return 0, wrapBroker("duration_max_value_failed", err, "parse max duration")
-	}
-	return value, nil
 }

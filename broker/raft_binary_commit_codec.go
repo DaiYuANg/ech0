@@ -26,6 +26,7 @@ func writeBinaryCommitOffsetCommand(writer *raftBinaryWriter, item commitOffsetC
 	}
 	writer.writeU32(item.Partition)
 	writer.writeU64(item.NextOffset)
+	writer.writeOptionalU64(item.AckOffset)
 	writer.writeU64(item.UpdatedAtMS)
 	return writer.writeString(item.Metadata)
 }
@@ -79,6 +80,10 @@ func readBinaryCommitOffsetCommand(reader *raftBinaryReader) (commitOffsetComman
 	if err != nil {
 		return commitOffsetCommand{}, err
 	}
+	ackOffset, err := reader.readOptionalU64()
+	if err != nil {
+		return commitOffsetCommand{}, err
+	}
 	updatedAtMS, err := reader.readU64()
 	if err != nil {
 		return commitOffsetCommand{}, err
@@ -92,6 +97,7 @@ func readBinaryCommitOffsetCommand(reader *raftBinaryReader) (commitOffsetComman
 		Topic:       topic,
 		Partition:   partition,
 		NextOffset:  nextOffset,
+		AckOffset:   ackOffset,
 		UpdatedAtMS: updatedAtMS,
 		Metadata:    metadata,
 	}, nil

@@ -1,0 +1,16 @@
+services:
+  nats:
+    image: nats:2.11-alpine
+    container_name: ech0-nats-bench
+    hostname: nats
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+
+  nats-box:
+    image: natsio/nats-box:0.16.0
+    container_name: ech0-nats-bench-box
+    depends_on:
+      - nats
+    entrypoint: ["sleep", "infinity"]

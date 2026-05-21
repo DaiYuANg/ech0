@@ -41,6 +41,7 @@ type topicOptions struct {
 	messageTTLMS    *uint64
 	expiryAction    store.MessageExpiryAction
 	orderingPolicy  store.TopicOrderingPolicy
+	priorityPolicy  *store.TopicPriorityPolicy
 }
 
 type RetryPolicy struct {
@@ -58,6 +59,7 @@ type publishOptions struct {
 	partition  *uint32
 	tombstone  bool
 	expiresAt  *uint64
+	priority   *uint8
 }
 
 type FetchOption func(*fetchOptions)

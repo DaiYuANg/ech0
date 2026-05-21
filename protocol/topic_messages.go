@@ -69,6 +69,7 @@ type CreateTopicRequest struct {
 	CompactionEnabled              *bool                `json:"compaction_enabled,omitempty"`
 	CompactionTombstoneRetentionMS *uint64              `json:"compaction_tombstone_retention_ms,omitempty"`
 	OrderingPolicy                 *TopicOrderingPolicy `json:"ordering_policy,omitempty"`
+	PriorityPolicy                 *TopicPriorityPolicy `json:"priority_policy,omitempty"`
 }
 
 type CreateTopicResponse struct {

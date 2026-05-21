@@ -97,6 +97,20 @@ Topic configs can declare an ordering policy:
 
 Key and routing-key policies are enforced inside the broker, so embedded and TCP clients get the same partitioning behavior even if they omit an explicit partitioning mode.
 
+## Priority
+
+Topic configs can enable a priority policy with a minimum, maximum, and default priority. Priority is stored as the `x-ech0-priority` message header using an ASCII decimal `u8`.
+
+When a priority policy is enabled:
+
+- A missing priority header is filled with the topic default before append.
+- An invalid priority header is rejected.
+- A priority outside the configured range is rejected.
+- Fetch results from one contiguous offset window are ordered by priority descending, then by offset ascending for equal priorities.
+- Embedded record acks use pending offset tracking, so acking a higher offset before a lower offset does not advance the committed cursor past the lower offset.
+
+Segment append order remains offset-ordered. Priority affects delivery order inside the fetched batch, not the physical log order. Explicit offset commits still mean "commit this next offset"; callers that need per-record out-of-order processing should use record ack semantics instead of direct next-offset commits.
+
 ## Compaction
 
 Compaction uses record keys:

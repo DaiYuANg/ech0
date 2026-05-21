@@ -35,7 +35,15 @@ func (b *Broker) PublishTransactionalRecord(
 	}
 	applyPartitioningRoutingKey(&record, partitioning)
 	scopedTopic := scopedTopicName(scope, topic)
-	partition, err := b.selectTransactionPartition(scopedTopic, partitioning, []store.RecordAppend{record})
+	topicConfig, err := b.loadTopicConfig(scopedTopic)
+	if err != nil {
+		return TransactionPublishResult{}, err
+	}
+	normalizeErr := normalizeRecordPriority(*topicConfig, &record)
+	if normalizeErr != nil {
+		return TransactionPublishResult{}, normalizeErr
+	}
+	partition, err := b.selectTransactionPartitionFromTopic(*topicConfig, partitioning, []store.RecordAppend{record})
 	if err != nil {
 		return TransactionPublishResult{}, err
 	}
@@ -71,7 +79,15 @@ func (b *Broker) PublishTransactionalBatch(
 		copied.Add(cloneAppend(record))
 	}
 	scopedTopic := scopedTopicName(scope, topic)
-	partition, err := b.selectTransactionPartition(scopedTopic, partitioning, copied.Values())
+	topicConfig, err := b.loadTopicConfig(scopedTopic)
+	if err != nil {
+		return TransactionPublishBatchResult{}, err
+	}
+	normalized, err := normalizeRecordsPriority(*topicConfig, copied.Values())
+	if err != nil {
+		return TransactionPublishBatchResult{}, err
+	}
+	partition, err := b.selectTransactionPartitionFromTopic(*topicConfig, partitioning, normalized)
 	if err != nil {
 		return TransactionPublishBatchResult{}, err
 	}
@@ -80,7 +96,7 @@ func (b *Broker) PublishTransactionalBatch(
 		BaseSequence: baseSequence,
 		Topic:        scopedTopic,
 		Partition:    partition,
-		Records:      copied.Values(),
+		Records:      normalized,
 	}
 	return routeMetadataCommand(ctx, b, raftCommandTxPublishBatch, req, b.applyTxPublishBatch)
 }
@@ -127,19 +143,16 @@ func (b *Broker) AbortTransaction(ctx context.Context, identity TransactionIdent
 	return routeMetadataCommand(ctx, b, raftCommandTxAbort, txBoundaryCommand{Identity: identity}, b.applyTxAbort)
 }
 
-func (b *Broker) selectTransactionPartition(topicName string, partitioning PublishPartitioning, records []store.RecordAppend) (uint32, error) {
-	topic, err := b.topicConfig(topicName)
+func (b *Broker) selectTransactionPartitionFromTopic(
+	topic store.TopicConfig,
+	partitioning PublishPartitioning,
+	records []store.RecordAppend,
+) (uint32, error) {
+	partitioning, err := b.resolveTopicOrderingPartitioning(topic, partitioning, records)
 	if err != nil {
 		return 0, err
 	}
-	if topic == nil {
-		return 0, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", topicName)
-	}
-	partitioning, err = b.resolveTopicOrderingPartitioning(*topic, partitioning, records)
-	if err != nil {
-		return 0, err
-	}
-	return b.router.selectPartition(*topic, partitioning, firstRecordKey(records))
+	return b.router.selectPartition(topic, partitioning, firstRecordKey(records))
 }
 
 func (b *Broker) scopedTransactionOffsetGroup(ctx context.Context, identity Identity, offset TransactionOffsetCommit, scopedTopic string) (string, error) {

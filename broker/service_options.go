@@ -6,6 +6,7 @@ import (
 	"github.com/arcgolabs/authx"
 	"github.com/arcgolabs/eventx"
 	"github.com/lyonbrown4d/ech0/discovery"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func WithLogger(logger *slog.Logger) Option {
@@ -36,6 +37,14 @@ func WithMetrics(metrics *MetricsRuntime) Option {
 	return func(b *Broker) {
 		if metrics != nil {
 			b.metrics = metrics
+		}
+	}
+}
+
+func WithTracerProvider(provider trace.TracerProvider) Option {
+	return func(b *Broker) {
+		if provider != nil {
+			b.tracer = provider.Tracer(brokerTracerName)
 		}
 	}
 }

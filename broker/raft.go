@@ -81,8 +81,13 @@ func (n *raftNode) startGroups(ctx context.Context) error {
 func (n *raftNode) startGroup(groupID uint64) error {
 	join := false
 	initialMembers := dragonboatInitialMembers(n.cfg)
+	if _, ok := initialMembers[n.cfg.Broker.NodeID]; !ok {
+		join = true
+		initialMembers = nil
+	}
 	if n.nodeHost.HasNodeInfo(groupID, n.cfg.Broker.NodeID) {
 		initialMembers = nil
+		join = false
 	}
 	rc := dragonboatGroupConfig(n.cfg, groupID)
 	if err := n.nodeHost.StartReplica(initialMembers, join, n.newStateMachine, rc); err != nil {

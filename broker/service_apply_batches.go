@@ -10,6 +10,7 @@ import (
 
 func (b *Broker) applyProduceBatches(ctx context.Context, req produceBatchesCommand) (produceBatchesResult, error) {
 	items := make([]produceBatchItemResult, len(req.Requests))
+	plannedRequests := make([]produceBatchCommand, len(req.Requests))
 	plans := collectionlist.NewListWithCapacity[produceBatchPlan](len(req.Requests))
 	for index, batch := range req.Requests {
 		plan, err := b.planProduceBatch(index, batch)
@@ -17,20 +18,22 @@ func (b *Broker) applyProduceBatches(ctx context.Context, req produceBatchesComm
 			items[index].Error = err.Error()
 			continue
 		}
+		plannedRequests[index] = plan.request
 		plans.Add(plan)
 	}
 	groups := groupProduceBatchPlans(plans.Values())
 	groups.Range(func(_ store.TopicPartition, produceGroup produceBatchGroup) bool {
-		b.applyProduceBatchGroup(ctx, req.Requests, produceGroup, items)
+		b.applyProduceBatchGroup(ctx, plannedRequests, produceGroup, items)
 		return true
 	})
-	b.recordProduceBatchItems(ctx, req.Requests, items)
+	b.recordProduceBatchItems(ctx, plannedRequests, items)
 	return produceBatchesResult{Items: items}, nil
 }
 
 type produceBatchPlan struct {
-	index int
-	tp    store.TopicPartition
+	index   int
+	tp      store.TopicPartition
+	request produceBatchCommand
 }
 
 type produceBatchGroup struct {
@@ -49,17 +52,23 @@ func (b *Broker) planProduceBatch(index int, req produceBatchCommand) (produceBa
 	if validateErr := b.validateBatchPayload(req.Records); validateErr != nil {
 		return produceBatchPlan{}, validateErr
 	}
+	req.Records, err = normalizeRecordsPriority(*topic, req.Records)
+	if err != nil {
+		return produceBatchPlan{}, err
+	}
 	partitioning, err := b.resolveTopicOrderingPartitioning(*topic, req.Partitioning, req.Records)
 	if err != nil {
 		return produceBatchPlan{}, err
 	}
+	req.Partitioning = partitioning
 	partition, err := b.router.selectPartition(*topic, partitioning, firstRecordKey(req.Records))
 	if err != nil {
 		return produceBatchPlan{}, err
 	}
 	return produceBatchPlan{
-		index: index,
-		tp:    store.NewTopicPartition(req.Topic, partition),
+		index:   index,
+		tp:      store.NewTopicPartition(req.Topic, partition),
+		request: req,
 	}, nil
 }
 

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ech0 Operations</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
+  <header class="border-b border-zinc-200 bg-white">
+    <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <strong class="text-sm font-semibold tracking-normal">ech0</strong>
+      <nav class="flex items-center gap-4 text-sm text-zinc-500">
+        <a class="hover:text-emerald-700" href="/ui">Dashboard</a>
+        <a class="hover:text-emerald-700" href="/ui/topics">Topics</a>
+        <a class="hover:text-emerald-700" href="/ui/acls">ACL</a>
+        <a class="font-medium text-emerald-700" href="/ui/ops">Operations</a>
+        <a class="hover:text-emerald-700" href="/docs">OpenAPI</a>
+        <a class="hover:text-emerald-700" href="/metrics">Metrics</a>
+      </nav>
+    </div>
+  </header>
+  <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+    <h1 class="mb-5 text-2xl font-semibold tracking-normal">Operations</h1>
+    {{if .Result}}<p class="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">{{.Result}}</p>{{end}}
+    {{if .Error}}<p class="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">{{.Error}}</p>{{end}}
+    <section class="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Runtime</div><div class="mt-1 text-xl font-bold">{{.Cluster.RuntimeMode}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Cluster</div><div class="mt-1 text-xl font-bold">{{.Cluster.ClusterName}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Raft Groups</div><div class="mt-1 text-xl font-bold">{{.Cluster.Raft.LeaderDistribution.ReadyGroups}} / {{.Cluster.Raft.LeaderDistribution.GroupCount}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Node</div><div class="mt-1 text-xl font-bold">{{.Cluster.NodeID}}</div></div>
+    </section>
+    {{template "sinkTable" dict "Title" "Webhook Sinks" "Items" .WebhookSinks}}
+    {{template "sinkTable" dict "Title" "File Sinks" "Items" .FileSinks}}
+    {{template "sinkTable" dict "Title" "Mirror Sinks" "Items" .MirrorSinks}}
+    {{template "sinkTable" dict "Title" "S3 Sinks" "Items" .S3Sinks}}
+    {{template "sinkTable" dict "Title" "Database Outboxes" "Items" .DatabaseOutboxes}}
+  </main>
+</body>
+</html>
+
+{{define "sinkTable"}}
+<section class="mb-6">
+  <h2 class="mb-3 text-base font-semibold tracking-normal">{{.Title}}</h2>
+  <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+    <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+      <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Name</th><th class="px-3 py-2">Topic</th><th class="px-3 py-2">Partition</th><th class="px-3 py-2">Target</th><th class="px-3 py-2">Action</th></tr></thead>
+      <tbody class="divide-y divide-zinc-200">
+      {{range .Items}}
+        <tr>
+          <td class="px-3 py-2 font-medium">{{.Name}}</td>
+          <td class="px-3 py-2">{{.Topic}}</td>
+          <td class="px-3 py-2">{{.Partition}}</td>
+          <td class="max-w-md truncate px-3 py-2">{{.Target}}</td>
+          <td class="px-3 py-2">
+            <form method="post" action="{{.Action}}">
+              <input type="hidden" name="name" value="{{.Name}}">
+              <button class="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-800" type="submit">Run once</button>
+            </form>
+          </td>
+        </tr>
+      {{else}}
+        <tr><td colspan="5" class="px-3 py-4 text-zinc-500">No configured entries</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}

@@ -130,6 +130,14 @@ func applyTopicPolicyOptions(topic *store.TopicConfig, req protocol.CreateTopicR
 	if req.OrderingPolicy != nil {
 		topic.OrderingPolicy = store.TopicOrderingPolicy(*req.OrderingPolicy)
 	}
+	if req.PriorityPolicy != nil {
+		topic.PriorityPolicy = store.TopicPriorityPolicy{
+			Enabled: req.PriorityPolicy.Enabled,
+			Min:     req.PriorityPolicy.Min,
+			Max:     req.PriorityPolicy.Max,
+			Default: req.PriorityPolicy.Default,
+		}
+	}
 	if req.CompactionEnabled != nil {
 		topic.CompactionEnabled = *req.CompactionEnabled
 	}

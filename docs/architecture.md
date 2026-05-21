@@ -97,7 +97,7 @@ The current clustered implementation has these properties:
 - `Publish`, `Fetch`, `Ack`, admin topic message snapshots, and direct `ReadFrom` helpers route by the resolved `topic/partition -> shard` placement.
 - Retention and compaction maintenance run through the message runtime, so sharded segment mode applies cleanup across all local shard logs.
 - Raft FSM snapshots now read and restore message data through the message runtime, so sharded segment snapshots merge shard log records and restore them by recorded placement.
-- Clustered writes no longer use the single global data path. The remaining cluster work is leader-aware client routing/forwarding, per-group scheduler ownership, and narrower per-group snapshots.
+- Clustered writes no longer use the single global data path. The remaining cluster work is leader-aware client routing/forwarding, per-group scheduler ownership, live partition data movement, and narrower per-group snapshots.
 
 The public API remains library-first:
 
@@ -198,6 +198,11 @@ A later, more invasive storage optimization can make the Raft log and message se
    - Forward internal broker requests to the owning group leader when direct client routing is not available.
    - Keep embedded mode usable with minimal peer configuration.
 
+8. Add cluster control operations:
+   - Dragonboat add/remove voting replica requests for every configured broker group.
+   - Best-effort leader transfer and leader balance requests.
+   - Empty-partition shard reassignment as a safe control-plane primitive before live data movement.
+
 ## Expected Performance Shape
 
 The first target is removing the single-leader ceiling while keeping the single-node hot path batch-first:
@@ -224,6 +229,7 @@ The implementation favors arcgolabs libraries where they match the responsibilit
 - `configx` for binary configuration loading through a `dix` provider.
 - `httpx` on Fiber for Admin/OpenAPI surfaces.
 - `observabilityx` for metrics wiring.
+- OpenTelemetry `trace.TracerProvider` injection for library-safe tracing.
 - `dragonboat` for clustered multi-group Raft.
 - `ants` for bounded background and shard fan-out work.
 - `HdrHistogram` for benchmark latency percentiles.
@@ -233,6 +239,8 @@ These dependencies are allowed inside implementation and binary-facing packages,
 
 ## Background Work
 
-Retry, delay, retention cleanup, and compaction run through `go-co-op/gocron`. The scheduler uses a Dragonboat-backed distributed elector so only the current leader runs jobs.
+Retry, delay, retention cleanup, compaction, configured sinks, mirror jobs, and database outbox pollers run through `go-co-op/gocron`. The scheduler uses a Dragonboat-backed distributed elector so only the current leader runs jobs.
 
 This avoids duplicate background processing across cluster members while keeping the job logic independent from Raft internals.
+
+Configured integration jobs share an at-least-once contract: read committed records, perform the external side effect, then commit the integration consumer offset only after the side effect succeeds. This keeps webhook, file, S3-compatible, and mirror sinks consistent with the broker's pull-consumer model while leaving exactly-once behavior to idempotent producers, transactional writes, or downstream dedupe.

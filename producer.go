@@ -191,6 +191,8 @@ func (p *Producer) newProducerItem(payload []byte, opts ...PublishOption) (produ
 	record := store.NewRecordAppend(payload)
 	record.Key = append([]byte(nil), publishOpts.key...)
 	applyEmbeddedRoutingKey(&record, publishOpts.routingKey)
+	applyEmbeddedPriority(&record, publishOpts.priority)
+	record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
 	if publishOpts.tombstone {
 		record.Attributes |= store.RecordAttributeTombstone
 	}

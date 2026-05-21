@@ -262,3 +262,7 @@ func txResource(identity Identity, transactionalID string) ACLResource {
 func directInboxResource(identity Identity, recipient string) ACLResource {
 	return ACLResource{Type: ACLResourceDirectInbox, Tenant: identity.Tenant, Namespace: identity.Namespace, Name: recipient}
 }
+
+func clusterResource(identity Identity) ACLResource {
+	return ACLResource{Type: ACLResourceCluster, Tenant: identity.Tenant, Namespace: identity.Namespace, Name: identity.Tenant}
+}

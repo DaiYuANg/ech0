@@ -47,29 +47,38 @@ func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceR
 		}
 		return ProduceResult{Partition: batch.Partition, Record: batch.Records[0]}, nil
 	}
-	topic, err := b.topicConfig(req.Topic)
+	topic, record, partitioning, err := b.prepareProduceRecord(req)
 	if err != nil {
 		return ProduceResult{}, err
 	}
-	if topic == nil {
-		return ProduceResult{}, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", req.Topic)
-	}
-	records := []store.RecordAppend{req.Record}
-	partitioning, err := b.resolveTopicOrderingPartitioning(*topic, req.Partitioning, records)
+	partition, err := b.router.selectPartition(topic, partitioning, record.Key)
 	if err != nil {
 		return ProduceResult{}, err
 	}
-	partition, err := b.router.selectPartition(*topic, partitioning, req.Record.Key)
-	if err != nil {
-		return ProduceResult{}, err
-	}
-	record, err := b.queue.PublishRecord(req.Topic, partition, cloneAppend(req.Record))
+	appended, err := b.queue.PublishRecord(req.Topic, partition, cloneAppend(record))
 	if err != nil {
 		return ProduceResult{}, wrapBroker("publish_record_failed", err, "publish record")
 	}
 	b.metrics.RecordProduce(ctx, partitioning.Mode, 1)
-	b.publishEvent(ctx, RecordProducedEvent{Topic: req.Topic, Partition: partition, Offset: record.Offset, NextOffset: record.Offset + 1})
-	return ProduceResult{Partition: partition, Record: record}, nil
+	b.publishEvent(ctx, RecordProducedEvent{Topic: req.Topic, Partition: partition, Offset: appended.Offset, NextOffset: appended.Offset + 1})
+	return ProduceResult{Partition: partition, Record: appended}, nil
+}
+
+func (b *Broker) prepareProduceRecord(req produceCommand) (store.TopicConfig, store.RecordAppend, PublishPartitioning, error) {
+	topic, err := b.loadTopicConfig(req.Topic)
+	if err != nil {
+		return store.TopicConfig{}, store.RecordAppend{}, PublishPartitioning{}, err
+	}
+	record := req.Record
+	normalizeErr := normalizeRecordPriority(*topic, &record)
+	if normalizeErr != nil {
+		return store.TopicConfig{}, store.RecordAppend{}, PublishPartitioning{}, normalizeErr
+	}
+	partitioning, err := b.resolveTopicOrderingPartitioning(*topic, req.Partitioning, []store.RecordAppend{record})
+	if err != nil {
+		return store.TopicConfig{}, store.RecordAppend{}, PublishPartitioning{}, err
+	}
+	return *topic, record, partitioning, nil
 }
 
 func (b *Broker) applyProduceBatch(ctx context.Context, req produceBatchCommand) (ProduceBatchResult, error) {
@@ -94,10 +103,15 @@ func (b *Broker) applyProduceBatchInternal(_ context.Context, req produceBatchCo
 	if validateErr := b.validateBatchPayload(req.Records); validateErr != nil {
 		return produceBatchItemResult{}, validateErr
 	}
+	req.Records, err = normalizeRecordsPriority(*topic, req.Records)
+	if err != nil {
+		return produceBatchItemResult{}, err
+	}
 	partitioning, err := b.resolveTopicOrderingPartitioning(*topic, req.Partitioning, req.Records)
 	if err != nil {
 		return produceBatchItemResult{}, err
 	}
+	req.Partitioning = partitioning
 	partition, err := b.router.selectPartition(*topic, partitioning, firstRecordKey(req.Records))
 	if err != nil {
 		return produceBatchItemResult{}, err
@@ -133,6 +147,9 @@ func (b *Broker) recordBatchProduce(ctx context.Context, req produceBatchCommand
 
 func (b *Broker) applyCommitOffset(ctx context.Context, req commitOffsetCommand) (struct{}, error) {
 	_ = ctx
+	if req.AckOffset != nil {
+		return b.applyAckOffset(req)
+	}
 	state := store.ConsumerOffsetState{
 		Consumer:    req.Consumer,
 		Topic:       req.Topic,
@@ -154,6 +171,9 @@ type commitOffsetApplyKey struct {
 }
 
 func (b *Broker) applyCommitOffsets(ctx context.Context, req commitOffsetsCommand) (commitOffsetsResult, error) {
+	if hasAckOffsetCommand(req.Requests) {
+		return b.applyCommitOffsetsInOrder(ctx, req)
+	}
 	compacted := compactCommitOffsetCommands(req.Requests)
 	errorsByKey := collectionmapping.NewMap[commitOffsetApplyKey, string]()
 	compacted.Range(func(key commitOffsetApplyKey, command commitOffsetCommand) bool {
@@ -169,6 +189,24 @@ func (b *Broker) applyCommitOffsets(ctx context.Context, req commitOffsetsComman
 		items.Add(commitOffsetItemResult{Error: errorsByKey.GetOrDefault(commitOffsetKey(command), "")})
 	}
 	return commitOffsetsResult{Items: items.Values()}, nil
+}
+
+func (b *Broker) applyCommitOffsetsInOrder(ctx context.Context, req commitOffsetsCommand) (commitOffsetsResult, error) {
+	items := collectionlist.NewListWithCapacity[commitOffsetItemResult](len(req.Requests))
+	for _, command := range req.Requests {
+		_, err := b.applyCommitOffset(ctx, command)
+		items.Add(commitOffsetItemResult{Error: errorMessage(err)})
+	}
+	return commitOffsetsResult{Items: items.Values()}, nil
+}
+
+func hasAckOffsetCommand(commands []commitOffsetCommand) bool {
+	for _, command := range commands {
+		if command.AckOffset != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func compactCommitOffsetCommands(commands []commitOffsetCommand) *collectionmapping.Map[commitOffsetApplyKey, commitOffsetCommand] {

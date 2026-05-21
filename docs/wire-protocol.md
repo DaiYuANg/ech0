@@ -87,6 +87,7 @@ Current capability strings:
 | `retry.delay` | Nack, retry processing, and delayed schedule commands. |
 | `routing.key` | Routing-key based partition selection. |
 | `topic.ordering` | Topic-level key or routing-key ordering policies on create-topic. |
+| `topic.priority` | Topic-level priority policy on create-topic; priority is carried in `x-ech0-priority` message headers. |
 | `subject.wildcards` | Wildcard subject fetch support. |
 | `schema.headers` | Schema hints are carried through message headers such as `content-type`, `schema-id`, and `encoding`. |
 
@@ -150,3 +151,5 @@ A non-Go client needs only:
 5. Capability negotiation during handshake.
 
 Clients do not need to hand-write internal broker envelopes for request/reply. Request/reply is exposed as protocol commands.
+
+Message priority uses the ordinary header codec. A producer sets `x-ech0-priority` to an ASCII decimal `u8`; if the topic has a priority policy and the header is absent, the broker writes the topic default priority before appending the record. Fetch responses for priority-enabled topics order records inside the returned contiguous offset window by priority descending, with offset order as the tie-breaker.

@@ -29,6 +29,25 @@ Recommended longer run:
 go test ./protocol ./transport ./store ./broker -run '^$' -bench . -benchmem -benchtime=5s -count=5
 ```
 
+Run the repeatable comparison harness:
+
+```powershell
+pwsh -NoProfile -File scripts/bench-compare.ps1
+```
+
+The harness writes raw output under `bench-results/` and captures:
+
+- Go microbenchmarks.
+- `ech0bench` embedded throughput.
+- Kafka producer perf through `deploy/docker/docker-compose.kafka-bench.yml`.
+- NATS CLI bench through `deploy/docker/docker-compose.nats-bench.yml`.
+
+Use `-SkipDocker` when Docker Desktop is unavailable:
+
+```powershell
+pwsh -NoProfile -File scripts/bench-compare.ps1 -SkipDocker
+```
+
 If `benchstat` is installed, compare two runs:
 
 ```sh

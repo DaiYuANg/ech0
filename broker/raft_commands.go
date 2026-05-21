@@ -9,6 +9,7 @@ const (
 	raftCommandCommitOffsets         = "commit_offsets"
 	raftCommandDeleteConsumerOffsets = "delete_consumer_offsets"
 	raftCommandConsumerPause         = "consumer_pause"
+	raftCommandReassignPartition     = "reassign_partition"
 	raftCommandTxBegin               = "tx_begin"
 	raftCommandTxPublish             = "tx_publish"
 	raftCommandTxPublishBatch        = "tx_publish_batch"

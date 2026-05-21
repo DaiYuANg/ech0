@@ -23,6 +23,7 @@ const (
 	CapabilityRetryDelay        = "retry.delay"
 	CapabilityRoutingKey        = "routing.key"
 	CapabilityTopicOrdering     = "topic.ordering"
+	CapabilityTopicPriority     = "topic.priority"
 	CapabilitySubjectWildcards  = "subject.wildcards"
 	CapabilitySchemaHeaders     = "schema.headers"
 )
@@ -43,6 +44,7 @@ var supportedCapabilities = []string{
 	CapabilityRetryDelay,
 	CapabilityRoutingKey,
 	CapabilityTopicOrdering,
+	CapabilityTopicPriority,
 	CapabilitySubjectWildcards,
 	CapabilitySchemaHeaders,
 }

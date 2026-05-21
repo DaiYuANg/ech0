@@ -196,7 +196,12 @@ func (b *Broker) ackProcessedRetryRecords(
 
 func (b *Broker) moveRetryRecord(retryRecord store.Record, origin retryOrigin, originTopic store.TopicConfig) (bool, error) {
 	if origin.RetryCount < originTopic.RetryPolicy.MaxAttempts {
-		_, err := b.queue.PublishRecord(origin.Topic, origin.Partition, cloneAsAppend(retryRecord))
+		appendRecord := cloneAsAppend(retryRecord)
+		normalized, err := normalizeRecordsPriority(originTopic, []store.RecordAppend{appendRecord})
+		if err != nil {
+			return false, err
+		}
+		_, err = b.queue.PublishRecord(origin.Topic, origin.Partition, normalized[0])
 		return false, wrapBroker("retry_restore_failed", err, "publish retry record to origin topic")
 	}
 	deadLetterTopic := dlqTopicName(origin.Topic)

@@ -16,6 +16,7 @@ func adminTemplateEngine() *fiberhtml.Engine {
 	engine.AddFunc("fmtOffset", displayUint64Ptr)
 	engine.AddFunc("fmtUint", strconv.FormatUint)
 	engine.AddFunc("aclActions", aclActionList)
+	engine.AddFunc("dict", adminTemplateDict)
 	return engine
 }
 

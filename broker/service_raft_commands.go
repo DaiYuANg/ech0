@@ -85,6 +85,7 @@ func (b *Broker) registerTopicRaftHandlers(handlers *collectionmapping.Map[strin
 	setRaftHandler(handlers, raftCommandCommitOffsets, b.applyCommitOffsets, "decode commit offsets command")
 	setRaftHandler(handlers, raftCommandDeleteConsumerOffsets, b.applyDeleteConsumerOffsets, "decode delete consumer offsets command")
 	setRaftHandler(handlers, raftCommandConsumerPause, b.applyConsumerPause, "decode consumer pause command")
+	setRaftHandler(handlers, raftCommandReassignPartition, b.applyReassignPartition, "decode reassign partition command")
 }
 
 func (b *Broker) registerTransactionRaftHandlers(handlers *collectionmapping.Map[string, raftCommandHandler]) {

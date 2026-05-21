@@ -35,6 +35,7 @@ type commitOffsetCommand struct {
 	Topic       string
 	Partition   uint32
 	NextOffset  uint64
+	AckOffset   *uint64
 	Metadata    string
 	UpdatedAtMS uint64
 }
@@ -71,6 +72,12 @@ type consumerPauseCommand struct {
 	Partition   uint32
 	Paused      bool
 	UpdatedAtMS uint64
+}
+
+type reassignPartitionCommand struct {
+	Topic     string
+	Partition uint32
+	ShardID   store.ShardID
 }
 
 type TransactionIdentity struct {

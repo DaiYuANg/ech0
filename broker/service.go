@@ -29,6 +29,7 @@ type Broker struct {
 	discovery               discovery.Provider
 	logger                  *slog.Logger
 	metrics                 *MetricsRuntime
+	tracer                  brokerTracer
 	auth                    *authx.Engine
 	quota                   QuotaLimiter
 	quotaUsage              *quotaUsageTracker
@@ -95,6 +96,7 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		meta:       metaStore,
 		router:     newPartitionRouter(),
 		logger:     slog.Default(),
+		tracer:     newNoopBrokerTracer(),
 		auth:       nil,
 		quota:      newConfiguredQuotaLimiter(cfg.Governance.Quota),
 		quotaUsage: newQuotaUsageTracker(),

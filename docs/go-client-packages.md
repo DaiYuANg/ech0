@@ -26,7 +26,7 @@ adminClient, err := admin.New(broker)
 if err != nil {
     return err
 }
-if err := adminClient.CreateTopic(ctx, "orders", ech0.Partitions(3), ech0.OrderByKey()); err != nil {
+if err := adminClient.CreateTopic(ctx, "orders", ech0.Partitions(3), ech0.OrderByKey(), ech0.PriorityRange(0, 9, 0)); err != nil {
     return err
 }
 
@@ -36,7 +36,7 @@ if err != nil {
 }
 defer producerClient.Close(ctx)
 
-future, err := producerClient.Send(ctx, []byte(`{"id":"o-1"}`), ech0.Key([]byte("o-1")))
+future, err := producerClient.Send(ctx, []byte(`{"id":"o-1"}`), ech0.Key([]byte("o-1")), ech0.Priority(7))
 if err != nil {
     return err
 }

@@ -64,7 +64,10 @@ func (b *Broker) applyTxPublish(ctx context.Context, req txPublishCommand) (Tran
 		}
 		return transactionPublishResult(req.Identity.TxID, req.Partition, records[0]), nil
 	}
-	record := cloneAppend(req.Record)
+	record, err := b.normalizeRecordPriorityForTopic(req.Topic, cloneAppend(req.Record))
+	if err != nil {
+		return TransactionPublishResult{}, err
+	}
 	record.Transaction = transactionRecordMetadata(req.Identity, req.Sequence, store.TransactionControlNone)
 	appended, err := b.queue.PublishRecord(req.Topic, req.Partition, record)
 	if err != nil {
@@ -94,13 +97,9 @@ func (b *Broker) applyTxPublishBatch(ctx context.Context, req txPublishBatchComm
 		return TransactionPublishBatchResult{}, err
 	}
 	if duplicate != nil {
-		records, readErr := b.readPublishedBatch(req.Identity, *duplicate)
-		if readErr != nil {
-			return TransactionPublishBatchResult{}, readErr
-		}
-		return transactionPublishBatchResult(req.Identity.TxID, req.Partition, records)
+		return b.duplicateTxPublishBatchResult(req, *duplicate)
 	}
-	records, err := transactionalRecordBatch(req.Identity, req.BaseSequence, req.Records)
+	records, err := b.transactionalRecordBatchForRequest(req)
 	if err != nil {
 		return TransactionPublishBatchResult{}, err
 	}
@@ -117,6 +116,25 @@ func (b *Broker) applyTxPublishBatch(ctx context.Context, req txPublishBatchComm
 	}
 	b.recordBatchProduce(ctx, produceBatchCommand{Topic: req.Topic, Partitioning: PublishPartitioning{Mode: PartitionExplicit, Partition: req.Partition}, Records: records}, req.Partition, appended)
 	return transactionPublishBatchResult(req.Identity.TxID, req.Partition, appended)
+}
+
+func (b *Broker) duplicateTxPublishBatchResult(
+	req txPublishBatchCommand,
+	duplicate store.TransactionPublishedBatch,
+) (TransactionPublishBatchResult, error) {
+	records, err := b.readPublishedBatch(req.Identity, duplicate)
+	if err != nil {
+		return TransactionPublishBatchResult{}, err
+	}
+	return transactionPublishBatchResult(req.Identity.TxID, req.Partition, records)
+}
+
+func (b *Broker) transactionalRecordBatchForRequest(req txPublishBatchCommand) ([]store.RecordAppend, error) {
+	normalized, err := b.normalizeRecordsPriorityForTopic(req.Topic, req.Records)
+	if err != nil {
+		return nil, err
+	}
+	return transactionalRecordBatch(req.Identity, req.BaseSequence, normalized)
 }
 
 func (b *Broker) applyTxCommitOffset(_ context.Context, req txCommitOffsetCommand) (TransactionOffsetCommitResult, error) {

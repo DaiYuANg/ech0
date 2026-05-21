@@ -24,6 +24,67 @@ delay_scheduler_interval_secs = 1
 delay_scheduler_max_records = 256
 delay_scheduler_consumer_prefix = "__delay_scheduler"
 
+# Example outbound webhook sink. It reads committed messages from the selected
+# topic partition and commits the sink consumer offset only after a 2xx response.
+# [[broker.webhook_sinks]]
+# name = "orders-webhook"
+# topic = "orders"
+# partition = 0
+# consumer = "orders-webhook"
+# url = "http://127.0.0.1:8088/events"
+# interval_secs = 5
+# max_records = 100
+# timeout_ms = 5000
+#
+# [[broker.webhook_sinks.headers]]
+# key = "X-Ech0-Sink"
+# value = "orders-webhook"
+
+# [[broker.file_sinks]]
+# name = "orders-file"
+# topic = "orders"
+# partition = 0
+# consumer = "orders-file"
+# path = "./exports/orders.jsonl"
+# interval_secs = 5
+# max_records = 100
+
+# [[broker.s3_sinks]]
+# name = "orders-s3"
+# topic = "orders"
+# partition = 0
+# consumer = "orders-s3"
+# endpoint_url = "http://127.0.0.1:9000"
+# bucket = "archive"
+# prefix = "ech0"
+# region = "us-east-1"
+# access_key_id = "change-me"
+# secret_access_key = "change-me"
+# interval_secs = 5
+# max_records = 100
+# timeout_ms = 5000
+
+# [[broker.mirror_sinks]]
+# name = "orders-mirror"
+# topic = "orders"
+# target_topic = "orders"
+# partition = 0
+# consumer = "orders-mirror"
+# target_admin_url = "http://127.0.0.1:19091"
+# interval_secs = 5
+# max_records = 100
+# timeout_ms = 5000
+
+# [[broker.database_outboxes]]
+# name = "orders-outbox"
+# topic = "orders"
+# driver_name = "postgres"
+# dsn = "postgres://user:pass@127.0.0.1:5432/app?sslmode=disable"
+# query = "select id, topic, partition, key, routing_key, payload from outbox where delivered_at is null order by id"
+# mark_delivered_sql = "update outbox set delivered_at = now() where id = $1"
+# interval_secs = 5
+# max_records = 100
+
 [admin]
 enabled = true
 bind_addr = "127.0.0.1:9091"

@@ -32,6 +32,15 @@ ECH0_CLUSTER_DATA_ROOT=./data/bench-cluster \
 docker compose -p ech0-bench -f docker-compose.cluster.yml up -d --build
 ```
 
+Kafka and NATS comparison services are available for the benchmark harness:
+
+```sh
+docker compose -f docker-compose.kafka-bench.yml up -d
+docker compose -f docker-compose.nats-bench.yml up -d
+```
+
+From the repository root, `scripts/bench-compare.ps1` runs Go benchmarks, embedded `ech0bench`, Kafka producer perf, and NATS CLI bench, then writes raw outputs under `bench-results/`.
+
 ## Release Image
 
 These examples use the published image instead of building locally:

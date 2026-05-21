@@ -13,7 +13,8 @@ The public root package keeps the mental model intentionally small: configure a 
 - Admin and OpenAPI HTTP surface built with `arcgolabs/httpx` on Fiber.
 - Dragonboat Raft for metadata coordination; multiple configured peers also enable replicated data shard groups.
 - Optional memberlist-based discovery for easier Dragonboat cluster bootstrap.
-- Retry, delay, nack, and scheduled workers using `go-co-op/gocron`, gated by Raft leadership.
+- Retry, delay, nack, scheduled workers, webhook/file/S3/mirror sinks, and database outbox polling using `go-co-op/gocron`, gated by Raft leadership.
+- OpenTelemetry tracing injection in the broker package with a no-op default for embedded usage.
 
 ## Library Usage
 
@@ -110,6 +111,15 @@ Configuration is loaded with `arcgolabs/configx`. Environment variables use the 
 - `GET /api/healthz`
 - `GET /api/topics`
 - `GET /api/metrics`
+- `GET /ui/ops`
+- `POST /api/ops/webhook-sinks/run`
+- `POST /api/ops/file-sinks/run`
+- `POST /api/ops/mirror-sinks/run`
+- `POST /api/ops/s3-sinks/run`
+- `POST /api/ops/database-outboxes/run`
+- `POST /api/gateway/topics/{topic}/records`
+- `GET /api/gateway/topics/{topic}/partitions/{partition}/records`
+- `POST /api/gateway/topics/{topic}/partitions/{partition}/commit`
 
 When `admin.debug_enabled = true`, debug builds also expose `GET /debug/fgprof` on the admin server for wall-clock profiling.
 

@@ -239,6 +239,10 @@ func (b *Broker) forwardDelayedRecord(req processDelayCommand, record store.Reco
 	}
 	appendRecord := cloneAsAppend(record)
 	appendRecord.Headers = removeHeaders(appendRecord.Headers, delayHeaderDeliverAtMS, delayHeaderTargetTopic, delayHeaderTargetPartition)
+	appendRecord, err = b.normalizeRecordPriorityForTopic(targetTopic, appendRecord)
+	if err != nil {
+		return err
+	}
 	_, err = b.queue.PublishRecord(targetTopic, targetPartition, appendRecord)
 	return wrapBroker("delay_forward_failed", err, "forward delayed record")
 }

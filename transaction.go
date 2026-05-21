@@ -62,6 +62,9 @@ func (tx *Transaction) Publish(ctx context.Context, topic string, payload []byte
 	}
 	record := store.NewRecordAppend(payload)
 	record.Key = append([]byte(nil), publishOpts.key...)
+	applyEmbeddedRoutingKey(&record, publishOpts.routingKey)
+	applyEmbeddedPriority(&record, publishOpts.priority)
+	record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
 	if publishOpts.tombstone {
 		record.Attributes |= store.RecordAttributeTombstone
 	}
@@ -88,6 +91,9 @@ func (tx *Transaction) PublishBatch(ctx context.Context, topic string, payloads 
 	for _, payload := range payloads {
 		record := store.NewRecordAppend(payload)
 		record.Key = append([]byte(nil), publishOpts.key...)
+		applyEmbeddedRoutingKey(&record, publishOpts.routingKey)
+		applyEmbeddedPriority(&record, publishOpts.priority)
+		record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
 		if publishOpts.tombstone {
 			record.Attributes |= store.RecordAttributeTombstone
 		}

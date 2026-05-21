@@ -50,6 +50,7 @@ func normalizeTopic(topic *TopicConfig) {
 	if topic.MessageExpiryAction == "" {
 		topic.MessageExpiryAction = MessageExpiryDelete
 	}
+	topic.PriorityPolicy = NormalizeTopicPriorityPolicy(topic.PriorityPolicy)
 }
 
 func cloneTopic(topic TopicConfig) TopicConfig {
