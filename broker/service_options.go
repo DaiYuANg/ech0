@@ -55,7 +55,7 @@ func WithAuthProvider(provider authx.AuthenticationProvider) Option {
 			return
 		}
 		if b.auth == nil {
-			b.auth = newDefaultAuthEngine(b.logger)
+			b.auth = newConfiguredAuthEngine(b.cfg.Governance.Auth, b.logger)
 		}
 		if err := b.auth.RegisterProvider(provider); err != nil {
 			if b.logger != nil {
@@ -69,7 +69,7 @@ func WithACLAuthorizer(authorizer authx.Authorizer) Option {
 	return func(b *Broker) {
 		if authorizer != nil {
 			if b.auth == nil {
-				b.auth = newDefaultAuthEngine(b.logger)
+				b.auth = newConfiguredAuthEngine(b.cfg.Governance.Auth, b.logger)
 			}
 			b.auth.SetAuthorizer(authorizer)
 			b.aclAuthorizerConfigured = true

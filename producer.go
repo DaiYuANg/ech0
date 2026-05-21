@@ -190,6 +190,7 @@ func (p *Producer) newProducerItem(payload []byte, opts ...PublishOption) (produ
 	}
 	record := store.NewRecordAppend(payload)
 	record.Key = append([]byte(nil), publishOpts.key...)
+	applyEmbeddedRoutingKey(&record, publishOpts.routingKey)
 	if publishOpts.tombstone {
 		record.Attributes |= store.RecordAttributeTombstone
 	}
@@ -202,6 +203,9 @@ func (p *Producer) selectPartition(opts publishOptions) (uint32, error) {
 			return 0, producerError("producer_partition_out_of_range", "partition %d out of range for topic %s", *opts.partition, p.topic)
 		}
 		return *opts.partition, nil
+	}
+	if opts.routingKey != "" {
+		return producerPartitionFromUint64(xxhash.Sum64String(opts.routingKey), p.partitions), nil
 	}
 	if len(opts.key) > 0 {
 		return producerPartitionFromUint64(xxhash.Sum64(opts.key), p.partitions), nil

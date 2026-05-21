@@ -7,6 +7,7 @@ type StartRequestRequest struct {
 	PollIntervalMS *uint64             `json:"poll_interval_ms,omitempty"`
 	Partition      *uint32             `json:"partition,omitempty"`
 	Partitioning   ProducePartitioning `json:"partitioning"`
+	ReplyMode      RequestReplyMode    `json:"reply_mode,omitempty"`
 	Headers        []MessageHeader     `json:"headers,omitempty"`
 	Payload        []byte              `json:"payload"`
 }
@@ -17,6 +18,7 @@ type StartRequestResponse struct {
 	ReplyTo       string `json:"reply_to"`
 	CorrelationID string `json:"correlation_id"`
 	ExpiresAtMS   uint64 `json:"expires_at_ms"`
+	ReplyMode     string `json:"reply_mode"`
 	Partition     uint32 `json:"partition"`
 	Offset        uint64 `json:"offset"`
 	NextOffset    uint64 `json:"next_offset"`
@@ -41,6 +43,7 @@ type RequestRecord struct {
 	CorrelationID string          `json:"correlation_id"`
 	SenderID      string          `json:"sender_id"`
 	ExpiresAtMS   uint64          `json:"expires_at_ms"`
+	ReplyMode     string          `json:"reply_mode"`
 	Headers       []MessageHeader `json:"headers,omitempty"`
 	Payload       []byte          `json:"payload"`
 }
@@ -90,6 +93,15 @@ type AwaitReplyRequest struct {
 	PollIntervalMS *uint64 `json:"poll_interval_ms,omitempty"`
 }
 
+type AwaitRepliesRequest struct {
+	ReplyTo        string  `json:"reply_to"`
+	CorrelationID  string  `json:"correlation_id"`
+	ExpiresAtMS    uint64  `json:"expires_at_ms,omitempty"`
+	TimeoutMS      *uint64 `json:"timeout_ms,omitempty"`
+	PollIntervalMS *uint64 `json:"poll_interval_ms,omitempty"`
+	MaxReplies     int     `json:"max_replies"`
+}
+
 type ReplyRecord struct {
 	Offset        uint64  `json:"offset"`
 	MessageID     string  `json:"message_id"`
@@ -103,4 +115,8 @@ type ReplyRecord struct {
 
 type AwaitReplyResponse struct {
 	Reply ReplyRecord `json:"reply"`
+}
+
+type AwaitRepliesResponse struct {
+	Replies []ReplyRecord `json:"replies"`
 }

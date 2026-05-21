@@ -30,7 +30,7 @@ func (s *StorxLogStore) rebuildMissingSegmentIndexes(
 		if relErr != nil {
 			return wrapExternal(relErr, "resolve segment path")
 		}
-		if _, statErr := statSegmentIndex(s.segmentsDir, segmentIndexRelativePath(relativePath)); statErr == nil {
+		if statErr := statSegmentIndex(s.segmentsDir, segmentIndexRelativePath(relativePath)); statErr == nil {
 			return nil
 		} else if !errors.Is(statErr, os.ErrNotExist) {
 			return wrapExternal(statErr, "stat segment index")
@@ -73,17 +73,17 @@ func (s *StorxLogStore) rebuildMissingSegmentIndex(
 	return nil
 }
 
-func statSegmentIndex(rootDir, indexRelativePath string) (os.FileInfo, error) {
+func statSegmentIndex(rootDir, indexRelativePath string) error {
 	root, err := os.OpenRoot(rootDir)
 	if err != nil {
-		return nil, wrapExternal(err, "open segment index root")
+		return wrapExternal(err, "open segment index root")
 	}
-	info, err := root.Stat(indexRelativePath)
+	_, err = root.Stat(indexRelativePath)
 	closeErr := root.Close()
 	if err != nil {
-		return nil, errors.Join(err, wrapExternal(closeErr, "close segment index root"))
+		return errors.Join(err, wrapExternal(closeErr, "close segment index root"))
 	}
-	return info, wrapExternal(closeErr, "close segment index root")
+	return wrapExternal(closeErr, "close segment index root")
 }
 
 func parseSegmentRelativePath(relativePath string) (TopicPartition, uint64, error) {

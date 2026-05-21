@@ -125,6 +125,9 @@ func writeRequestRecord(writer *binaryWriter, record RequestRecord) error {
 		return err
 	}
 	writer.writeU64(record.ExpiresAtMS)
+	if err := writer.writeString(record.ReplyMode); err != nil {
+		return err
+	}
 	if err := writeHeaders(writer, record.Headers); err != nil {
 		return err
 	}
@@ -158,6 +161,9 @@ func readRequestRecordTail(reader *binaryReader, record RequestRecord) (RequestR
 		return RequestRecord{}, err
 	}
 	if record.ExpiresAtMS, err = reader.readU64(); err != nil {
+		return RequestRecord{}, err
+	}
+	if record.ReplyMode, err = reader.readString(); err != nil {
 		return RequestRecord{}, err
 	}
 	if record.Headers, err = readHeaders(reader); err != nil {

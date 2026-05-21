@@ -193,7 +193,7 @@ func (b *Broker) identity(ctx context.Context) Identity {
 
 func (b *Broker) authenticate(ctx context.Context, req AuthRequest) (Identity, error) {
 	if b.auth == nil {
-		b.auth = newDefaultAuthEngine(b.logger)
+		b.auth = newConfiguredAuthEngine(b.cfg.Governance.Auth, b.logger)
 	}
 	result, err := b.auth.Check(ctx, req)
 	if err != nil {
@@ -204,7 +204,7 @@ func (b *Broker) authenticate(ctx context.Context, req AuthRequest) (Identity, e
 
 func (b *Broker) authorize(ctx context.Context, identity Identity, action ACLAction, resource ACLResource) error {
 	if b.auth == nil {
-		b.auth = newDefaultAuthEngine(b.logger)
+		b.auth = newConfiguredAuthEngine(b.cfg.Governance.Auth, b.logger)
 	}
 	identity = normalizeIdentity(identity)
 	resource.Tenant = nonEmpty(resource.Tenant, identity.Tenant)

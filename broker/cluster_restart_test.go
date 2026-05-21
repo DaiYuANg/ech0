@@ -22,7 +22,7 @@ func TestBrokerRaftFollowerRestartFromExistingData(t *testing.T) {
 	}
 
 	followerIndex, follower := nonDataShardLeaderBroker(t, brokers, leader)
-	recordsBeforeStop := fetchAllRecordsOrFail(t, follower, "orders", 3)
+	recordsBeforeStop := fetchAllOrderRecordsOrFail(t, follower, 3)
 	if len(recordsBeforeStop) != 3 {
 		t.Fatalf("expected follower to catch up before restart, got %d records", len(recordsBeforeStop))
 	}
@@ -34,10 +34,35 @@ func TestBrokerRaftFollowerRestartFromExistingData(t *testing.T) {
 	})
 	waitForRaftNodeReady(t, restarted)
 
-	records := fetchAllRecordsOrFail(t, restarted, "orders", 3)
+	records := fetchAllOrderRecordsOrFail(t, restarted, 3)
 	if len(records) != 3 {
 		t.Fatalf("expected 3 records after follower restart recovery, got %d", len(records))
 	}
+}
+
+func TestBrokerRaftRollingRestartPreservesAvailability(t *testing.T) {
+	ctx := context.Background()
+	brokers, configs := startRecoveryClusterWithConfigs(t, 3)
+
+	createTopicWithRetry(ctx, t, brokers, store.NewTopicConfig("orders"))
+	publishOrderWithRetry(ctx, t, brokers, []byte("initial"))
+	assertClusterLeaderDistributionReady(t, waitForAnyLeader(t, brokers).ClusterMetadata())
+	expectedRecords := 1
+
+	for index := range brokers {
+		stopped := brokers[index]
+		stopClusterBroker(t, brokers, stopped)
+		publishOrderWithRetry(ctx, t, brokers, fmt.Appendf(nil, "during-restart-%d", index))
+		expectedRecords++
+		fetchAllOrderRecordsFromAnyBroker(t, brokers, expectedRecords)
+
+		restarted := startRecoveryBroker(t, configs[index])
+		brokers[index] = restarted
+		waitForRaftNodeReady(t, restarted)
+		assertClusterLeaderDistributionReady(t, waitForAnyLeader(t, brokers).ClusterMetadata())
+	}
+
+	fetchAllOrderRecordsFromAnyBroker(t, brokers, expectedRecords)
 }
 
 func createTopicWithRetry(ctx context.Context, t *testing.T, brokers []*broker.Broker, topic store.TopicConfig) {
@@ -118,17 +143,17 @@ func capturePublishError(ctx context.Context, b *broker.Broker, payload []byte) 
 	return nil
 }
 
-func fetchAllRecordsOrFail(t *testing.T, b *broker.Broker, topic string, expected int) []store.Record {
+func fetchAllOrderRecordsOrFail(t *testing.T, b *broker.Broker, expected int) []store.Record {
 	t.Helper()
 	deadline := time.Now().Add(12 * time.Second)
 	for time.Now().Before(deadline) {
-		poll, err := b.Fetch(context.Background(), "c1", topic, 0, nil, expected)
+		poll, err := b.Fetch(context.Background(), "c1", "orders", 0, nil, expected)
 		if err == nil && len(poll.Records) >= expected {
 			return poll.Records
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	poll, err := b.Fetch(context.Background(), "c1", topic, 0, nil, expected)
+	poll, err := b.Fetch(context.Background(), "c1", "orders", 0, nil, expected)
 	requireNoError(t, err)
 	return poll.Records
 }
@@ -218,26 +243,4 @@ func startRecoveryClusterWithConfigs(t *testing.T, count int) ([]*broker.Broker,
 		}
 	})
 	return brokers, configs
-}
-
-func preferredDataShardLeaders(brokers []*broker.Broker) []*broker.Broker {
-	out := make([]*broker.Broker, 0, len(brokers))
-	for _, b := range brokers {
-		if dataShardLocalLeader(b) {
-			out = append(out, b)
-		}
-	}
-	return out
-}
-
-func dataShardLocalLeader(b *broker.Broker) bool {
-	if b == nil || b.RuntimeHealth().Raft == nil {
-		return false
-	}
-	for _, group := range b.RuntimeHealth().Raft.Groups {
-		if group.GroupID != 1 && group.LocalIsLeader {
-			return true
-		}
-	}
-	return false
 }

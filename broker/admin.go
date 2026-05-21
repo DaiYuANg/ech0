@@ -105,6 +105,7 @@ func (s *AdminServer) registerRoutes() {
 	httpx.MustGet(server, "/topics", s.apiTopics)
 	httpx.MustGet(server, "/metrics", s.apiMetrics)
 	httpx.MustGet(server, "/quota", s.apiQuota)
+	httpx.MustGet(server, "/cluster", s.apiCluster)
 	if s.cfg.Admin.DebugEnabled {
 		httpx.MustGet(server, "/runtime/events", s.apiRuntimeEvents)
 		httpx.MustGetSSE(server, "/runtime/events/stream", map[string]any{
@@ -184,8 +185,41 @@ func (s *AdminServer) adminIdentityMiddleware(c *fiber.Ctx) error {
 	identity.Namespace = adminIdentityValue(c, "X-Ech0-Namespace", "namespace", identity.Namespace)
 	identity.Principal = adminIdentityValue(c, "X-Ech0-Principal", "principal", identity.Principal)
 	identity.ClientID = adminIdentityValue(c, "X-Ech0-Client-Id", "client_id", identity.ClientID)
+	if s.broker != nil && s.broker.cfg.Governance.Auth.Enabled {
+		authenticated, err := s.broker.authenticate(c.UserContext(), AuthRequest{
+			ClientID:  identity.ClientID,
+			Principal: identity.Principal,
+			Tenant:    identity.Tenant,
+			Namespace: identity.Namespace,
+			Token:     adminAuthToken(c),
+		})
+		if err != nil {
+			return adminAuthError(c, err)
+		}
+		identity = authenticated
+	}
 	c.SetUserContext(WithIdentity(c.UserContext(), identity))
 	return wrapBroker("admin_identity_middleware_failed", c.Next(), "run admin identity middleware")
+}
+
+func adminAuthToken(c *fiber.Ctx) string {
+	token := strings.TrimSpace(c.Get("X-Ech0-Auth-Token"))
+	if token != "" {
+		return token
+	}
+	header := strings.TrimSpace(c.Get("Authorization"))
+	if before, after, ok := strings.Cut(header, " "); ok && strings.EqualFold(before, "Bearer") {
+		token = strings.TrimSpace(after)
+		if token != "" {
+			return token
+		}
+	}
+	return strings.TrimSpace(c.Query("auth_token"))
+}
+
+func adminAuthError(c *fiber.Ctx, err error) error {
+	response := adminErrorResponse{Error: "unauthorized"}
+	return wrapBroker("admin_auth_failed", c.Status(fiber.StatusUnauthorized).JSON(response), "authenticate admin request: %v", err)
 }
 
 func adminIdentityValue(c *fiber.Ctx, header, query, fallback string) string {

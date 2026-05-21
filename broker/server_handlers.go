@@ -20,6 +20,8 @@ var tcpFrameHandlers = map[uint16]frameHandler{
 	protocol.CmdProduceRequest:                    (*TCPServer).handleProduceFrame,
 	protocol.CmdProduceBatchRequest:               (*TCPServer).handleProduceBatchFrame,
 	protocol.CmdProduceBatchesRequest:             (*TCPServer).handleProduceBatchesFrame,
+	protocol.CmdProduceFanoutRequest:              (*TCPServer).handleProduceFanoutFrame,
+	protocol.CmdFetchSubjectPatternRequest:        (*TCPServer).handleFetchSubjectPatternFrame,
 	protocol.CmdFetchRequest:                      (*TCPServer).handleFetchFrame,
 	protocol.CmdFetchBatchRequest:                 (*TCPServer).handleFetchBatchFrame,
 	protocol.CmdCommitOffsetRequest:               (*TCPServer).handleCommitOffsetFrame,
@@ -40,6 +42,7 @@ var tcpFrameHandlers = map[uint16]frameHandler{
 	protocol.CmdReplyRequest:                      (*TCPServer).handleReplyFrame,
 	protocol.CmdReplyErrorRequest:                 (*TCPServer).handleReplyErrorFrame,
 	protocol.CmdAwaitReplyRequest:                 (*TCPServer).handleAwaitReplyFrame,
+	protocol.CmdAwaitRepliesRequest:               (*TCPServer).handleAwaitRepliesFrame,
 	protocol.CmdJoinConsumerGroupRequest:          (*TCPServer).handleJoinConsumerGroupFrame,
 	protocol.CmdHeartbeatConsumerGroupRequest:     (*TCPServer).handleHeartbeatConsumerGroupFrame,
 	protocol.CmdRebalanceConsumerGroupRequest:     (*TCPServer).handleRebalanceConsumerGroupFrame,
@@ -54,8 +57,16 @@ func (s *TCPServer) handleHandshakeFrame(ctx context.Context, frame transport.Fr
 	if err := decode(frame, &req); err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
-	_ = req
-	identity := s.broker.identity(ctx)
+	identity, err := s.broker.authenticate(ctx, AuthRequest{
+		ClientID:  req.ClientID,
+		Principal: req.Principal,
+		Tenant:    req.Tenant,
+		Namespace: req.Namespace,
+		Token:     req.AuthToken,
+	})
+	if err != nil {
+		return errorFromErr(err), nil
+	}
 	return okFrame(protocol.CmdHandshakeResponse, protocol.HandshakeResponse{
 		ServerID:        fmt.Sprintf("%s-node-%d", s.broker.cfg.Broker.ClusterName, s.broker.cfg.Broker.NodeID),
 		ProtocolVersion: protocol.Version,
@@ -86,19 +97,6 @@ func (s *TCPServer) handleCreateTopicFrame(ctx context.Context, frame transport.
 	return okFrame(protocol.CmdCreateTopicResponse, protocol.CreateTopicResponse{Topic: created.Name, Partitions: created.Partitions})
 }
 
-func (s *TCPServer) handleListTopicsFrame(ctx context.Context, _ transport.Frame) (transport.Frame, error) {
-	topics, err := s.broker.ListTopicsFor(ctx)
-	if err != nil {
-		return errorFromErr(err), nil
-	}
-	out := collectionlist.NewListWithCapacity[protocol.TopicMetadata](len(topics))
-	for i := range topics {
-		topic := topics[i]
-		out.Add(protocol.TopicMetadata{Topic: topic.Name, Partitions: topic.Partitions})
-	}
-	return okFrame(protocol.CmdListTopicsResponse, protocol.ListTopicsResponse{Topics: out.Values()})
-}
-
 func (s *TCPServer) handleProduceFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
 	var req protocol.ProduceRequest
 	if err := decode(frame, &req); err != nil {
@@ -111,6 +109,7 @@ func (s *TCPServer) handleProduceFrame(ctx context.Context, frame transport.Fram
 	record := store.NewRecordAppend(req.Payload)
 	record.Key = append([]byte(nil), req.Key...)
 	record.Headers = storeHeadersFromProtocol(req.Headers)
+	applyRoutingKey(&record, req.RoutingKey)
 	record.ExpiresAtMS = cloneUint64Ptr(req.ExpiresAtMS)
 	if req.Tombstone {
 		record.Attributes |= store.RecordAttributeTombstone
@@ -135,6 +134,7 @@ func (s *TCPServer) handleProduceBatchFrame(ctx context.Context, frame transport
 	if err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
+	records = batchRecordsWithRequestRoutingKey(req, records)
 	result, err := s.publishProtocolBatch(ctx, req, records)
 	if err != nil {
 		return errorFromErr(err), nil
@@ -167,8 +167,8 @@ func (s *TCPServer) handleProduceBatchesFrame(ctx context.Context, frame transpo
 		}
 		commands.Add(produceBatchCommand{
 			Topic:        item.Topic,
-			Partitioning: partitioningFromProtocol(item.Partitioning, item.Partition),
-			Records:      records,
+			Partitioning: partitioningFromProtocol(item.Partitioning, item.Partition, item.RoutingKey),
+			Records:      batchRecordsWithRequestRoutingKey(protocol.ProduceBatchRequest(item), records),
 			Idempotency:  produceIdempotencyFromProtocol(item.Idempotency),
 		})
 		items.Add(protocol.ProduceBatchesItemResponse{Topic: item.Topic})

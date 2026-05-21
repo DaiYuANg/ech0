@@ -57,6 +57,9 @@ func writeTxPublishRequest(writer *binaryWriter, req TxPublishRequest) error {
 	}
 	writer.writeOptionalU32(req.Partition)
 	writePartitioning(writer, req.Partitioning)
+	if err := writer.writeString(req.RoutingKey); err != nil {
+		return err
+	}
 	if err := writer.writeBytes(req.Key); err != nil {
 		return err
 	}
@@ -92,6 +95,9 @@ func readTxPublishRequestTail(reader *binaryReader, req TxPublishRequest) (TxPub
 		return TxPublishRequest{}, err
 	}
 	if req.Partitioning, err = readPartitioning(reader); err != nil {
+		return TxPublishRequest{}, err
+	}
+	if req.RoutingKey, err = reader.readString(); err != nil {
 		return TxPublishRequest{}, err
 	}
 	if req.Key, err = reader.readBytes(); err != nil {
@@ -145,7 +151,7 @@ func encodeTxPublishBatchRequest(value any) ([]byte, error) {
 		writer.writeU64(req.BaseSequence)
 		return writeProduceBatchRequest(writer, ProduceBatchRequest{
 			Topic: req.Topic, Partition: req.Partition, Partitioning: req.Partitioning,
-			Payloads: req.Payloads, Records: req.Records,
+			RoutingKey: req.RoutingKey, Payloads: req.Payloads, Records: req.Records,
 		})
 	})
 }
@@ -164,7 +170,7 @@ func decodeTxPublishBatchRequest(data []byte, target any) error {
 		return TxPublishBatchRequest{
 			Identity: identity, BaseSequence: baseSequence,
 			Topic: batch.Topic, Partition: batch.Partition, Partitioning: batch.Partitioning,
-			Payloads: batch.Payloads, Records: batch.Records,
+			RoutingKey: batch.RoutingKey, Payloads: batch.Payloads, Records: batch.Records,
 		}, err
 	})
 }

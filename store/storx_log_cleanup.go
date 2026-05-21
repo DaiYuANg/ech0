@@ -73,11 +73,15 @@ func (s *StorxLogStore) enforcePartitionRetention(ctx context.Context, topic Top
 }
 
 func (s *StorxLogStore) compactPartition(ctx context.Context, topic TopicConfig, tp TopicPartition, nowMS uint64) (int, error) {
-	records, err := s.partitionRecords(ctx, tp)
+	lock := s.partitionLock(tp)
+	lock.Lock()
+	defer lock.Unlock()
+	pointers, records, err := s.partitionRecordsWithPointers(ctx, tp)
 	if err != nil {
 		return 0, err
 	}
-	remove := compactionRemovableOffsets(topic, records, nowMS)
+	latestOffsetByKey := s.latestOffsetsByKeyIndexOrRecords(tp, records, pointers)
+	remove := compactionRemovableOffsetsWithLatest(topic, records, nowMS, latestOffsetByKey)
 	if remove.IsEmpty() {
 		return 0, nil
 	}
@@ -96,15 +100,23 @@ func (s *StorxLogStore) listLogTopics() []TopicConfig {
 }
 
 func (s *StorxLogStore) partitionRecords(ctx context.Context, tp TopicPartition) ([]Record, error) {
+	_, records, err := s.partitionRecordsWithPointers(ctx, tp)
+	return records, err
+}
+
+func (s *StorxLogStore) partitionRecordsWithPointers(
+	ctx context.Context,
+	tp TopicPartition,
+) ([]segmentRecordPointer, []Record, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, wrapExternal(err, "list partition log records")
+		return nil, nil, wrapExternal(err, "list partition log records")
 	}
 	pointers := s.recordPointersFrom(tp, 0, maxSegmentInt())
 	records, err := s.readPointers(pointers)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return records, nil
+	return pointers, records, nil
 }
 
 func (s *StorxLogStore) deleteRecordPointers(tp TopicPartition, remove interface{ Contains(uint64) bool }) (int, error) {

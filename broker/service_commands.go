@@ -51,6 +51,20 @@ type commitOffsetsResult struct {
 	Items []commitOffsetItemResult
 }
 
+type deleteConsumerOffsetCommand struct {
+	Consumer  string
+	Topic     string
+	Partition uint32
+}
+
+type deleteConsumerOffsetsCommand struct {
+	Requests []deleteConsumerOffsetCommand
+}
+
+type deleteConsumerOffsetsResult struct {
+	Deleted int
+}
+
 type consumerPauseCommand struct {
 	Consumer    string
 	Topic       string

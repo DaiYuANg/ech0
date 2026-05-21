@@ -11,6 +11,7 @@ type TopicSummary struct {
 	MessageTTLMS                   *uint64 `json:"message_ttl_ms,omitempty"`
 	MessageExpiryAction            string  `json:"message_expiry_action"`
 	CompactionTombstoneRetentionMS *uint64 `json:"compaction_tombstone_retention_ms,omitempty"`
+	OrderingPolicy                 string  `json:"ordering_policy,omitempty"`
 	MaxMessageBytes                uint32  `json:"max_message_bytes"`
 	MaxBatchBytes                  uint32  `json:"max_batch_bytes"`
 	RetryMaxAttempts               uint32  `json:"retry_max_attempts"`

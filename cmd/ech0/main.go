@@ -48,6 +48,7 @@ func newRootCommand() *cobra.Command {
 	root.SetContext(ctx)
 	root.SetHelpCommand(&cobra.Command{Hidden: true})
 	root.AddCommand(newVersionCommand())
+	root.AddCommand(newRepairCommand())
 	cobra.OnFinalize(stop)
 
 	return root

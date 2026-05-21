@@ -40,6 +40,7 @@ type topicOptions struct {
 	retryPolicy     *RetryPolicy
 	messageTTLMS    *uint64
 	expiryAction    store.MessageExpiryAction
+	orderingPolicy  store.TopicOrderingPolicy
 }
 
 type RetryPolicy struct {
@@ -52,10 +53,11 @@ type RetryPolicy struct {
 type PublishOption func(*publishOptions)
 
 type publishOptions struct {
-	key       []byte
-	partition *uint32
-	tombstone bool
-	expiresAt *uint64
+	key        []byte
+	routingKey string
+	partition  *uint32
+	tombstone  bool
+	expiresAt  *uint64
 }
 
 type FetchOption func(*fetchOptions)
@@ -115,9 +117,27 @@ func Retry(policy RetryPolicy) TopicOption {
 	}
 }
 
+func OrderByKey() TopicOption {
+	return func(opts *topicOptions) {
+		opts.orderingPolicy = store.TopicOrderingKey
+	}
+}
+
+func OrderByRoutingKey() TopicOption {
+	return func(opts *topicOptions) {
+		opts.orderingPolicy = store.TopicOrderingRoutingKey
+	}
+}
+
 func Key(key []byte) PublishOption {
 	return func(opts *publishOptions) {
 		opts.key = append([]byte(nil), key...)
+	}
+}
+
+func RoutingKey(routingKey string) PublishOption {
+	return func(opts *publishOptions) {
+		opts.routingKey = routingKey
 	}
 }
 
@@ -269,30 +289,4 @@ func configFromOptions(opts Options) internalbroker.Config {
 		applyRaftOptions(&cfg, opts)
 	}
 	return cfg
-}
-
-func applyRaftOptions(cfg *internalbroker.Config, opts Options) {
-	if opts.Raft.BindAddr != "" {
-		cfg.Raft.BindAddr = opts.Raft.BindAddr
-	}
-	if opts.Raft.ApplyTimeout > 0 {
-		cfg.Raft.ApplyTimeoutMS = durationMillis(opts.Raft.ApplyTimeout)
-	}
-	if opts.Raft.HeartbeatTimeout > 0 {
-		cfg.Raft.HeartbeatIntervalMS = durationMillis(opts.Raft.HeartbeatTimeout)
-	}
-	cfg.Raft.Cluster = make([]internalbroker.RaftPeerConfig, 0, len(opts.Raft.Peers))
-	for _, peer := range opts.Raft.Peers {
-		cfg.Raft.Cluster = append(cfg.Raft.Cluster, internalbroker.RaftPeerConfig{NodeID: peer.NodeID, Addr: peer.Addr})
-	}
-	if len(cfg.Raft.Cluster) == 0 {
-		cfg.Raft.Cluster = []internalbroker.RaftPeerConfig{{NodeID: opts.NodeID, Addr: cfg.Raft.BindAddr}}
-	}
-}
-
-func durationMillis(duration time.Duration) uint64 {
-	if duration <= 0 {
-		return 0
-	}
-	return uint64(duration / time.Millisecond)
 }

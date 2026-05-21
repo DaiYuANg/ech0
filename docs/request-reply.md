@@ -21,7 +21,7 @@ Request flow:
 5. A responder consumes from the subject through `FetchRequests`.
 6. The responder calls `Reply` or `ReplyError`.
 7. The reply is sent as a direct message to the requester instance's reply inbox.
-8. The requester calls `AwaitReply`, which polls its reply inbox for the matching correlation ID.
+8. The requester calls `AwaitReply` or `AwaitReplies`, which polls its reply inbox for the matching correlation ID.
 
 The reply inbox name is derived from the requester instance ID:
 
@@ -55,6 +55,17 @@ Requester wait behavior:
 
 This keeps the transport asynchronous while allowing low-latency request/reply behavior for local or fast network deployments.
 
+## Reply Modes
+
+Request/reply supports two explicit modes:
+
+| Mode | API | Behavior |
+| --- | --- | --- |
+| `first_response_wins` | `Request` / `AwaitReply` | Default. The requester returns the first reply matching the correlation ID and advances that per-correlation cursor. |
+| `multi_replier` | `RequestMany` / `AwaitReplies` | The requester collects up to `max_replies` matching replies. If the deadline arrives after at least one reply, the API returns the partial reply set. |
+
+Multiple responders can receive the same request by using different consumer IDs on the request subject. Replies still target the originating instance reply inbox, so `A1` receives replies for `A1` even when `A2` is running.
+
 ## Protocol Commands
 
 Request/reply commands are first-class wire protocol commands:
@@ -66,6 +77,7 @@ Request/reply commands are first-class wire protocol commands:
 | `CmdReplyRequest` / `CmdReplyResponse` | Send a successful reply. |
 | `CmdReplyErrorRequest` / `CmdReplyErrorResponse` | Send an error reply. |
 | `CmdAwaitReplyRequest` / `CmdAwaitReplyResponse` | Wait for a reply by pending request metadata. |
+| `CmdAwaitRepliesRequest` / `CmdAwaitRepliesResponse` | Wait for up to `max_replies` replies for a pending request. |
 
 The broker still uses internal request and reply payload encoders, but those are server-side details. Protocol clients interact with typed binary commands.
 
@@ -76,7 +88,7 @@ Requests are normal topic records and follow topic partitioning, offsets, and co
 Replies are direct inbox messages:
 
 - The direct inbox has its own offset.
-- `AwaitReply` uses a per-correlation consumer cursor and acks that cursor after it reads the matching correlation ID.
+- `AwaitReply` and `AwaitReplies` use a per-correlation consumer cursor and ack that cursor after reading each matching correlation ID.
 - If the requester crashes before acking, the reply can remain in the inbox and be fetched again.
 
 The current implementation is pull-based. It does not maintain long-lived push subscriptions or server-side response streams yet.

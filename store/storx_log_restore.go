@@ -5,6 +5,7 @@ import (
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
+	collectionset "github.com/arcgolabs/collectionx/set"
 )
 
 func (s *StorxLogStore) Restore(snapshot Snapshot) error {
@@ -41,6 +42,8 @@ func (s *StorxLogStore) clearLogIndexes() error {
 	s.topics = collectionmapping.NewMap[string, TopicConfig]()
 	s.records = collectionmapping.NewMap[TopicPartition, []segmentRecordPointer]()
 	s.timestampRecords = collectionmapping.NewMap[TopicPartition, []segmentRecordPointer]()
+	s.keyRecords = collectionmapping.NewMap[TopicPartition, *collectionmapping.Map[string, segmentRecordPointer]]()
+	s.keyIndexReady = collectionset.NewSet[TopicPartition]()
 	s.nextOffsets = collectionmapping.NewMap[TopicPartition, uint64]()
 	s.indexMu.Unlock()
 	if err := os.Remove(s.segmentManifestPath()); err != nil && !os.IsNotExist(err) {
@@ -121,7 +124,7 @@ func (s *StorxLogStore) appendRestoredRecord(tp TopicPartition, record Record) e
 	if err := s.syncAppendWrites([]string{segmentPath}, []string{segmentIndexRelativePath(segmentPath)}); err != nil {
 		return wrapExternal(err, "sync restored log record")
 	}
-	s.recordAppendedPointer(tp, pointer)
+	s.recordAppendedPointer(tp, pointer, record)
 	return nil
 }
 

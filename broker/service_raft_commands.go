@@ -83,6 +83,7 @@ func (b *Broker) registerTopicRaftHandlers(handlers *collectionmapping.Map[strin
 	setRaftHandler(handlers, raftCommandProduceBatches, b.applyProduceBatches, "decode produce batches command")
 	setRaftHandler(handlers, raftCommandCommitOffset, b.applyCommitOffset, "decode commit offset command")
 	setRaftHandler(handlers, raftCommandCommitOffsets, b.applyCommitOffsets, "decode commit offsets command")
+	setRaftHandler(handlers, raftCommandDeleteConsumerOffsets, b.applyDeleteConsumerOffsets, "decode delete consumer offsets command")
 	setRaftHandler(handlers, raftCommandConsumerPause, b.applyConsumerPause, "decode consumer pause command")
 }
 

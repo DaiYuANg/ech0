@@ -11,29 +11,72 @@ import (
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 )
 
-func newDefaultAuthEngine(logger *slog.Logger) *authx.Engine {
+func newConfiguredAuthEngine(cfg AuthConfig, logger *slog.Logger) *authx.Engine {
 	engine := authx.NewEngine(
 		authx.WithLogger(logger),
 		authx.WithAuthorizer(authx.AuthorizerFunc(func(context.Context, authx.AuthorizationModel) (authx.Decision, error) {
 			return authx.Decision{Allowed: true, PolicyID: authPolicyAllowAll}, nil
 		})),
 	)
-	provider := authx.NewAuthenticationProviderFunc(func(_ context.Context, req AuthRequest) (authx.AuthenticationResult, error) {
-		identity := normalizeIdentity(Identity{
-			Principal: strings.TrimSpace(req.Principal),
-			Tenant:    strings.TrimSpace(req.Tenant),
-			Namespace: strings.TrimSpace(req.Namespace),
-			ClientID:  strings.TrimSpace(req.ClientID),
-		})
-		return authx.AuthenticationResult{
-			Principal: authPrincipal(identity),
-			Details:   identityDetails(identity),
-		}, nil
-	})
+	provider := newConfiguredAuthProvider(cfg)
 	if err := engine.RegisterProvider(provider); err != nil && logger != nil {
 		logger.Warn("register default auth provider failed", "error", err)
 	}
 	return engine
+}
+
+func newConfiguredAuthProvider(cfg AuthConfig) authx.AuthenticationProvider {
+	tokens := configuredAuthTokens(cfg.StaticTokens)
+	return authx.NewAuthenticationProviderFunc(func(_ context.Context, req AuthRequest) (authx.AuthenticationResult, error) {
+		token := strings.TrimSpace(req.Token)
+		if token != "" {
+			if identity, ok := tokens.Get(token); ok {
+				identity.ClientID = nonEmpty(strings.TrimSpace(req.ClientID), identity.ClientID)
+				return authenticationResult(identity), nil
+			}
+			return authx.AuthenticationResult{}, authx.NewError(authx.ErrorCodeUnauthenticated, "invalid auth token")
+		}
+		if cfg.Enabled && !cfg.AllowAnonymous {
+			return authx.AuthenticationResult{}, authx.NewError(authx.ErrorCodeUnauthenticated, "auth token is required")
+		}
+		return authenticationResult(identityFromAuthRequest(req)), nil
+	})
+}
+
+func configuredAuthTokens(tokens []StaticAuthTokenConfig) *collectionmapping.Map[string, Identity] {
+	out := collectionmapping.NewMap[string, Identity]()
+	for index := range tokens {
+		token := tokens[index]
+		tokenValue := strings.TrimSpace(token.Token)
+		if tokenValue == "" {
+			continue
+		}
+		out.Set(tokenValue, normalizeIdentity(Identity{
+			Principal: token.Principal,
+			Tenant:    token.Tenant,
+			Namespace: token.Namespace,
+			ClientID:  token.ClientID,
+			Instance:  token.Instance,
+		}))
+	}
+	return out
+}
+
+func identityFromAuthRequest(req AuthRequest) Identity {
+	return normalizeIdentity(Identity{
+		Principal: strings.TrimSpace(req.Principal),
+		Tenant:    strings.TrimSpace(req.Tenant),
+		Namespace: strings.TrimSpace(req.Namespace),
+		ClientID:  strings.TrimSpace(req.ClientID),
+	})
+}
+
+func authenticationResult(identity Identity) authx.AuthenticationResult {
+	identity = normalizeIdentity(identity)
+	return authx.AuthenticationResult{
+		Principal: authPrincipal(identity),
+		Details:   identityDetails(identity),
+	}
 }
 
 func authPrincipal(identity Identity) authx.Principal {

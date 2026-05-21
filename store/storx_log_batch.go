@@ -212,7 +212,7 @@ func (s *StorxLogStore) commitAppendBatch(
 	}
 
 	nextOffsetStart := time.Now()
-	s.recordAppendedPointers(topicPartition, pointers)
+	s.recordAppendedPointers(topicPartition, pointers, plan.records)
 	s.recordAppendStage(operation, "next_offset_set", len(plan.records), nextOffsetStart, nil)
 	return cloneRecords(plan.records), nil
 }

@@ -5,33 +5,36 @@ import "strings"
 func DefaultConfig() Config {
 	return Config{
 		Broker: BrokerConfig{
-			NodeID:                         1,
-			ClusterName:                    "ech0-dev",
-			DataDir:                        "./data",
-			BindAddr:                       "127.0.0.1:9090",
-			MaxFrameBodyBytes:              4 * 1024 * 1024,
-			MaxPayloadBytes:                1024 * 1024,
-			MaxBatchPayloadBytes:           8 * 1024 * 1024,
-			MaxFetchRecords:                1000,
-			MaxFetchWaitMS:                 5000,
-			MaxConcurrentConnections:       4096,
-			CommandRateLimitPerSecond:      0,
-			CommandRateLimitBurst:          0,
-			TopicCacheMaxEntries:           4096,
-			MaintenanceConcurrency:         4,
-			GroupAssignmentStrategy:        "round_robin",
-			GroupStickyAssignments:         true,
-			DataShardCount:                 1,
-			RetryWorkerEnabled:             true,
-			RetryWorkerIntervalSecs:        5,
-			RetryWorkerMaxRecords:          256,
-			RetryWorkerConsumerPrefix:      "__retry_worker",
-			DelaySchedulerEnabled:          true,
-			DelaySchedulerIntervalSecs:     1,
-			DelaySchedulerMaxRecords:       256,
-			DelaySchedulerConsumerPrefix:   "__delay_scheduler",
-			TransactionCleanupEnabled:      true,
-			TransactionCleanupIntervalSecs: 5,
+			NodeID:                          1,
+			ClusterName:                     "ech0-dev",
+			DataDir:                         "./data",
+			BindAddr:                        "127.0.0.1:9090",
+			MaxFrameBodyBytes:               4 * 1024 * 1024,
+			MaxPayloadBytes:                 1024 * 1024,
+			MaxBatchPayloadBytes:            8 * 1024 * 1024,
+			MaxFetchRecords:                 1000,
+			MaxFetchWaitMS:                  5000,
+			MaxConcurrentConnections:        4096,
+			CommandRateLimitPerSecond:       0,
+			CommandRateLimitBurst:           0,
+			TopicCacheMaxEntries:            4096,
+			MaintenanceConcurrency:          4,
+			GroupAssignmentStrategy:         "round_robin",
+			GroupStickyAssignments:          true,
+			DataShardCount:                  1,
+			RetryWorkerEnabled:              true,
+			RetryWorkerIntervalSecs:         5,
+			RetryWorkerMaxRecords:           256,
+			RetryWorkerConsumerPrefix:       "__retry_worker",
+			DelaySchedulerEnabled:           true,
+			DelaySchedulerIntervalSecs:      1,
+			DelaySchedulerMaxRecords:        256,
+			DelaySchedulerConsumerPrefix:    "__delay_scheduler",
+			TransactionCleanupEnabled:       true,
+			TransactionCleanupIntervalSecs:  5,
+			RequestReplyCleanupEnabled:      true,
+			RequestReplyCleanupIntervalSecs: 30,
+			RequestReplyCursorTTLMS:         60_000,
 		},
 		Admin: AdminConfig{
 			Enabled:  true,
@@ -178,6 +181,12 @@ func normalizeBrokerWorkers(cfg *BrokerConfig) {
 	if cfg.TransactionCleanupIntervalSecs == 0 {
 		cfg.TransactionCleanupIntervalSecs = 5
 	}
+	if cfg.RequestReplyCleanupIntervalSecs == 0 {
+		cfg.RequestReplyCleanupIntervalSecs = 30
+	}
+	if cfg.RequestReplyCursorTTLMS == 0 {
+		cfg.RequestReplyCursorTTLMS = 60_000
+	}
 }
 
 func normalizeGovernanceConfig(cfg *GovernanceConfig) {
@@ -187,14 +196,12 @@ func normalizeGovernanceConfig(cfg *GovernanceConfig) {
 	if cfg.DefaultNamespace == "" {
 		cfg.DefaultNamespace = DefaultNamespace
 	}
+	normalizeAuthConfig(&cfg.Auth)
 	for index := range cfg.TenantDefaults {
 		defaults := &cfg.TenantDefaults[index]
 		defaults.Tenant = strings.TrimSpace(defaults.Tenant)
 		defaults.Namespace = strings.TrimSpace(defaults.Namespace)
 		defaults.DeadLetterTopic = strings.TrimSpace(defaults.DeadLetterTopic)
-	}
-	if !cfg.Auth.Enabled {
-		cfg.Auth.AllowAnonymous = true
 	}
 }
 

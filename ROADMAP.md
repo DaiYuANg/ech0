@@ -24,7 +24,7 @@ Multi-tenancy should land before the next large MQ feature work because it chang
 - Done: tenant-level defaults for retention, retry, delay, and DLQ policies.
 - Done: auth identity model with principal, tenant, namespace, and optional client instance identity.
 - Done: pluggable auth provider interface with an allow-all default for embedded usage.
-- Partial: binary/server auth configuration through configx and DIX; config loading is DIX/configx based, while custom auth provider selection remains a library option.
+- Done: binary/server auth configuration through configx and DIX with static-token authx provider support, while custom auth provider selection remains a library option.
 - Done: TCP handshake authentication metadata.
 - Done: admin API authentication metadata.
 - Done: ACL resource model for cluster, tenant, namespace, topic, consumer group, transactional ID, and admin operations.
@@ -65,7 +65,7 @@ The first implementation cut should keep the public mental model small: existing
 - Done: compaction by key for segment-log storage.
 - Done: partition high watermark, low watermark, and log start offset in store/runtime/protocol/admin views.
 - Done: tombstone cleanup.
-- Partial: topic-level policies for retention, compaction, retry, DLQ, priority, and ordering; retention, compaction, retry, delay, and DLQ policies exist, while priority and ordering policies remain open.
+- Partial: topic-level policies for retention, compaction, retry, DLQ, priority, and ordering; retention, compaction, retry, delay, DLQ, and ordering policies exist, while priority policies remain open.
 - Done: per-message TTL with delete-or-DLQ expiry policy.
 
 ## Phase 5: Retry, Delay, And DLQ
@@ -73,32 +73,32 @@ The first implementation cut should keep the public mental model small: existing
 - Done: per-message delay and scheduled delivery.
 - Done: DLQ query by offset, timestamp range, error reason, and header filters through broker and embedded APIs.
 - Done: DLQ replay by DLQ offset with internal retry/DLQ headers stripped before republish.
-- Cron-like scheduled message support.
-- Partial: retry policy improvements: exponential backoff, max attempts, and retry topic isolation exist; jitter remains open.
-- Bulk DLQ replay from query results by time range, header filter, and error reason.
-- DLQ query indexes for original topic, partition, offset, error reason, and retry count.
-- Poison message handling: skip, isolate, inspect, and replay.
+- Done: cron-like scheduled message support.
+- Done: retry policy improvements with exponential backoff, max attempts, retry topic isolation, and jitter.
+- Done: bulk DLQ replay from query results by time range, header filter, and error reason.
+- Done: DLQ query indexes for original topic, partition, offset, error reason, and retry count.
+- Done: poison message handling: skip, isolate, inspect, and replay.
 
 ## Phase 6: Routing And Bidirectional Messaging
 
 - Done: embedded library APIs for direct inbox messaging and request/reply.
 - Done: stable per-instance reply inbox with per-correlation consumer cursors for concurrent pending requests.
-- Routing key support beyond topic and partition.
-- Fanout topic or broadcast subject.
-- Wildcard subject matching for lightweight pub/sub routing.
-- Partial: request/reply timeout cleanup; deadlines are enforced and expired replies are rejected, while background inbox cleanup remains open.
-- Reply inbox garbage collection.
-- Multi-replier mode.
-- First-response-wins request/reply mode.
+- Done: routing key support beyond topic and partition through broker, embedded, and TCP protocol APIs.
+- Done: fanout topic and broadcast subject support through broker, embedded, and TCP protocol APIs.
+- Done: wildcard subject matching for lightweight pub/sub routing through broker, embedded, and TCP protocol APIs.
+- Done: request/reply timeout cleanup through deadlines, expired reply rejection, and background cursor cleanup.
+- Done: reply inbox cursor garbage collection for completed or stale per-correlation cursors.
+- Done: multi-replier mode through explicit request mode plus `AwaitReplies` / `RequestMany` APIs and TCP protocol commands.
+- Done: first-response-wins request/reply mode as the default `Request` / `AwaitReply` behavior.
 - Done: correlation tracing across request, internal inbox, and reply.
 - Done: ordered key guarantee for messages sharing the same key through stable key-hash partitioning.
 
 ## Phase 7: Protocol And Client Ecosystem
 
 - Done: protocol capability negotiation during handshake.
-- Done: negotiation constants for compression, batch support, transaction support, fetch wait behavior, direct, request/reply, consumer groups, retry/delay, idempotency, and schema headers.
+- Done: negotiation constants for compression, batch support, transaction support, fetch wait behavior, direct, request/reply, multi-replier request/reply, consumer groups, retry/delay, idempotency, routing keys, fanout, subject wildcards, and schema headers.
 - Done: non-Go client codec documentation.
-- Go client split into producer, consumer, admin, and transactional producer packages.
+- Done: Go client split into producer, consumer, admin, and transactional producer packages.
 - Done: standardized error codes.
 - Done: schema hints through headers such as `content-type`, `schema-id`, and `encoding`.
 - Done: keep zstd compression as the default and record compression metadata at message or batch boundaries.
@@ -109,23 +109,23 @@ The first implementation cut should keep the public mental model small: existing
 - Done: startup rebuild of missing `.idx` files from self-describing segment frames.
 - Done: offset index strengthening.
 - Done: timestamp index.
-- Optional key index for compaction and query support.
+- Done: optional runtime key index for compaction and latest-record-by-key query support.
 - Done: zero-copy or mmap read path experiments.
-- Crash recovery fault tests.
+- Done: crash recovery fault tests for truncated segments and truncated index files.
 - Done: graceful Raft snapshot-on-stop and replay correctness coverage for follower restart from existing data.
 - Done: compaction correctness tests.
 - Done: segment checksum and corruption detection.
-- Log repair tooling.
+- Done: offline segment index repair tooling through `store.RepairStorxLog` and `ech0 repair segments`.
 
 ## Phase 9: Cluster Behavior
 
 - Partial: Dragonboat group management improvements; metadata and data shard groups exist, while membership management remains open.
 - Node join and leave flows.
 - Partition reassignment.
-- Leader balance.
-- Cluster metadata admin API.
-- Gossip discovery stability tests.
-- Rolling restart tests.
+- Partial: leader balance observability through cluster leader distribution metadata; active balancing remains open.
+- Done: cluster metadata admin API for configured peers, raft health, discovery, and data shards.
+- Done: gossip discovery convergence and metadata stability test for memberlist provider.
+- Done: rolling restart test for one-at-a-time Dragonboat broker restarts with continued read/write availability.
 - Done: follower restart-from-existing-data test for a multi-node Dragonboat cluster.
 - Cross-cluster mirror or replicator.
 

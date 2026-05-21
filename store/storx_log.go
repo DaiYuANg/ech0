@@ -25,6 +25,8 @@ type StorxLogStore struct {
 	topics           *collectionmapping.Map[string, TopicConfig]
 	records          *collectionmapping.Map[TopicPartition, []segmentRecordPointer]
 	timestampRecords *collectionmapping.Map[TopicPartition, []segmentRecordPointer]
+	keyRecords       *collectionmapping.Map[TopicPartition, *collectionmapping.Map[string, segmentRecordPointer]]
+	keyIndexReady    *collectionset.Set[TopicPartition]
 	nextOffsets      *collectionmapping.Map[TopicPartition, uint64]
 	metrics          StoreMetrics
 	partitionLocks   *collectionmapping.Map[TopicPartition, *sync.Mutex]
@@ -82,6 +84,8 @@ func OpenStorxLogStoreWithOptions(path string, options StorxLogOptions) (*StorxL
 		topics:           collectionmapping.NewMap[string, TopicConfig](),
 		records:          collectionmapping.NewMap[TopicPartition, []segmentRecordPointer](),
 		timestampRecords: collectionmapping.NewMap[TopicPartition, []segmentRecordPointer](),
+		keyRecords:       collectionmapping.NewMap[TopicPartition, *collectionmapping.Map[string, segmentRecordPointer]](),
+		keyIndexReady:    collectionset.NewSet[TopicPartition](),
 		nextOffsets:      collectionmapping.NewMap[TopicPartition, uint64](),
 		metrics:          options.Metrics,
 		partitionLocks:   collectionmapping.NewMap[TopicPartition, *sync.Mutex](),

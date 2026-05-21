@@ -24,6 +24,22 @@ ECH0_DISCOVERY__ENABLED=true
 
 The embedded root package does not expose this full config surface. Embedded users should use `ech0.Options`.
 
+## Auth Configuration
+
+The binary runtime wires auth through the same `configx` and `dix` graph as the rest of the broker. By default auth is disabled for the small embedded/single-binary mental model. Adding static tokens enables auth and disables anonymous access:
+
+```toml
+[governance.auth]
+
+[[governance.auth.static_tokens]]
+token = "change-me"
+principal = "admin"
+tenant = "default"
+namespace = "default"
+```
+
+TCP clients pass the token in the handshake `auth_token` field. Admin requests can use `Authorization: Bearer <token>`, `X-Ech0-Auth-Token`, or the `auth_token` query parameter. Library users can still inject a custom `authx` provider or engine with `broker.WithAuthProvider` / `broker.WithAuthEngine`.
+
 ## Single-Replica Cluster
 
 Single-replica cluster mode runs one broker process with a Dragonboat metadata group and local segment-log data shards. This is the default when `raft.cluster` contains one peer:
@@ -96,10 +112,13 @@ Admin is served from the broker package on Fiber. It provides:
 - Health endpoints.
 - Metrics endpoint.
 - OpenAPI document endpoint.
+- Cluster metadata endpoint.
 - Topic and message views.
 - Embedded HTML templates styled with Tailwind CDN.
 
 Admin and OpenAPI use `arcgolabs/httpx` for the HTTP surface while the default server is Fiber.
+
+`GET /api/cluster` reports the configured Dragonboat peers, local advertise address, raft group health, data shard runtime modes, discovery state, and a leader distribution summary. The leader distribution is read-only; it is intended to make future leader balance and partition reassignment work observable before adding mutating operations.
 
 `admin.debug_enabled` defaults to `false`. When enabled, the admin server also exposes `GET /debug/fgprof` for wall-clock profiling with `fgprof`, `GET /api/runtime/events` for recent `dix` build/lifecycle/debug events plus broker control-plane events, and `GET /api/runtime/events/stream` as a Server-Sent Events stream for live admin diagnostics; keep it disabled on public admin surfaces.
 
@@ -136,6 +155,10 @@ GoReleaser drives release artifacts:
 Packaging assets live under `packaging/`.
 
 Full local release verification expects `upx` and Docker to be available. Without Docker, `goreleaser release --snapshot --clean --skip=docker` verifies archives and Linux packages.
+
+## Segment Repair
+
+`ech0 repair segments --path <segment-log-root>` validates segment index files offline and rebuilds missing `.idx` files from self-describing segment frames. Use `--dry-run` to inspect planned repairs without writing. Corrupt existing indexes are reported but not rewritten unless `--rebuild-corrupt-indexes` is passed; that mode moves the corrupt index aside with a `.corrupt.<timestamp>` suffix before rebuilding from the segment file.
 
 ## Operational Boundaries
 

@@ -50,3 +50,11 @@ func (s *StorxMetadataStore) ListConsumerOffsetStates() ([]ConsumerOffsetState, 
 	}
 	return sortConsumerOffsetStates(states.Values()), nil
 }
+
+func (s *StorxMetadataStore) DeleteConsumerOffsetState(consumer string, topicPartition TopicPartition) error {
+	key := offsetKey(consumer, topicPartition)
+	if err := s.offsets.Delete(context.Background(), key); err != nil {
+		return wrapExternal(err, "delete consumer offset")
+	}
+	return wrapExternal(s.offsetStates.Delete(context.Background(), key), "delete consumer offset state")
+}

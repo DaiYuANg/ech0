@@ -45,6 +45,14 @@ const (
 	MessageExpiryDLQ    MessageExpiryAction = "dlq"
 )
 
+type TopicOrderingPolicy string
+
+const (
+	TopicOrderingPartition  TopicOrderingPolicy = "partition"
+	TopicOrderingKey        TopicOrderingPolicy = "key"
+	TopicOrderingRoutingKey TopicOrderingPolicy = "routing_key"
+)
+
 type CreateTopicRequest struct {
 	Topic                          string               `json:"topic"`
 	Partitions                     uint32               `json:"partitions"`
@@ -60,6 +68,7 @@ type CreateTopicRequest struct {
 	MessageExpiryAction            *MessageExpiryAction `json:"message_expiry_action,omitempty"`
 	CompactionEnabled              *bool                `json:"compaction_enabled,omitempty"`
 	CompactionTombstoneRetentionMS *uint64              `json:"compaction_tombstone_retention_ms,omitempty"`
+	OrderingPolicy                 *TopicOrderingPolicy `json:"ordering_policy,omitempty"`
 }
 
 type CreateTopicResponse struct {
@@ -67,10 +76,15 @@ type CreateTopicResponse struct {
 	Partitions uint32 `json:"partitions"`
 }
 
+type ListTopicsRequest struct {
+	Pattern string `json:"pattern,omitempty"`
+}
+
 type ProduceRequest struct {
 	Topic        string              `json:"topic"`
 	Partition    *uint32             `json:"partition,omitempty"`
 	Partitioning ProducePartitioning `json:"partitioning"`
+	RoutingKey   string              `json:"routing_key,omitempty"`
 	Idempotency  *ProduceIdempotency `json:"idempotency,omitempty"`
 	Key          []byte              `json:"key,omitempty"`
 	Headers      []MessageHeader     `json:"headers,omitempty"`
@@ -86,6 +100,7 @@ type ProduceResponse struct {
 }
 
 type ProduceBatchRecord struct {
+	RoutingKey  string          `json:"routing_key,omitempty"`
 	Key         []byte          `json:"key,omitempty"`
 	Headers     []MessageHeader `json:"headers,omitempty"`
 	Tombstone   bool            `json:"tombstone,omitempty"`
@@ -111,6 +126,7 @@ type ProduceBatchRequest struct {
 	Topic        string               `json:"topic"`
 	Partition    *uint32              `json:"partition,omitempty"`
 	Partitioning ProducePartitioning  `json:"partitioning"`
+	RoutingKey   string               `json:"routing_key,omitempty"`
 	Idempotency  *ProduceIdempotency  `json:"idempotency,omitempty"`
 	Payloads     [][]byte             `json:"payloads,omitempty"`
 	Records      []ProduceBatchRecord `json:"records,omitempty"`
@@ -128,6 +144,7 @@ type ProduceBatchesItemRequest struct {
 	Topic        string               `json:"topic"`
 	Partition    *uint32              `json:"partition,omitempty"`
 	Partitioning ProducePartitioning  `json:"partitioning"`
+	RoutingKey   string               `json:"routing_key,omitempty"`
 	Idempotency  *ProduceIdempotency  `json:"idempotency,omitempty"`
 	Payloads     [][]byte             `json:"payloads,omitempty"`
 	Records      []ProduceBatchRecord `json:"records,omitempty"`
@@ -151,6 +168,26 @@ type ProduceBatchesResponse struct {
 	Items []ProduceBatchesItemResponse `json:"items"`
 }
 
+type ProduceFanoutRequest struct {
+	Topic       string          `json:"topic"`
+	RoutingKey  string          `json:"routing_key,omitempty"`
+	Key         []byte          `json:"key,omitempty"`
+	Headers     []MessageHeader `json:"headers,omitempty"`
+	Tombstone   bool            `json:"tombstone,omitempty"`
+	ExpiresAtMS *uint64         `json:"expires_at_ms,omitempty"`
+	Payload     []byte          `json:"payload"`
+}
+
+type ProduceFanoutRecordResponse struct {
+	Partition  uint32 `json:"partition"`
+	Offset     uint64 `json:"offset"`
+	NextOffset uint64 `json:"next_offset"`
+}
+
+type ProduceFanoutResponse struct {
+	Records []ProduceFanoutRecordResponse `json:"records"`
+}
+
 type FetchRequest struct {
 	Consumer   string         `json:"consumer"`
 	Topic      string         `json:"topic"`
@@ -165,6 +202,7 @@ type FetchRequest struct {
 type FetchRecord struct {
 	Offset      uint64                     `json:"offset"`
 	TimestampMS uint64                     `json:"timestamp_ms"`
+	RoutingKey  string                     `json:"routing_key,omitempty"`
 	Key         []byte                     `json:"key,omitempty"`
 	Headers     []MessageHeader            `json:"headers,omitempty"`
 	Tombstone   bool                       `json:"tombstone,omitempty"`
@@ -210,6 +248,20 @@ type FetchBatchItemResponse struct {
 
 type FetchBatchResponse struct {
 	Items []FetchBatchItemResponse `json:"items"`
+}
+
+type FetchSubjectPatternRequest struct {
+	Consumer   string         `json:"consumer"`
+	Pattern    string         `json:"pattern"`
+	MaxRecords int            `json:"max_records"`
+	Isolation  FetchIsolation `json:"isolation,omitempty"`
+}
+
+type FetchSubjectPatternItemResponse = FetchBatchItemResponse
+
+type FetchSubjectPatternResponse struct {
+	Pattern string                            `json:"pattern"`
+	Items   []FetchSubjectPatternItemResponse `json:"items"`
 }
 
 type CommitOffsetRequest struct {

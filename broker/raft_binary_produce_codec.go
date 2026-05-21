@@ -10,6 +10,7 @@ const (
 	raftPartitioningExplicit   uint8 = 1
 	raftPartitioningRoundRobin uint8 = 2
 	raftPartitioningKeyHash    uint8 = 3
+	raftPartitioningRoutingKey uint8 = 4
 )
 
 func encodeBinaryProduceBatchesCommand(req produceBatchesCommand) ([]byte, error) {
@@ -262,6 +263,8 @@ func encodeRaftPartitioning(mode string) uint8 {
 		return raftPartitioningRoundRobin
 	case PartitionKeyHash:
 		return raftPartitioningKeyHash
+	case PartitionRoutingKeyHash:
+		return raftPartitioningRoutingKey
 	default:
 		return raftPartitioningDefault
 	}
@@ -285,6 +288,8 @@ func readRaftPartitioning(reader *raftBinaryReader) (PublishPartitioning, error)
 		return PublishPartitioning{Mode: PartitionRoundRobin, Partition: partition}, nil
 	case raftPartitioningKeyHash:
 		return PublishPartitioning{Mode: PartitionKeyHash, Partition: partition}, nil
+	case raftPartitioningRoutingKey:
+		return PublishPartitioning{Mode: PartitionRoutingKeyHash, Partition: partition}, nil
 	default:
 		return PublishPartitioning{}, brokerStoreError(store.CodeCodec, "unknown raft partitioning %d", mode)
 	}

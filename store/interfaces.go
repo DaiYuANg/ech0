@@ -38,6 +38,7 @@ type OffsetMetadataStore interface {
 	SaveConsumerOffsetState(state ConsumerOffsetState) error
 	LoadConsumerOffsetState(consumer string, topicPartition TopicPartition) (*ConsumerOffsetState, error)
 	ListConsumerOffsetStates() ([]ConsumerOffsetState, error)
+	DeleteConsumerOffsetState(consumer string, topicPartition TopicPartition) error
 }
 
 type ConsumerPauseStore interface {

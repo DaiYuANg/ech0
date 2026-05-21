@@ -66,7 +66,9 @@ func (b *Broker) publishBatchScopedIdempotent(
 	idempotency ProduceIdempotency,
 ) (ProduceBatchResult, error) {
 	copied := collectionlist.NewListWithCapacity[store.RecordAppend](len(records))
-	for _, record := range records {
+	for index := range records {
+		record := records[index]
+		applyPartitioningRoutingKey(&record, partitioning)
 		copied.Add(cloneAppend(record))
 	}
 	req := produceBatchCommand{

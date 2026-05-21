@@ -50,6 +50,8 @@ func writePartitioning(writer *binaryWriter, value ProducePartitioning) {
 		writer.writeU8(1)
 	case ProducePartitioningKeyHash:
 		writer.writeU8(3)
+	case ProducePartitioningRoutingKeyHash:
+		writer.writeU8(4)
 	case ProducePartitioningRoundRobin:
 		writer.writeU8(2)
 	default:
@@ -69,6 +71,8 @@ func readPartitioning(reader *binaryReader) (ProducePartitioning, error) {
 		return ProducePartitioningRoundRobin, nil
 	case 3:
 		return ProducePartitioningKeyHash, nil
+	case 4:
+		return ProducePartitioningRoutingKeyHash, nil
 	default:
 		return "", oops.In("protocol").Code("binary_unknown_partitioning").With("value", value).New("unknown partitioning")
 	}

@@ -65,6 +65,39 @@ func TestEmbeddedRequestReply(t *testing.T) {
 	}
 }
 
+func TestEmbeddedRequestManyCollectsReplies(t *testing.T) {
+	ctx := context.Background()
+	b := openEmbeddedBroker(ctx, t)
+	defer closeEmbeddedBroker(ctx, t, b)
+
+	requireNoError(t, b.CreateTopic(ctx, "svc.echo"))
+	pending, err := b.StartRequest(ctx, "svc.echo", []byte("ping"),
+		ech0.RequestInstance("A1"),
+		ech0.RequestTimeout(time.Second),
+		ech0.RequestPollInterval(time.Millisecond),
+		ech0.RequestPartition(0),
+		ech0.RequestMode(ech0.RequestReplyModeMultiReplier),
+	)
+	requireNoError(t, err)
+	first, err := b.FetchRequests(ctx, "workers-b1", "svc.echo", ech0.FetchLimit(1))
+	requireNoError(t, err)
+	second, err := b.FetchRequests(ctx, "workers-b2", "svc.echo", ech0.FetchLimit(1))
+	requireNoError(t, err)
+	if len(first.Requests) != 1 || len(second.Requests) != 1 {
+		t.Fatalf("unexpected requests: first=%#v second=%#v", first, second)
+	}
+	_, err = b.Reply(ctx, first.Requests[0], "B1", []byte("one"))
+	requireNoError(t, err)
+	_, err = b.Reply(ctx, second.Requests[0], "B2", []byte("two"))
+	requireNoError(t, err)
+
+	replies, err := b.AwaitReplies(ctx, pending, 2)
+	requireNoError(t, err)
+	if len(replies) != 2 || replies[0].ResponderID != "B1" || replies[1].ResponderID != "B2" {
+		t.Fatalf("unexpected replies: %#v", replies)
+	}
+}
+
 func publicHeaderValue(headers []ech0.Header, key string) string {
 	for _, header := range headers {
 		if header.Key == key {

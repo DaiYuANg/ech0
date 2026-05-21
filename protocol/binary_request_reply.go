@@ -12,6 +12,9 @@ func encodeStartRequestRequest(value any) ([]byte, error) {
 		writer.writeOptionalU64(req.PollIntervalMS)
 		writer.writeOptionalU32(req.Partition)
 		writePartitioning(writer, req.Partitioning)
+		if err := writer.writeString(string(req.ReplyMode)); err != nil {
+			return err
+		}
 		if err := writeHeaders(writer, req.Headers); err != nil {
 			return err
 		}
@@ -50,6 +53,11 @@ func readStartRequestRequestTail(reader *binaryReader, req StartRequestRequest) 
 	if req.Partitioning, err = readPartitioning(reader); err != nil {
 		return StartRequestRequest{}, err
 	}
+	replyMode, err := reader.readString()
+	if err != nil {
+		return StartRequestRequest{}, err
+	}
+	req.ReplyMode = RequestReplyMode(replyMode)
 	if req.Headers, err = readHeaders(reader); err != nil {
 		return StartRequestRequest{}, err
 	}
@@ -77,6 +85,9 @@ func writeStartRequestResponse(writer *binaryWriter, resp StartRequestResponse) 
 		return err
 	}
 	writer.writeU64(resp.ExpiresAtMS)
+	if err := writer.writeString(resp.ReplyMode); err != nil {
+		return err
+	}
 	writer.writeU32(resp.Partition)
 	writer.writeU64(resp.Offset)
 	writer.writeU64(resp.NextOffset)
@@ -109,6 +120,9 @@ func readStartRequestResponseTail(reader *binaryReader, resp StartRequestRespons
 		return StartRequestResponse{}, err
 	}
 	if resp.ExpiresAtMS, err = reader.readU64(); err != nil {
+		return StartRequestResponse{}, err
+	}
+	if resp.ReplyMode, err = reader.readString(); err != nil {
 		return StartRequestResponse{}, err
 	}
 	if resp.Partition, err = reader.readU32(); err != nil {

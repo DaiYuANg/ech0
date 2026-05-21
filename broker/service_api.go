@@ -54,6 +54,7 @@ func (b *Broker) PublishRecord(ctx context.Context, topic string, partitioning P
 }
 
 func (b *Broker) publishRecordScoped(ctx context.Context, topic string, partitioning PublishPartitioning, record store.RecordAppend) (ProduceResult, error) {
+	applyPartitioningRoutingKey(&record, partitioning)
 	if b.usesClusterCommandRouter() {
 		batch, err := b.publishBatchScoped(ctx, topic, partitioning, []store.RecordAppend{record})
 		if err != nil {
@@ -81,7 +82,9 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, partitioning Pu
 
 func (b *Broker) publishBatchScoped(ctx context.Context, topic string, partitioning PublishPartitioning, records []store.RecordAppend) (ProduceBatchResult, error) {
 	copied := collectionlist.NewListWithCapacity[store.RecordAppend](len(records))
-	for _, record := range records {
+	for index := range records {
+		record := records[index]
+		applyPartitioningRoutingKey(&record, partitioning)
 		copied.Add(cloneAppend(record))
 	}
 	req := produceBatchCommand{Topic: topic, Partitioning: partitioning, Records: copied.Values()}
@@ -94,7 +97,8 @@ func (b *Broker) publishBatchScoped(ctx context.Context, topic string, partition
 func (b *Broker) publishBatches(ctx context.Context, requests []produceBatchCommand) (produceBatchesResult, error) {
 	identity := b.identity(ctx)
 	scopedRequests := collectionlist.NewListWithCapacity[produceBatchCommand](len(requests))
-	for _, request := range requests {
+	for index := range requests {
+		request := requests[index]
 		if request.Topic != "" {
 			if err := b.authorize(ctx, identity, ACLActionProduce, topicResource(identity, request.Topic)); err != nil {
 				return produceBatchesResult{}, err
@@ -104,6 +108,7 @@ func (b *Broker) publishBatches(ctx context.Context, requests []produceBatchComm
 			}
 			request.Topic = scopedTopicName(identity, request.Topic)
 		}
+		request.Records = recordsWithPartitioningRoutingKey(request.Partitioning, request.Records)
 		scopedRequests.Add(request)
 	}
 	requests = scopedRequests.Values()

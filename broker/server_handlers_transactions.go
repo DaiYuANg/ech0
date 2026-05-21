@@ -37,6 +37,7 @@ func (s *TCPServer) handleTxPublishFrame(ctx context.Context, frame transport.Fr
 	record := store.NewRecordAppend(req.Payload)
 	record.Key = append([]byte(nil), req.Key...)
 	record.Headers = storeHeadersFromProtocol(req.Headers)
+	applyRoutingKey(&record, req.RoutingKey)
 	if req.Tombstone {
 		record.Attributes |= store.RecordAttributeTombstone
 	}
@@ -45,7 +46,7 @@ func (s *TCPServer) handleTxPublishFrame(ctx context.Context, frame transport.Fr
 		transactionIdentityFromProtocol(req.Identity),
 		req.Sequence,
 		req.Topic,
-		partitioningFromProtocol(req.Partitioning, req.Partition),
+		partitioningFromProtocol(req.Partitioning, req.Partition, req.RoutingKey),
 		record,
 	)
 	if err != nil {
@@ -68,18 +69,27 @@ func (s *TCPServer) handleTxPublishBatchFrame(ctx context.Context, frame transpo
 		Topic:        req.Topic,
 		Partition:    req.Partition,
 		Partitioning: req.Partitioning,
+		RoutingKey:   req.RoutingKey,
 		Payloads:     req.Payloads,
 		Records:      req.Records,
 	})
 	if err != nil {
 		return errorFrame("invalid_request", err.Error()), nil
 	}
+	records = batchRecordsWithRequestRoutingKey(protocol.ProduceBatchRequest{
+		Topic:        req.Topic,
+		Partition:    req.Partition,
+		Partitioning: req.Partitioning,
+		RoutingKey:   req.RoutingKey,
+		Payloads:     req.Payloads,
+		Records:      req.Records,
+	}, records)
 	result, err := s.broker.PublishTransactionalBatch(
 		ctx,
 		transactionIdentityFromProtocol(req.Identity),
 		req.BaseSequence,
 		req.Topic,
-		partitioningFromProtocol(req.Partitioning, req.Partition),
+		partitioningFromProtocol(req.Partitioning, req.Partition, req.RoutingKey),
 		records,
 	)
 	if err != nil {

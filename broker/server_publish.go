@@ -12,7 +12,7 @@ func (s *TCPServer) publishProtocolRecord(
 	req protocol.ProduceRequest,
 	record store.RecordAppend,
 ) (ProduceResult, error) {
-	partitioning := partitioningFromProtocol(req.Partitioning, req.Partition)
+	partitioning := partitioningFromProtocol(req.Partitioning, req.Partition, req.RoutingKey)
 	idempotency := produceIdempotencyFromProtocol(req.Idempotency)
 	if idempotency == nil {
 		return s.broker.PublishRecord(ctx, req.Topic, partitioning, record)
@@ -25,7 +25,7 @@ func (s *TCPServer) publishProtocolBatch(
 	req protocol.ProduceBatchRequest,
 	records []store.RecordAppend,
 ) (ProduceBatchResult, error) {
-	partitioning := partitioningFromProtocol(req.Partitioning, req.Partition)
+	partitioning := partitioningFromProtocol(req.Partitioning, req.Partition, req.RoutingKey)
 	idempotency := produceIdempotencyFromProtocol(req.Idempotency)
 	if idempotency == nil {
 		return s.broker.PublishBatch(ctx, req.Topic, partitioning, records)

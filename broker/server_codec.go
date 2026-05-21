@@ -127,17 +127,22 @@ func applyTopicPolicyOptions(topic *store.TopicConfig, req protocol.CreateTopicR
 	if req.MessageExpiryAction != nil {
 		topic.MessageExpiryAction = store.MessageExpiryAction(*req.MessageExpiryAction)
 	}
+	if req.OrderingPolicy != nil {
+		topic.OrderingPolicy = store.TopicOrderingPolicy(*req.OrderingPolicy)
+	}
 	if req.CompactionEnabled != nil {
 		topic.CompactionEnabled = *req.CompactionEnabled
 	}
 }
 
-func partitioningFromProtocol(mode protocol.ProducePartitioning, partition *uint32) PublishPartitioning {
+func partitioningFromProtocol(mode protocol.ProducePartitioning, partition *uint32, routingKey string) PublishPartitioning {
 	switch mode {
 	case protocol.ProducePartitioningExplicit:
 		return explicitPartitioning(partition)
 	case protocol.ProducePartitioningKeyHash:
 		return PublishPartitioning{Mode: PartitionKeyHash}
+	case protocol.ProducePartitioningRoutingKeyHash:
+		return PublishPartitioning{Mode: PartitionRoutingKeyHash, RoutingKey: routingKey}
 	case protocol.ProducePartitioningRoundRobin:
 		return PublishPartitioning{Mode: PartitionRoundRobin}
 	default:
@@ -161,46 +166,6 @@ func explicitPartitioning(partition *uint32) PublishPartitioning {
 		return PublishPartitioning{Mode: PartitionExplicit, Partition: 0}
 	}
 	return PublishPartitioning{Mode: PartitionExplicit, Partition: *partition}
-}
-
-func batchRecordsFromProtocol(req protocol.ProduceBatchRequest) ([]store.RecordAppend, error) {
-	if len(req.Payloads) == 0 && len(req.Records) == 0 {
-		return nil, errors.New("produce_batch requires payloads or records")
-	}
-	if len(req.Payloads) > 0 && len(req.Records) > 0 {
-		return nil, errors.New("produce_batch must provide only one of payloads or records")
-	}
-	if len(req.Records) > 0 {
-		return batchRecordItemsFromProtocol(req.Records), nil
-	}
-	return batchPayloadsFromProtocol(req.Payloads), nil
-}
-
-func batchRecordItemsFromProtocol(records []protocol.ProduceBatchRecord) []store.RecordAppend {
-	out := collectionlist.NewListWithCapacity[store.RecordAppend](len(records))
-	for _, record := range records {
-		out.Add(recordItemFromProtocol(record))
-	}
-	return out.Values()
-}
-
-func recordItemFromProtocol(record protocol.ProduceBatchRecord) store.RecordAppend {
-	appendRecord := store.NewRecordAppend(record.Payload)
-	appendRecord.Key = append([]byte(nil), record.Key...)
-	appendRecord.Headers = storeHeadersFromProtocol(record.Headers)
-	appendRecord.ExpiresAtMS = cloneUint64Ptr(record.ExpiresAtMS)
-	if record.Tombstone {
-		appendRecord.Attributes |= store.RecordAttributeTombstone
-	}
-	return appendRecord
-}
-
-func batchPayloadsFromProtocol(payloads [][]byte) []store.RecordAppend {
-	out := collectionlist.NewListWithCapacity[store.RecordAppend](len(payloads))
-	for _, payload := range payloads {
-		out.Add(store.NewRecordAppend(payload))
-	}
-	return out.Values()
 }
 
 func mergeProduceBatchesResponse(

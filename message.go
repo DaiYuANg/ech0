@@ -12,6 +12,7 @@ type Message struct {
 	Offset     uint64
 	Timestamp  time.Time
 	ExpiresAt  *time.Time
+	RoutingKey string
 	Key        []byte
 	Headers    []Header
 	Payload    []byte
@@ -39,6 +40,7 @@ func messageFromRecord(topic string, partition uint32, record store.Record) Mess
 		Offset:     record.Offset,
 		Timestamp:  time.UnixMilli(unixMillis(record.TimestampMS)),
 		ExpiresAt:  timeFromUnixMillisPtr(record.ExpiresAtMS),
+		RoutingKey: routingKeyFromStore(record.Headers),
 		Key:        append([]byte(nil), record.Key...),
 		Headers:    headersFromStore(record.Headers),
 		Payload:    append([]byte(nil), record.Payload...),

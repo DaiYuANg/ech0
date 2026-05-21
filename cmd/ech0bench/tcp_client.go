@@ -106,7 +106,8 @@ func (b *tcpBenchBroker) Fetch(ctx context.Context, consumer, topic string, part
 		return benchFetchResult{}, err
 	}
 	messages := make([]benchMessage, 0, len(out.Records))
-	for _, record := range out.Records {
+	for index := range out.Records {
+		record := out.Records[index]
 		messages = append(messages, benchMessage{Payload: record.Payload, NextOffset: record.Offset + 1})
 	}
 	return benchFetchResult{Messages: messages, NextOffset: out.NextOffset}, nil

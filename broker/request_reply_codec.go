@@ -13,6 +13,7 @@ type requestReplyEnvelope struct {
 	ReplyTo       string               `json:"reply_to,omitempty"`
 	SenderID      string               `json:"sender_id,omitempty"`
 	ExpiresAtMS   uint64               `json:"expires_at_ms,omitempty"`
+	ReplyMode     string               `json:"reply_mode,omitempty"`
 	Headers       []store.RecordHeader `json:"headers,omitempty"`
 	Error         *string              `json:"error,omitempty"`
 	Payload       []byte               `json:"payload,omitempty"`
@@ -26,6 +27,7 @@ func encodeRequestPayload(subject string, opts RequestOptions, correlationID, re
 		ReplyTo:       replyTo,
 		SenderID:      opts.InstanceID,
 		ExpiresAtMS:   expiresAtMS,
+		ReplyMode:     string(opts.ReplyMode),
 		Headers:       cloneHeaders(opts.Headers),
 		Payload:       append([]byte(nil), payload...),
 	})
@@ -61,6 +63,7 @@ func requestFromRecord(subject string, record store.Record) (RequestMessage, err
 		CorrelationID: envelope.CorrelationID,
 		SenderID:      envelope.SenderID,
 		ExpiresAtMS:   envelope.ExpiresAtMS,
+		ReplyMode:     requestReplyModeFromString(envelope.ReplyMode),
 		Headers:       cloneHeaders(envelope.Headers),
 		Payload:       append([]byte(nil), envelope.Payload...),
 		Record:        cloneRecord(record),

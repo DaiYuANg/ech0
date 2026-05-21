@@ -11,6 +11,9 @@ import (
 
 func (b *Broker) applyCreateTopic(ctx context.Context, topic store.TopicConfig) (store.TopicConfig, error) {
 	normalizeTopicPolicies(&topic)
+	if err := validateTopicPolicies(topic); err != nil {
+		return store.TopicConfig{}, err
+	}
 	if isInternalTopicName(topic.Name) {
 		return store.TopicConfig{}, brokerStoreError(store.CodeInvalidArgument, "topic name %s is reserved for internal broker use", topic.Name)
 	}
@@ -51,7 +54,12 @@ func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceR
 	if topic == nil {
 		return ProduceResult{}, brokerStoreError(store.CodeTopicNotFound, "topic %s not found", req.Topic)
 	}
-	partition, err := b.router.selectPartition(*topic, req.Partitioning, req.Record.Key)
+	records := []store.RecordAppend{req.Record}
+	partitioning, err := b.resolveTopicOrderingPartitioning(*topic, req.Partitioning, records)
+	if err != nil {
+		return ProduceResult{}, err
+	}
+	partition, err := b.router.selectPartition(*topic, partitioning, req.Record.Key)
 	if err != nil {
 		return ProduceResult{}, err
 	}
@@ -59,7 +67,7 @@ func (b *Broker) applyProduce(ctx context.Context, req produceCommand) (ProduceR
 	if err != nil {
 		return ProduceResult{}, wrapBroker("publish_record_failed", err, "publish record")
 	}
-	b.metrics.RecordProduce(ctx, req.Partitioning.Mode, 1)
+	b.metrics.RecordProduce(ctx, partitioning.Mode, 1)
 	b.publishEvent(ctx, RecordProducedEvent{Topic: req.Topic, Partition: partition, Offset: record.Offset, NextOffset: record.Offset + 1})
 	return ProduceResult{Partition: partition, Record: record}, nil
 }
@@ -86,7 +94,11 @@ func (b *Broker) applyProduceBatchInternal(_ context.Context, req produceBatchCo
 	if validateErr := b.validateBatchPayload(req.Records); validateErr != nil {
 		return produceBatchItemResult{}, validateErr
 	}
-	partition, err := b.router.selectPartition(*topic, req.Partitioning, firstRecordKey(req.Records))
+	partitioning, err := b.resolveTopicOrderingPartitioning(*topic, req.Partitioning, req.Records)
+	if err != nil {
+		return produceBatchItemResult{}, err
+	}
+	partition, err := b.router.selectPartition(*topic, partitioning, firstRecordKey(req.Records))
 	if err != nil {
 		return produceBatchItemResult{}, err
 	}
@@ -112,7 +124,8 @@ func (b *Broker) validateBatchPayload(records []store.RecordAppend) error {
 }
 
 func (b *Broker) recordBatchProduce(ctx context.Context, req produceBatchCommand, partition uint32, records []store.Record) {
-	b.metrics.RecordProduce(ctx, req.Partitioning.Mode, uint64(len(records)))
+	partitioning := withResolvedRoutingKey(req.Partitioning, nil)
+	b.metrics.RecordProduce(ctx, partitioning.Mode, uint64(len(records)))
 	for _, record := range records {
 		b.publishEvent(ctx, RecordProducedEvent{Topic: req.Topic, Partition: partition, Offset: record.Offset, NextOffset: record.Offset + 1})
 	}
@@ -172,6 +185,18 @@ func compactCommitOffsetCommands(commands []commitOffsetCommand) *collectionmapp
 
 func commitOffsetKey(command commitOffsetCommand) commitOffsetApplyKey {
 	return commitOffsetApplyKey{consumer: command.Consumer, topic: command.Topic, partition: command.Partition}
+}
+
+func (b *Broker) applyDeleteConsumerOffsets(_ context.Context, req deleteConsumerOffsetsCommand) (deleteConsumerOffsetsResult, error) {
+	deleted := 0
+	for _, item := range req.Requests {
+		tp := store.NewTopicPartition(item.Topic, item.Partition)
+		if err := b.meta.DeleteConsumerOffsetState(item.Consumer, tp); err != nil {
+			return deleteConsumerOffsetsResult{}, wrapBrokerStore(err, "delete consumer offset")
+		}
+		deleted++
+	}
+	return deleteConsumerOffsetsResult{Deleted: deleted}, nil
 }
 
 func errorMessage(err error) string {

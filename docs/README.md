@@ -6,6 +6,7 @@ This directory documents the current Go design of ech0. The docs describe the co
 
 - [Architecture](architecture.md): package boundaries, runtime composition, and library-first design.
 - [Wire Protocol](wire-protocol.md): TCP frame layout, binary body encoding, command registry, and compatibility rules.
+- [Go Client Packages](go-client-packages.md): role-focused producer, consumer, admin, and transactional producer packages.
 - [Storage](storage.md): metadata store, segment log, segment index, retention, compaction, and snapshots.
 - [Request Reply](request-reply.md): request/reply semantics for address-agnostic services and instance-pinned replies.
 - [Operations](operations.md): binary configuration, single-replica and multi-replica Dragonboat modes, scheduled jobs, Admin UI, metrics, Docker, and release packaging.

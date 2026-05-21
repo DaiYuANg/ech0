@@ -8,17 +8,19 @@ const (
 	CmdHandshakeRequest uint16 = 1
 	CmdPingRequest      uint16 = 2
 
-	CmdCreateTopicRequest    uint16 = 10
-	CmdListTopicsRequest     uint16 = 11
-	CmdProduceRequest        uint16 = 20
-	CmdProduceBatchRequest   uint16 = 21
-	CmdFetchRequest          uint16 = 22
-	CmdFetchBatchRequest     uint16 = 23
-	CmdCommitOffsetRequest   uint16 = 24
-	CmdProduceBatchesRequest uint16 = 25
-	CmdNackRequest           uint16 = 30
-	CmdProcessRetryRequest   uint16 = 31
-	CmdScheduleDelayRequest  uint16 = 32
+	CmdCreateTopicRequest         uint16 = 10
+	CmdListTopicsRequest          uint16 = 11
+	CmdProduceRequest             uint16 = 20
+	CmdProduceBatchRequest        uint16 = 21
+	CmdFetchRequest               uint16 = 22
+	CmdFetchBatchRequest          uint16 = 23
+	CmdCommitOffsetRequest        uint16 = 24
+	CmdProduceBatchesRequest      uint16 = 25
+	CmdProduceFanoutRequest       uint16 = 26
+	CmdFetchSubjectPatternRequest uint16 = 27
+	CmdNackRequest                uint16 = 30
+	CmdProcessRetryRequest        uint16 = 31
+	CmdScheduleDelayRequest       uint16 = 32
 
 	CmdTxBeginRequest        uint16 = 70
 	CmdTxPublishRequest      uint16 = 71
@@ -36,6 +38,7 @@ const (
 	CmdReplyRequest         uint16 = 52
 	CmdReplyErrorRequest    uint16 = 53
 	CmdAwaitReplyRequest    uint16 = 54
+	CmdAwaitRepliesRequest  uint16 = 55
 
 	CmdJoinConsumerGroupRequest          uint16 = 60
 	CmdHeartbeatConsumerGroupRequest     uint16 = 61
@@ -47,19 +50,21 @@ const (
 )
 
 const (
-	CmdHandshakeResponse      uint16 = 1001
-	CmdPingResponse           uint16 = 1002
-	CmdCreateTopicResponse    uint16 = 1010
-	CmdListTopicsResponse     uint16 = 1011
-	CmdProduceResponse        uint16 = 1020
-	CmdProduceBatchResponse   uint16 = 1021
-	CmdFetchResponse          uint16 = 1022
-	CmdFetchBatchResponse     uint16 = 1023
-	CmdCommitOffsetResponse   uint16 = 1024
-	CmdProduceBatchesResponse uint16 = 1025
-	CmdNackResponse           uint16 = 1030
-	CmdProcessRetryResponse   uint16 = 1031
-	CmdScheduleDelayResponse  uint16 = 1032
+	CmdHandshakeResponse           uint16 = 1001
+	CmdPingResponse                uint16 = 1002
+	CmdCreateTopicResponse         uint16 = 1010
+	CmdListTopicsResponse          uint16 = 1011
+	CmdProduceResponse             uint16 = 1020
+	CmdProduceBatchResponse        uint16 = 1021
+	CmdFetchResponse               uint16 = 1022
+	CmdFetchBatchResponse          uint16 = 1023
+	CmdCommitOffsetResponse        uint16 = 1024
+	CmdProduceBatchesResponse      uint16 = 1025
+	CmdProduceFanoutResponse       uint16 = 1026
+	CmdFetchSubjectPatternResponse uint16 = 1027
+	CmdNackResponse                uint16 = 1030
+	CmdProcessRetryResponse        uint16 = 1031
+	CmdScheduleDelayResponse       uint16 = 1032
 
 	CmdTxBeginResponse        uint16 = 1070
 	CmdTxPublishResponse      uint16 = 1071
@@ -77,6 +82,7 @@ const (
 	CmdReplyResponse         uint16 = 1052
 	CmdReplyErrorResponse    uint16 = 1053
 	CmdAwaitReplyResponse    uint16 = 1054
+	CmdAwaitRepliesResponse  uint16 = 1055
 
 	CmdJoinConsumerGroupResponse          uint16 = 1060
 	CmdHeartbeatConsumerGroupResponse     uint16 = 1061
@@ -104,9 +110,10 @@ const (
 type ProducePartitioning string
 
 const (
-	ProducePartitioningExplicit   ProducePartitioning = "explicit"
-	ProducePartitioningRoundRobin ProducePartitioning = "round_robin"
-	ProducePartitioningKeyHash    ProducePartitioning = "key_hash"
+	ProducePartitioningExplicit       ProducePartitioning = "explicit"
+	ProducePartitioningRoundRobin     ProducePartitioning = "round_robin"
+	ProducePartitioningKeyHash        ProducePartitioning = "key_hash"
+	ProducePartitioningRoutingKeyHash ProducePartitioning = "routing_key_hash"
 )
 
 type FetchIsolation string
@@ -114,6 +121,13 @@ type FetchIsolation string
 const (
 	FetchIsolationReadUncommitted FetchIsolation = "read_uncommitted"
 	FetchIsolationReadCommitted   FetchIsolation = "read_committed"
+)
+
+type RequestReplyMode string
+
+const (
+	RequestReplyModeFirstResponseWins RequestReplyMode = "first_response_wins"
+	RequestReplyModeMultiReplier      RequestReplyMode = "multi_replier"
 )
 
 type TransactionStatus string

@@ -101,6 +101,20 @@ func compactionRemovableOffsets(topic TopicConfig, records []Record, nowMS uint6
 	return remove
 }
 
+func compactionRemovableOffsetsWithLatest(
+	topic TopicConfig,
+	records []Record,
+	nowMS uint64,
+	latestOffsetByKey *collectionmapping.Map[string, uint64],
+) *collectionset.Set[uint64] {
+	remove := collectionset.NewSet[uint64]()
+	if !compactionApplies(topic) {
+		return remove
+	}
+	markCompactedRecords(topic, records, nowMS, latestOffsetByKey, remove)
+	return remove
+}
+
 func latestOffsetByRecordKey(records []Record) *collectionmapping.Map[string, uint64] {
 	latestOffsetByKey := collectionmapping.NewMap[string, uint64]()
 	for _, record := range records {

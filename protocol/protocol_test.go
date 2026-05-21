@@ -56,12 +56,14 @@ func TestCreateTopicMessageExpiryBinaryRoundTrip(t *testing.T) {
 	retentionMS := uint64(60_000)
 	messageTTLMS := uint64(5_000)
 	action := protocol.MessageExpiryDLQ
+	ordering := protocol.TopicOrderingKey
 	req := protocol.CreateTopicRequest{
 		Topic:               "orders",
 		Partitions:          3,
 		RetentionMS:         &retentionMS,
 		MessageTTLMS:        &messageTTLMS,
 		MessageExpiryAction: &action,
+		OrderingPolicy:      &ordering,
 	}
 	data, err := protocol.EncodeBody(protocol.CmdCreateTopicRequest, req)
 	if err != nil {
@@ -80,7 +82,8 @@ func TestProduceMessageExpiryBinaryRoundTrip(t *testing.T) {
 	expiresAt := uint64(1700000005000)
 	req := protocol.ProduceRequest{
 		Topic:        "orders",
-		Partitioning: protocol.ProducePartitioningRoundRobin,
+		Partitioning: protocol.ProducePartitioningRoutingKeyHash,
+		RoutingKey:   "customer.eu",
 		Key:          []byte("k1"),
 		ExpiresAtMS:  &expiresAt,
 		Payload:      []byte("payload"),
@@ -121,8 +124,9 @@ func TestTransactionPublishBatchBinaryRoundTrip(t *testing.T) {
 		Topic:        "orders",
 		Partition:    &partition,
 		Partitioning: protocol.ProducePartitioningExplicit,
+		RoutingKey:   "batch.eu",
 		Records: []protocol.ProduceBatchRecord{
-			{Key: []byte("a"), Headers: []protocol.MessageHeader{{Key: "trace", Value: []byte("1")}}, Payload: []byte("payload-1")},
+			{RoutingKey: "record.eu", Key: []byte("a"), Headers: []protocol.MessageHeader{{Key: "trace", Value: []byte("1")}}, Payload: []byte("payload-1")},
 			{Key: []byte("b"), Tombstone: true, Payload: []byte{}},
 		},
 	}
@@ -146,6 +150,7 @@ func TestFetchResponseTransactionMetadataBinaryRoundTrip(t *testing.T) {
 		Records: []protocol.FetchRecord{{
 			Offset:      7,
 			TimestampMS: 123,
+			RoutingKey:  "customer.eu",
 			Key:         []byte{},
 			Transaction: &protocol.TransactionRecordMetadata{
 				TxID: 10, ProducerID: 20, ProducerEpoch: 2, Sequence: 43,

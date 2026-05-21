@@ -24,6 +24,9 @@ func writeProduceBatchesItemRequest(writer *binaryWriter, item ProduceBatchesIte
 	}
 	writer.writeOptionalU32(item.Partition)
 	writePartitioning(writer, item.Partitioning)
+	if err := writer.writeString(item.RoutingKey); err != nil {
+		return err
+	}
 	writeProduceIdempotency(writer, item.Idempotency)
 	if err := writePayloads(writer, item.Payloads); err != nil {
 		return err
@@ -65,6 +68,9 @@ func readProduceBatchesItemRequest(reader *binaryReader) (ProduceBatchesItemRequ
 		return ProduceBatchesItemRequest{}, err
 	}
 	if item.Partitioning, err = readPartitioning(reader); err != nil {
+		return ProduceBatchesItemRequest{}, err
+	}
+	if item.RoutingKey, err = reader.readString(); err != nil {
 		return ProduceBatchesItemRequest{}, err
 	}
 	if item.Idempotency, err = readProduceIdempotency(reader); err != nil {

@@ -1,6 +1,10 @@
 package store
 
-import "sort"
+import (
+	"sort"
+
+	collectionlist "github.com/arcgolabs/collectionx/list"
+)
 
 func (s *StorxLogStore) recordPointersFrom(tp TopicPartition, offset uint64, maxRecords int) []segmentRecordPointer {
 	if maxRecords <= 0 {
@@ -32,19 +36,20 @@ func (s *StorxLogStore) recordPointersPage(
 	return cloneSegmentPointers(pointers[start:end]), hasMore
 }
 
-func (s *StorxLogStore) recordAppendedPointer(tp TopicPartition, pointer segmentRecordPointer) {
+func (s *StorxLogStore) recordAppendedPointer(tp TopicPartition, pointer segmentRecordPointer, record Record) {
 	s.indexMu.Lock()
 	defer s.indexMu.Unlock()
 	pointers := s.records.GetOrDefault(tp, nil)
 	s.records.Set(tp, appendSegmentPointerSorted(pointers, pointer))
 	timestampPointers := s.timestampRecords.GetOrDefault(tp, nil)
 	s.timestampRecords.Set(tp, insertSegmentTimestampPointerSorted(timestampPointers, pointer))
+	s.recordAppendedKeyPointersLocked(tp, []Record{record}, []segmentRecordPointer{pointer})
 	if pointer.Offset >= s.nextOffsets.GetOrDefault(tp, 0) {
 		s.nextOffsets.Set(tp, pointer.Offset+1)
 	}
 }
 
-func (s *StorxLogStore) recordAppendedPointers(tp TopicPartition, pointers []segmentRecordPointer) {
+func (s *StorxLogStore) recordAppendedPointers(tp TopicPartition, pointers []segmentRecordPointer, records []Record) {
 	if len(pointers) == 0 {
 		return
 	}
@@ -59,6 +64,7 @@ func (s *StorxLogStore) recordAppendedPointers(tp TopicPartition, pointers []seg
 		timestamped = insertSegmentTimestampPointerSorted(timestamped, pointer)
 	}
 	s.timestampRecords.Set(tp, timestamped)
+	s.recordAppendedKeyPointersLocked(tp, records, pointers)
 	s.nextOffsets.Set(tp, nextOffsetFromPointers(existing))
 }
 
@@ -86,8 +92,29 @@ func (s *StorxLogStore) removeRecordPointers(tp TopicPartition, remove interface
 		timestampKept = append(timestampKept, pointer)
 	}
 	s.timestampRecords.Set(tp, timestampKept)
+	s.removeKeyPointersLocked(tp, remove)
 	s.nextOffsets.Set(tp, max(nextOffset, nextOffsetFromPointers(kept)))
 	return removed
+}
+
+func (s *StorxLogStore) removeKeyPointersLocked(tp TopicPartition, remove interface{ Contains(uint64) bool }) {
+	if !s.keyIndexReady.Contains(tp) {
+		return
+	}
+	keyPointers, ok := s.keyRecords.Get(tp)
+	if !ok || keyPointers == nil {
+		return
+	}
+	keys := collectionlist.NewList[string]()
+	keyPointers.Range(func(key string, pointer segmentRecordPointer) bool {
+		if remove.Contains(pointer.Offset) {
+			keys.Add(key)
+		}
+		return true
+	})
+	for _, key := range keys.Values() {
+		keyPointers.Delete(key)
+	}
 }
 
 func segmentPointerSearch(pointers []segmentRecordPointer, offset uint64) int {

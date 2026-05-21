@@ -14,6 +14,14 @@ const (
 	defaultRequestTimeout      = 5 * time.Second
 	defaultRequestPollInterval = 5 * time.Millisecond
 	defaultReplyFetchRecords   = 16
+	replyCursorConsumerPrefix  = "__direct_reply/"
+)
+
+type RequestReplyMode string
+
+const (
+	RequestReplyModeFirstResponseWins RequestReplyMode = "first_response_wins"
+	RequestReplyModeMultiReplier      RequestReplyMode = "multi_replier"
 )
 
 type RequestOptions struct {
@@ -21,6 +29,7 @@ type RequestOptions struct {
 	Timeout      time.Duration
 	PollInterval time.Duration
 	Partitioning PublishPartitioning
+	ReplyMode    RequestReplyMode
 	Headers      []store.RecordHeader
 }
 
@@ -31,6 +40,7 @@ type PendingRequest struct {
 	CorrelationID string
 	ExpiresAtMS   uint64
 	PollInterval  time.Duration
+	ReplyMode     RequestReplyMode
 	Produce       ProduceResult
 }
 
@@ -40,6 +50,7 @@ type RequestMessage struct {
 	CorrelationID string
 	SenderID      string
 	ExpiresAtMS   uint64
+	ReplyMode     RequestReplyMode
 	Headers       []store.RecordHeader
 	Payload       []byte
 	Record        store.Record
@@ -56,13 +67,17 @@ type ReplyMessage struct {
 }
 
 type RequestPollResult struct {
-	Subject       string
-	Partition     uint32
-	Requests      []RequestMessage
-	NextOffset    uint64
-	HighWatermark *uint64
-	LowWatermark  *uint64
+	Subject        string
+	Partition      uint32
+	Requests       []RequestMessage
+	NextOffset     uint64
+	HighWatermark  *uint64
+	LowWatermark   *uint64
 	LogStartOffset uint64
+}
+
+type RequestReplyCleanupResult struct {
+	RemovedCursors int
 }
 
 func (m RequestMessage) ExpiredAt(nowMS uint64) bool {

@@ -49,7 +49,11 @@ func (b *Broker) planProduceBatch(index int, req produceBatchCommand) (produceBa
 	if validateErr := b.validateBatchPayload(req.Records); validateErr != nil {
 		return produceBatchPlan{}, validateErr
 	}
-	partition, err := b.router.selectPartition(*topic, req.Partitioning, firstRecordKey(req.Records))
+	partitioning, err := b.resolveTopicOrderingPartitioning(*topic, req.Partitioning, req.Records)
+	if err != nil {
+		return produceBatchPlan{}, err
+	}
+	partition, err := b.router.selectPartition(*topic, partitioning, firstRecordKey(req.Records))
 	if err != nil {
 		return produceBatchPlan{}, err
 	}

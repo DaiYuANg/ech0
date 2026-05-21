@@ -31,6 +31,12 @@ type quotaOutput struct {
 	} `json:"body"`
 }
 
+type clusterOutput struct {
+	Body struct {
+		Cluster ClusterMetadata `json:"cluster"`
+	} `json:"body"`
+}
+
 type runtimeEventsOutput struct {
 	Body struct {
 		Events       []runtimeEventSummary `json:"events"`
@@ -83,6 +89,13 @@ func (s *AdminServer) apiQuota(ctx context.Context, _ *struct{}) (*quotaOutput, 
 	}
 	out := &quotaOutput{}
 	out.Body.Quota = quota
+	return out, nil
+}
+
+func (s *AdminServer) apiCluster(ctx context.Context, _ *struct{}) (*clusterOutput, error) {
+	_ = ctx
+	out := &clusterOutput{}
+	out.Body.Cluster = s.broker.ClusterMetadata()
 	return out, nil
 }
 

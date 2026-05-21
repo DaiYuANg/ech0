@@ -23,6 +23,7 @@ type TxPublishRequest struct {
 	Topic        string              `json:"topic"`
 	Partition    *uint32             `json:"partition,omitempty"`
 	Partitioning ProducePartitioning `json:"partitioning"`
+	RoutingKey   string              `json:"routing_key,omitempty"`
 	Key          []byte              `json:"key,omitempty"`
 	Headers      []MessageHeader     `json:"headers,omitempty"`
 	Tombstone    bool                `json:"tombstone,omitempty"`
@@ -42,6 +43,7 @@ type TxPublishBatchRequest struct {
 	Topic        string               `json:"topic"`
 	Partition    *uint32              `json:"partition,omitempty"`
 	Partitioning ProducePartitioning  `json:"partitioning"`
+	RoutingKey   string               `json:"routing_key,omitempty"`
 	Payloads     [][]byte             `json:"payloads,omitempty"`
 	Records      []ProduceBatchRecord `json:"records,omitempty"`
 }

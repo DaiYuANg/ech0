@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
@@ -40,6 +41,15 @@ func normalizeTopicPolicies(topic *store.TopicConfig) {
 	}
 }
 
+func validateTopicPolicies(topic store.TopicConfig) error {
+	switch topic.OrderingPolicy {
+	case store.TopicOrderingNone, store.TopicOrderingPartition, store.TopicOrderingKey, store.TopicOrderingRoutingKey:
+		return nil
+	default:
+		return brokerStoreError(store.CodeInvalidArgument, "topic %s has invalid ordering policy %q", topic.Name, topic.OrderingPolicy)
+	}
+}
+
 func groupConsumer(group string) string {
 	return "__group_offset/" + group
 }
@@ -51,6 +61,61 @@ func firstRecordKey(records []store.RecordAppend) []byte {
 		}
 	}
 	return nil
+}
+
+func (b *Broker) resolveTopicOrderingPartitioning(
+	topic store.TopicConfig,
+	partitioning PublishPartitioning,
+	records []store.RecordAppend,
+) (PublishPartitioning, error) {
+	switch topic.OrderingPolicy {
+	case store.TopicOrderingNone, store.TopicOrderingPartition:
+		return withResolvedRoutingKey(partitioning, records), nil
+	case store.TopicOrderingKey:
+		if _, ok := singleOrderingKey(records); !ok {
+			return PublishPartitioning{}, brokerStoreError(store.CodeInvalidArgument, "topic %s requires one non-empty key per ordered batch", topic.Name)
+		}
+		partitioning.Mode = PartitionKeyHash
+		return partitioning, nil
+	case store.TopicOrderingRoutingKey:
+		routingKey, ok := singleOrderingRoutingKey(partitioning, records)
+		if !ok {
+			return PublishPartitioning{}, brokerStoreError(store.CodeInvalidArgument, "topic %s requires one non-empty routing key per ordered batch", topic.Name)
+		}
+		partitioning.Mode = PartitionRoutingKeyHash
+		partitioning.RoutingKey = routingKey
+		return partitioning, nil
+	default:
+		return PublishPartitioning{}, brokerStoreError(store.CodeInvalidArgument, "topic %s has invalid ordering policy %q", topic.Name, topic.OrderingPolicy)
+	}
+}
+
+func singleOrderingKey(records []store.RecordAppend) ([]byte, bool) {
+	first := firstRecordKey(records)
+	if len(first) == 0 {
+		return nil, false
+	}
+	for index := range records {
+		key := records[index].Key
+		if len(key) == 0 || !bytes.Equal(key, first) {
+			return nil, false
+		}
+	}
+	return first, true
+}
+
+func singleOrderingRoutingKey(partitioning PublishPartitioning, records []store.RecordAppend) (string, bool) {
+	first := partitionRoutingKey(partitioning, records)
+	if first == "" {
+		return "", false
+	}
+	for index := range records {
+		routingKey := appendRoutingKey(records[index])
+		if routingKey != "" && routingKey != first {
+			return "", false
+		}
+	}
+	return first, true
 }
 
 func cloneAppend(record store.RecordAppend) store.RecordAppend {
@@ -81,6 +146,7 @@ func fetchRecordsFromStore(records []store.Record) []protocol.FetchRecord {
 		out.Add(protocol.FetchRecord{
 			Offset:      record.Offset,
 			TimestampMS: record.TimestampMS,
+			RoutingKey:  recordRoutingKey(record),
 			Key:         append([]byte(nil), record.Key...),
 			Headers:     protocolHeadersFromStore(record.Headers),
 			Tombstone:   record.IsTombstone(),

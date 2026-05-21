@@ -76,12 +76,25 @@ func (s *TCPServer) handleAwaitReplyFrame(ctx context.Context, frame transport.F
 	return okFrame(protocol.CmdAwaitReplyResponse, protocol.AwaitReplyResponse{Reply: replyRecordFromBroker(reply)})
 }
 
+func (s *TCPServer) handleAwaitRepliesFrame(ctx context.Context, frame transport.Frame) (transport.Frame, error) {
+	var req protocol.AwaitRepliesRequest
+	if err := decode(frame, &req); err != nil {
+		return errorFrame("invalid_request", err.Error()), nil
+	}
+	replies, err := s.broker.AwaitReplies(ctx, pendingRequestFromAwaitRepliesProtocol(req), req.MaxReplies)
+	if err != nil {
+		return errorFromErr(err), nil
+	}
+	return okFrame(protocol.CmdAwaitRepliesResponse, protocol.AwaitRepliesResponse{Replies: replyRecordsFromBroker(replies)})
+}
+
 func requestOptionsFromProtocol(req protocol.StartRequestRequest) RequestOptions {
 	return RequestOptions{
 		InstanceID:   req.InstanceID,
 		Timeout:      durationFromOptionalMS(req.TimeoutMS),
 		PollInterval: durationFromOptionalMS(req.PollIntervalMS),
-		Partitioning: partitioningFromProtocol(req.Partitioning, req.Partition),
+		Partitioning: partitioningFromProtocol(req.Partitioning, req.Partition, ""),
+		ReplyMode:    RequestReplyMode(req.ReplyMode),
 		Headers:      storeHeadersFromProtocol(req.Headers),
 	}
 }
@@ -93,6 +106,7 @@ func startRequestResponseFromBroker(pending PendingRequest) protocol.StartReques
 		ReplyTo:       pending.ReplyTo,
 		CorrelationID: pending.CorrelationID,
 		ExpiresAtMS:   pending.ExpiresAtMS,
+		ReplyMode:     string(pending.ReplyMode),
 		Partition:     pending.Produce.Partition,
 		Offset:        pending.Produce.Record.Offset,
 		NextOffset:    pending.Produce.Record.Offset + 1,
@@ -123,6 +137,7 @@ func requestRecordsFromBroker(requests []RequestMessage) []protocol.RequestRecor
 			CorrelationID: req.CorrelationID,
 			SenderID:      req.SenderID,
 			ExpiresAtMS:   req.ExpiresAtMS,
+			ReplyMode:     string(req.ReplyMode),
 			Headers:       protocolHeadersFromStore(req.Headers),
 			Payload:       append([]byte(nil), req.Payload...),
 		})
@@ -158,23 +173,38 @@ func replyResponseFromDirect(result direct.SendResult) protocol.ReplyResponse {
 }
 
 func pendingRequestFromProtocol(req protocol.AwaitReplyRequest) PendingRequest {
-	expiresAtMS := req.ExpiresAtMS
-	timeout := durationFromOptionalMS(req.TimeoutMS)
+	return pendingRequestFromAwaitFields(req.ReplyTo, req.CorrelationID, req.ExpiresAtMS, req.TimeoutMS, req.PollIntervalMS, RequestReplyModeFirstResponseWins)
+}
+
+func pendingRequestFromAwaitRepliesProtocol(req protocol.AwaitRepliesRequest) PendingRequest {
+	return pendingRequestFromAwaitFields(req.ReplyTo, req.CorrelationID, req.ExpiresAtMS, req.TimeoutMS, req.PollIntervalMS, RequestReplyModeMultiReplier)
+}
+
+func pendingRequestFromAwaitFields(
+	replyTo string,
+	correlationID string,
+	expiresAtMS uint64,
+	timeoutMS *uint64,
+	pollIntervalMS *uint64,
+	replyMode RequestReplyMode,
+) PendingRequest {
+	timeout := durationFromOptionalMS(timeoutMS)
 	if expiresAtMS == 0 {
 		if timeout <= 0 {
 			timeout = defaultRequestTimeout
 		}
 		expiresAtMS = store.NowMS() + durationMillis(timeout)
 	}
-	pollInterval := durationFromOptionalMS(req.PollIntervalMS)
+	pollInterval := durationFromOptionalMS(pollIntervalMS)
 	if pollInterval <= 0 {
 		pollInterval = defaultRequestPollInterval
 	}
 	return PendingRequest{
-		ReplyTo:       req.ReplyTo,
-		CorrelationID: req.CorrelationID,
+		ReplyTo:       replyTo,
+		CorrelationID: correlationID,
 		ExpiresAtMS:   expiresAtMS,
 		PollInterval:  pollInterval,
+		ReplyMode:     replyMode,
 	}
 }
 
@@ -189,6 +219,14 @@ func replyRecordFromBroker(reply ReplyMessage) protocol.ReplyRecord {
 		Error:         cloneStringPointer(reply.Error),
 		Payload:       append([]byte(nil), reply.Payload...),
 	}
+}
+
+func replyRecordsFromBroker(replies []ReplyMessage) []protocol.ReplyRecord {
+	out := collectionlist.NewListWithCapacity[protocol.ReplyRecord](len(replies))
+	for index := range replies {
+		out.Add(replyRecordFromBroker(replies[index]))
+	}
+	return out.Values()
 }
 
 func durationFromOptionalMS(value *uint64) time.Duration {

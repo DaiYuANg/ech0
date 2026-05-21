@@ -75,14 +75,19 @@ Current capability strings:
 | `compression.zstd` | zstd payload or batch compression support. |
 | `produce.batch` | Single-topic batch produce command support. |
 | `produce.batches` | Multi-topic/multi-partition batch produce command support. |
+| `produce.fanout` | Fanout produce command support across all partitions of a topic. |
 | `fetch.batch` | Batch fetch command support. |
 | `fetch.wait` | Fetch requests can use min-records and max-wait fields. |
 | `transactions` | Transaction begin, publish, offset commit, commit, and abort commands. |
 | `idempotent.produce` | Producer ID, epoch, and sequence based dedupe. |
 | `direct` | Direct inbox send, fetch, and ack commands. |
 | `request.reply` | Request/reply command set. |
+| `request.reply.many` | Multi-replier request/reply collection commands. |
 | `consumer.groups` | Consumer group membership, rebalance, fetch, and commit commands. |
 | `retry.delay` | Nack, retry processing, and delayed schedule commands. |
+| `routing.key` | Routing-key based partition selection. |
+| `topic.ordering` | Topic-level key or routing-key ordering policies on create-topic. |
+| `subject.wildcards` | Wildcard subject fetch support. |
 | `schema.headers` | Schema hints are carried through message headers such as `content-type`, `schema-id`, and `encoding`. |
 
 ## Codec Registry
@@ -103,7 +108,7 @@ Command IDs are grouped by feature:
 - `1-2`: handshake and ping.
 - `10-32`: topics, produce/fetch, offsets, nack, retry, and delay.
 - `40-42`: direct inbox messaging.
-- `50-54`: request/reply.
+- `50-55`: request/reply.
 - `60-66`: consumer group membership, assignment, fetch, and commit.
 - `70-75`: transactions.
 - `1001+`: responses.

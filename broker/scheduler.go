@@ -48,6 +48,7 @@ func scheduledRuntimeEnabled(cfg Config) bool {
 	return cfg.Broker.DelaySchedulerEnabled ||
 		cfg.Broker.RetryWorkerEnabled ||
 		cfg.Broker.TransactionCleanupEnabled ||
+		cfg.Broker.RequestReplyCleanupEnabled ||
 		len(cfg.Broker.CronSchedules) > 0 ||
 		cfg.Storage.RetentionCleanupEnabled ||
 		cfg.Storage.CompactionCleanupEnabled
@@ -96,6 +97,12 @@ func scheduledJobRegistrations(cfg Config) []scheduledJobRegistration {
 			code:     "transaction_cleanup_job_create_failed",
 			message:  "create transaction cleanup job",
 			register: registerTransactionCleanupJob,
+		},
+		scheduledJobRegistration{
+			enabled:  cfg.Broker.RequestReplyCleanupEnabled,
+			code:     "request_reply_cleanup_job_create_failed",
+			message:  "create request reply cleanup job",
+			register: registerRequestReplyCleanupJob,
 		},
 		scheduledJobRegistration{
 			enabled:  len(cfg.Broker.CronSchedules) > 0,
@@ -211,12 +218,6 @@ func registerCompactionCleanupJob(scheduler gocron.Scheduler, cfg Config, broker
 		gocron.WithTags("ech0", "storage", "compaction"),
 	)
 	return wrapBroker("compaction_cleanup_job_register_failed", err, "register compaction cleanup job")
-}
-
-func logMoved(logger *slog.Logger, message string, moved int) {
-	if moved > 0 && logger != nil {
-		logger.Info(message, "moved", moved)
-	}
 }
 
 func (r *ScheduledRuntime) Start(ctx context.Context) error {

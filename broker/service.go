@@ -95,7 +95,7 @@ func NewWithStores(cfg Config, logStore store.MessageLogStore, metaStore metadat
 		meta:       metaStore,
 		router:     newPartitionRouter(),
 		logger:     slog.Default(),
-		auth:       newDefaultAuthEngine(slog.Default()),
+		auth:       nil,
 		quota:      newConfiguredQuotaLimiter(cfg.Governance.Quota),
 		quotaUsage: newQuotaUsageTracker(),
 		topicCache: topicCache,
@@ -138,7 +138,7 @@ func (b *Broker) applyRuntimeDefaults() {
 		b.metrics = NewNoopMetricsRuntime(b.logger)
 	}
 	if b.auth == nil {
-		b.auth = newDefaultAuthEngine(b.logger)
+		b.auth = newConfiguredAuthEngine(b.cfg.Governance.Auth, b.logger)
 	}
 	if !b.aclAuthorizerConfigured {
 		b.auth.SetAuthorizer(newMetadataACLAuthorizer(b))

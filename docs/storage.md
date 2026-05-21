@@ -8,7 +8,7 @@ ech0 separates broker metadata from message storage. Broker runtime is Dragonboa
 | --- | --- | --- |
 | Metadata | Dragonboat state machine | Topic configs, consumer offsets, consumer group members, assignments, broker state. |
 | Message manifest | `topics.json` | Topic configs needed by the local segment log. |
-| Message index | `*.idx` files plus in-memory indexes | Per-record segment pointers and computed next offsets. |
+| Message index | `*.idx` files plus in-memory indexes | Per-record segment pointers, computed next offsets, timestamp lookup state, and on-demand key lookup state. |
 | Message bytes | Segment files | zstd-compressed single-record or batch frames containing key, headers, attributes, timestamp, and payload. |
 
 This gives the broker ordered append/read behavior without making a KV store hold message payloads or record pointers.
@@ -30,6 +30,8 @@ Appending messages follows this path:
 
 The pointer records topic, partition, offset, segment ID, byte position, byte length, timestamp, and attributes. Records from the same batch frame can share the same position and length; reads decode that frame once and select records by offset. `segment_read_mode = "mmap"` is an experimental read path that maps sealed segment files and decodes directly from the mapped byte slice. Active append segments still use positional reads.
 
+The key index is intentionally runtime-owned instead of being added to the `.idx` file format. Appends update it once a partition has built the index, and after restart the first key lookup or compaction pass rebuilds it by scanning visible records. This keeps the durable index small while still giving compaction and admin/query code a latest-record-by-key view.
+
 ## Segment Frame
 
 Each segment frame has:
@@ -44,6 +46,10 @@ Each segment frame has:
 The record body stores offset, timestamp, attributes, key, headers, and payload. Length-prefixed byte fields use an ASCII decimal length followed by `:`, then raw bytes.
 
 New writes use zstd compression by default and include the body length in the frame header. The checksum protects against partial or corrupted frame reads. Startup loads existing `.idx` files first, then rebuilds any missing segment index from self-describing segment frames and writes the rebuilt `.idx` next to the `.seg`. Legacy unsized frames still require an existing `.idx` because they cannot be safely scanned without an external length. Clean shutdown flushes pending asynchronous group sync work before segment and index files are closed.
+
+Crash recovery is intentionally fail-closed for ambiguous storage faults. If a segment is truncated while its index is missing, rebuild stops with a codec error instead of silently dropping or guessing bytes. If an existing `.idx` is truncated, startup also stops rather than replaying a potentially stale segment file that might reintroduce compacted records.
+
+Offline repair is available through the library API `store.RepairStorxLog` and the binary command `ech0 repair segments`. The safe default rebuilds missing indexes only. Existing corrupt indexes require an explicit rebuild option, and the old file is backed up before a replacement is written.
 
 ## Metadata Store
 
@@ -80,6 +86,16 @@ Retention cleanup is driven by topic config:
 - `RetentionMaxBytes` removes older records when retained bytes exceed the configured limit.
 
 Cleanup runs as a scheduled job when enabled. In cluster mode it runs only on the Raft leader.
+
+## Ordering
+
+Topic configs can declare an ordering policy:
+
+- `key`: every produce request must carry a non-empty message key; batches must contain one key, and the broker selects the partition with stable key hashing.
+- `routing_key`: every produce request must carry one routing key, either as the produce partitioning routing key or as the `x-ech0-routing-key` header; batches must contain one routing key.
+- `partition`: preserves append order within whichever partition the producer selects.
+
+Key and routing-key policies are enforced inside the broker, so embedded and TCP clients get the same partitioning behavior even if they omit an explicit partitioning mode.
 
 ## Compaction
 

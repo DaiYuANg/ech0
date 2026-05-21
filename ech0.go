@@ -140,6 +140,7 @@ func (b *Broker) CreateTopic(ctx context.Context, name string, opts ...TopicOpti
 	topic.DelayEnabled = topicOpts.delayEnabled
 	topic.MessageTTLMS = cloneUint64(topicOpts.messageTTLMS)
 	topic.MessageExpiryAction = topicOpts.expiryAction
+	topic.OrderingPolicy = topicOpts.orderingPolicy
 	if topicOpts.deadLetterTopic != "" {
 		topic.DeadLetterTopic = &topicOpts.deadLetterTopic
 	}
@@ -165,6 +166,7 @@ func (b *Broker) Publish(ctx context.Context, topic string, payload []byte, opts
 	partitioning := publishPartitioning(publishOpts)
 	record := store.NewRecordAppend(payload)
 	record.Key = append([]byte(nil), publishOpts.key...)
+	applyEmbeddedRoutingKey(&record, publishOpts.routingKey)
 	record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
 	if publishOpts.tombstone {
 		record.Attributes |= store.RecordAttributeTombstone
@@ -188,6 +190,7 @@ func (b *Broker) PublishBatch(ctx context.Context, topic string, payloads [][]by
 	for _, payload := range payloads {
 		record := store.NewRecordAppend(payload)
 		record.Key = append([]byte(nil), publishOpts.key...)
+		applyEmbeddedRoutingKey(&record, publishOpts.routingKey)
 		record.ExpiresAtMS = cloneUint64(publishOpts.expiresAt)
 		if publishOpts.tombstone {
 			record.Attributes |= store.RecordAttributeTombstone
@@ -232,6 +235,9 @@ func (b *Broker) Fetch(ctx context.Context, consumer, topic string, opts ...Fetc
 func publishPartitioning(opts publishOptions) internalbroker.PublishPartitioning {
 	if opts.partition != nil {
 		return internalbroker.PublishPartitioning{Mode: internalbroker.PartitionExplicit, Partition: *opts.partition}
+	}
+	if opts.routingKey != "" {
+		return internalbroker.PublishPartitioning{Mode: internalbroker.PartitionRoutingKeyHash, RoutingKey: opts.routingKey}
 	}
 	if len(opts.key) > 0 {
 		return internalbroker.PublishPartitioning{Mode: internalbroker.PartitionKeyHash}

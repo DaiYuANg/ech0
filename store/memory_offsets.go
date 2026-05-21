@@ -66,6 +66,15 @@ func (s *MemoryStore) ListConsumerOffsetStates() ([]ConsumerOffsetState, error) 
 	return sortConsumerOffsetStates(s.offsetStates.Values()), nil
 }
 
+func (s *MemoryStore) DeleteConsumerOffsetState(consumer string, topicPartition TopicPartition) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := offsetKey(consumer, topicPartition)
+	s.offsets.Delete(key)
+	s.offsetStates.Delete(key)
+	return nil
+}
+
 func validateConsumerOffsetState(state ConsumerOffsetState) error {
 	if state.Consumer == "" {
 		return E(CodeInvalidArgument, "consumer is required")

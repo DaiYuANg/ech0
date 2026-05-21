@@ -10,6 +10,9 @@ func writeProduceRequest(writer *binaryWriter, req ProduceRequest) error {
 	}
 	writer.writeOptionalU32(req.Partition)
 	writePartitioning(writer, req.Partitioning)
+	if err := writer.writeString(req.RoutingKey); err != nil {
+		return err
+	}
 	writeProduceIdempotency(writer, req.Idempotency)
 	if err := writer.writeBytes(req.Key); err != nil {
 		return err
@@ -32,10 +35,18 @@ func readProduceRequest(reader *binaryReader) (ProduceRequest, error) {
 		return ProduceRequest{}, err
 	}
 	req := ProduceRequest{Topic: topic}
+	return readProduceRequestTail(reader, req)
+}
+
+func readProduceRequestTail(reader *binaryReader, req ProduceRequest) (ProduceRequest, error) {
+	var err error
 	if req.Partition, err = reader.readOptionalU32(); err != nil {
 		return ProduceRequest{}, err
 	}
 	if req.Partitioning, err = readPartitioning(reader); err != nil {
+		return ProduceRequest{}, err
+	}
+	if req.RoutingKey, err = reader.readString(); err != nil {
 		return ProduceRequest{}, err
 	}
 	if req.Idempotency, err = readProduceIdempotency(reader); err != nil {
@@ -95,6 +106,9 @@ func writeProduceBatchRequest(writer *binaryWriter, req ProduceBatchRequest) err
 	}
 	writer.writeOptionalU32(req.Partition)
 	writePartitioning(writer, req.Partitioning)
+	if err := writer.writeString(req.RoutingKey); err != nil {
+		return err
+	}
 	writeProduceIdempotency(writer, req.Idempotency)
 	if err := writePayloads(writer, req.Payloads); err != nil {
 		return err
@@ -116,6 +130,9 @@ func readProduceBatchRequest(reader *binaryReader) (ProduceBatchRequest, error) 
 		return ProduceBatchRequest{}, err
 	}
 	if req.Partitioning, err = readPartitioning(reader); err != nil {
+		return ProduceBatchRequest{}, err
+	}
+	if req.RoutingKey, err = reader.readString(); err != nil {
 		return ProduceBatchRequest{}, err
 	}
 	if req.Idempotency, err = readProduceIdempotency(reader); err != nil {
@@ -179,6 +196,9 @@ func writeBatchRecords(writer *binaryWriter, records []ProduceBatchRecord) error
 }
 
 func writeBatchRecord(writer *binaryWriter, record ProduceBatchRecord) error {
+	if err := writer.writeString(record.RoutingKey); err != nil {
+		return err
+	}
 	if err := writer.writeBytes(record.Key); err != nil {
 		return err
 	}
@@ -213,6 +233,9 @@ func readBatchRecords(reader *binaryReader) ([]ProduceBatchRecord, error) {
 func readBatchRecord(reader *binaryReader) (ProduceBatchRecord, error) {
 	var record ProduceBatchRecord
 	var err error
+	if record.RoutingKey, err = reader.readString(); err != nil {
+		return ProduceBatchRecord{}, err
+	}
 	if record.Key, err = reader.readBytes(); err != nil {
 		return ProduceBatchRecord{}, err
 	}

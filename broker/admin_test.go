@@ -145,12 +145,72 @@ func TestAdminQuotaAPIReportsTenantUsage(t *testing.T) {
 	}
 }
 
+func TestAdminClusterAPIReportsClusterMetadata(t *testing.T) {
+	ctx := context.Background()
+	cfg := broker.DefaultConfig()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BindAddr = freeTCPAddr(t)
+	b := newTestBroker(t)
+	server := broker.NewAdminServer(cfg, b, nil, nil)
+
+	requireNoError(t, server.Start(ctx))
+	defer stopAdminServer(t, server)
+
+	body := getAdminPage(t, cfg.Admin.BindAddr, "/api/cluster")
+	if !strings.Contains(body, `"cluster_name":"ech0-dev"`) || !strings.Contains(body, `"engine":"dragonboat"`) {
+		t.Fatalf("admin cluster api did not return cluster metadata: %s", body)
+	}
+}
+
+func TestAdminUsesConfiguredStaticToken(t *testing.T) {
+	ctx := context.Background()
+	cfg := broker.DefaultConfig()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BindAddr = freeTCPAddr(t)
+	cfg.Governance.Auth.StaticTokens = []broker.StaticAuthTokenConfig{{
+		Token:     "admin-secret",
+		Principal: "admin",
+		Tenant:    "tenant-a",
+		Namespace: "default",
+	}}
+	b, err := broker.New(cfg)
+	requireNoError(t, err)
+	createTopic(tenantContext("tenant-a"), t, b, store.NewTopicConfig("orders"))
+	server := broker.NewAdminServer(cfg, b, nil, nil)
+
+	requireNoError(t, server.Start(ctx))
+	defer stopAdminServer(t, server)
+
+	status, _ := getAdminResponse(t, cfg.Admin.BindAddr, "/api/topics", nil)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("expected admin request without token to be unauthorized, got %d", status)
+	}
+	status, body := getAdminResponse(t, cfg.Admin.BindAddr, "/api/topics", map[string]string{
+		"Authorization": "Bearer admin-secret",
+	})
+	if status != http.StatusOK || !strings.Contains(body, "orders") {
+		t.Fatalf("expected authorized admin request to see tenant topic, status=%d body=%s", status, body)
+	}
+}
+
 func getAdminPage(t *testing.T, addr, path string) string {
+	t.Helper()
+	status, body := getAdminResponse(t, addr, path, nil)
+	if status != http.StatusOK {
+		t.Fatalf("unexpected admin status: %d", status)
+	}
+	return body
+}
+
+func getAdminResponse(t *testing.T, addr, path string, headers map[string]string) (int, string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+path, http.NoBody)
 	requireNoError(t, err)
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
 	response, err := http.DefaultClient.Do(request)
 	requireNoError(t, err)
 	defer func() {
@@ -158,12 +218,9 @@ func getAdminPage(t *testing.T, addr, path string) string {
 			t.Logf("close admin response body: %v", closeErr)
 		}
 	}()
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("unexpected admin status: %d", response.StatusCode)
-	}
 	body, err := io.ReadAll(response.Body)
 	requireNoError(t, err)
-	return string(body)
+	return response.StatusCode, string(body)
 }
 
 func getAdminStreamChunk(t *testing.T, addr, path string) string {

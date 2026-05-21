@@ -9,14 +9,16 @@ import (
 )
 
 type PublishPartitioning struct {
-	Mode      string
-	Partition uint32
+	Mode       string
+	Partition  uint32
+	RoutingKey string
 }
 
 const (
-	PartitionExplicit   = "explicit"
-	PartitionRoundRobin = "round_robin"
-	PartitionKeyHash    = "key_hash"
+	PartitionExplicit       = "explicit"
+	PartitionRoundRobin     = "round_robin"
+	PartitionKeyHash        = "key_hash"
+	PartitionRoutingKeyHash = "routing_key_hash"
 )
 
 type partitionRouter struct {
@@ -43,6 +45,12 @@ func (r *partitionRouter) selectPartition(topic store.TopicConfig, partitioning 
 			return 0, brokerStoreError(store.CodeInvalidArgument, "key_hash partitioning requires a non-empty key")
 		}
 		partition := xxhash.Sum64(key) % uint64(topic.Partitions)
+		return safeUint64ToUint32(partition), nil
+	case PartitionRoutingKeyHash:
+		if partitioning.RoutingKey == "" {
+			return 0, brokerStoreError(store.CodeInvalidArgument, "routing_key_hash partitioning requires a non-empty routing key")
+		}
+		partition := xxhash.Sum64String(partitioning.RoutingKey) % uint64(topic.Partitions)
 		return safeUint64ToUint32(partition), nil
 	default:
 		return r.nextRoundRobin(topic), nil

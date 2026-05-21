@@ -23,6 +23,7 @@ func writeCreateTopicRequest(writer *binaryWriter, req CreateTopicRequest) error
 	writeMessageExpiryAction(writer, req.MessageExpiryAction)
 	writer.writeOptionalBool(req.CompactionEnabled)
 	writer.writeOptionalU64(req.CompactionTombstoneRetentionMS)
+	writeTopicOrderingPolicy(writer, req.OrderingPolicy)
 	return nil
 }
 
@@ -85,6 +86,9 @@ func readCreateTopicRemainingOptions(reader *binaryReader, req CreateTopicReques
 	if req.CompactionTombstoneRetentionMS, err = reader.readOptionalU64(); err != nil {
 		return CreateTopicRequest{}, err
 	}
+	if req.OrderingPolicy, err = readTopicOrderingPolicy(reader); err != nil {
+		return CreateTopicRequest{}, err
+	}
 	return req, nil
 }
 
@@ -139,6 +143,19 @@ func decodeCreateTopicResponse(data []byte, target any) error {
 		}
 		partitions, err := reader.readU32()
 		return CreateTopicResponse{Topic: topic, Partitions: partitions}, err
+	})
+}
+
+func encodeListTopicsRequest(value any) ([]byte, error) {
+	return encodeWith(value, func(writer *binaryWriter, req ListTopicsRequest) error {
+		return writer.writeString(req.Pattern)
+	})
+}
+
+func decodeListTopicsRequest(data []byte, target any) error {
+	return decodeWith(data, target, func(reader *binaryReader) (ListTopicsRequest, error) {
+		pattern, err := reader.readString()
+		return ListTopicsRequest{Pattern: pattern}, err
 	})
 }
 

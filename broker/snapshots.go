@@ -177,6 +177,7 @@ func (b *Broker) topicSummary(topic store.TopicConfig) (TopicSummary, error) {
 		MessageTTLMS:                   topic.MessageTTLMS,
 		MessageExpiryAction:            string(topic.MessageExpiryAction),
 		CompactionTombstoneRetentionMS: topic.CompactionTombstoneRetentionMS,
+		OrderingPolicy:                 string(topic.OrderingPolicy),
 		MaxMessageBytes:                topic.MaxMessageBytes,
 		MaxBatchBytes:                  topic.MaxBatchBytes,
 		RetryMaxAttempts:               topic.RetryPolicy.MaxAttempts,

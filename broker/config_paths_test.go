@@ -74,3 +74,29 @@ func TestBrokerRuntimeHealthUsesDragonboatGroupsForMultiPeerDataShards(t *testin
 		}
 	}
 }
+
+func TestBrokerClusterMetadataSummarizesConfiguredPeers(t *testing.T) {
+	cfg := broker.DefaultConfig()
+	cfg.Broker.NodeID = 2
+	cfg.Broker.ClusterName = "ech0-test"
+	cfg.Raft.BindAddr = "0.0.0.0:6302"
+	cfg.Raft.AdvertiseAddr = ""
+	cfg.Raft.Cluster = []broker.RaftPeerConfig{
+		{NodeID: 2, Addr: "127.0.0.1:6302"},
+		{NodeID: 1, Addr: "127.0.0.1:6301"},
+	}
+	b, err := broker.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := b.ClusterMetadata()
+	if metadata.ClusterName != "ech0-test" || metadata.NodeID != 2 {
+		t.Fatalf("unexpected cluster identity: %#v", metadata)
+	}
+	if metadata.Raft.AdvertiseAddr != "127.0.0.1:6302" || metadata.Raft.KnownNodes != 2 {
+		t.Fatalf("unexpected raft metadata: %#v", metadata.Raft)
+	}
+	if len(metadata.Raft.Peers) != 2 || metadata.Raft.Peers[0].NodeID != 1 || metadata.Raft.Peers[1].NodeID != 2 || !metadata.Raft.Peers[1].Local {
+		t.Fatalf("unexpected peer metadata: %#v", metadata.Raft.Peers)
+	}
+}
