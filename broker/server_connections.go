@@ -8,6 +8,7 @@ import (
 
 	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 	"github.com/lyonbrown4d/ech0/transport"
 )
 
@@ -100,7 +101,7 @@ func (s *TCPServer) contextForConnectionFrame(ctx context.Context, conn net.Conn
 
 func (s *TCPServer) contextFromHandshake(ctx context.Context, connectionID string, frame transport.Frame) (context.Context, *transport.Frame) {
 	var req protocol.HandshakeRequest
-	if err := protocol.DecodeBody(frame.Header.Command, frame.Body, &req); err != nil {
+	if err := protocolbinary.DecodeBody(frame.Header.Command, frame.Body, &req); err != nil {
 		response := errorFrame("invalid_request", err.Error())
 		return ctx, &response
 	}

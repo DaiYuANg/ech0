@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 )
 
 var protocolBenchmarkSink []byte
@@ -25,7 +26,7 @@ func BenchmarkEncodeProduceRequest(b *testing.B) {
 	b.ReportAllocs()
 	b.SetBytes(int64(len(req.Payload)))
 	for b.Loop() {
-		body, err := protocol.EncodeBody(protocol.CmdProduceRequest, req)
+		body, err := protocolbinary.EncodeBody(protocol.CmdProduceRequest, req)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -35,7 +36,7 @@ func BenchmarkEncodeProduceRequest(b *testing.B) {
 
 func BenchmarkDecodeProduceRequest(b *testing.B) {
 	partition := uint32(3)
-	body, err := protocol.EncodeBody(protocol.CmdProduceRequest, protocol.ProduceRequest{
+	body, err := protocolbinary.EncodeBody(protocol.CmdProduceRequest, protocol.ProduceRequest{
 		Topic:        "orders",
 		Partition:    &partition,
 		Partitioning: protocol.ProducePartitioningExplicit,
@@ -53,7 +54,7 @@ func BenchmarkDecodeProduceRequest(b *testing.B) {
 	b.SetBytes(int64(len(body)))
 	for b.Loop() {
 		var req protocol.ProduceRequest
-		if err := protocol.DecodeBody(protocol.CmdProduceRequest, body, &req); err != nil {
+		if err := protocolbinary.DecodeBody(protocol.CmdProduceRequest, body, &req); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -69,7 +70,7 @@ func BenchmarkEncodeFetchResponse100(b *testing.B) {
 	b.ReportAllocs()
 	b.SetBytes(100 * 1024)
 	for b.Loop() {
-		body, err := protocol.EncodeBody(protocol.CmdFetchResponse, resp)
+		body, err := protocolbinary.EncodeBody(protocol.CmdFetchResponse, resp)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -78,7 +79,7 @@ func BenchmarkEncodeFetchResponse100(b *testing.B) {
 }
 
 func BenchmarkDecodeFetchResponse100(b *testing.B) {
-	body, err := protocol.EncodeBody(protocol.CmdFetchResponse, protocol.FetchResponse{
+	body, err := protocolbinary.EncodeBody(protocol.CmdFetchResponse, protocol.FetchResponse{
 		Topic:      "orders",
 		Partition:  0,
 		Records:    benchmarkFetchRecords(100, 1024),
@@ -91,7 +92,7 @@ func BenchmarkDecodeFetchResponse100(b *testing.B) {
 	b.SetBytes(int64(len(body)))
 	for b.Loop() {
 		var resp protocol.FetchResponse
-		if err := protocol.DecodeBody(protocol.CmdFetchResponse, body, &resp); err != nil {
+		if err := protocolbinary.DecodeBody(protocol.CmdFetchResponse, body, &resp); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -114,7 +115,7 @@ func BenchmarkEncodeStartRequest(b *testing.B) {
 	b.ReportAllocs()
 	b.SetBytes(int64(len(req.Payload)))
 	for b.Loop() {
-		body, err := protocol.EncodeBody(protocol.CmdStartRequestRequest, req)
+		body, err := protocolbinary.EncodeBody(protocol.CmdStartRequestRequest, req)
 		if err != nil {
 			b.Fatal(err)
 		}

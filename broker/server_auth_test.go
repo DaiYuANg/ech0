@@ -6,6 +6,7 @@ import (
 
 	broker "github.com/lyonbrown4d/ech0/broker"
 	"github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 	"github.com/lyonbrown4d/ech0/transport"
 )
 
@@ -29,7 +30,7 @@ func TestTCPHandshakeUsesConfiguredStaticToken(t *testing.T) {
 		t.Fatalf("unexpected authenticated handshake identity: %#v", resp)
 	}
 
-	body, err := protocol.EncodeBody(protocol.CmdHandshakeRequest, protocol.HandshakeRequest{AuthToken: "bad"})
+	body, err := protocolbinary.EncodeBody(protocol.CmdHandshakeRequest, protocol.HandshakeRequest{AuthToken: "bad"})
 	requireNoError(t, err)
 	frame, err := transport.NewFrame(protocol.Version, protocol.CmdHandshakeRequest, body)
 	requireNoError(t, err)

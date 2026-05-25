@@ -6,6 +6,7 @@ import (
 
 	collectionset "github.com/arcgolabs/collectionx/set"
 	protocol "github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 )
 
 func TestHandshakeBinaryRoundTrip(t *testing.T) {
@@ -17,12 +18,12 @@ func TestHandshakeBinaryRoundTrip(t *testing.T) {
 		AuthToken:    "token",
 		Capabilities: []string{protocol.CapabilityCompressionZstd, protocol.CapabilityTransactions},
 	}
-	data, err := protocol.EncodeBody(protocol.CmdHandshakeRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdHandshakeRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.HandshakeRequest
-	if err := protocol.DecodeBody(protocol.CmdHandshakeRequest, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdHandshakeRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, req) {
@@ -67,12 +68,12 @@ func TestCreateTopicMessageExpiryBinaryRoundTrip(t *testing.T) {
 		OrderingPolicy:      &ordering,
 		PriorityPolicy:      &priority,
 	}
-	data, err := protocol.EncodeBody(protocol.CmdCreateTopicRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdCreateTopicRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.CreateTopicRequest
-	if err := protocol.DecodeBody(protocol.CmdCreateTopicRequest, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdCreateTopicRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, req) {
@@ -90,12 +91,12 @@ func TestProduceMessageExpiryBinaryRoundTrip(t *testing.T) {
 		ExpiresAtMS:  &expiresAt,
 		Payload:      []byte("payload"),
 	}
-	data, err := protocol.EncodeBody(protocol.CmdProduceRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdProduceRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.ProduceRequest
-	if err := protocol.DecodeBody(protocol.CmdProduceRequest, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdProduceRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, req) {
@@ -105,12 +106,12 @@ func TestProduceMessageExpiryBinaryRoundTrip(t *testing.T) {
 
 func TestTransactionBeginBinaryRoundTrip(t *testing.T) {
 	req := protocol.TxBeginRequest{TransactionalID: "orders-worker-1", TimeoutMS: 30_000}
-	data, err := protocol.EncodeBody(protocol.CmdTxBeginRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdTxBeginRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.TxBeginRequest
-	if err := protocol.DecodeBody(protocol.CmdTxBeginRequest, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdTxBeginRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if got != req {
@@ -132,12 +133,12 @@ func TestTransactionPublishBatchBinaryRoundTrip(t *testing.T) {
 			{Key: []byte("b"), Tombstone: true, Payload: []byte{}},
 		},
 	}
-	data, err := protocol.EncodeBody(protocol.CmdTxPublishBatchRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdTxPublishBatchRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.TxPublishBatchRequest
-	if err := protocol.DecodeBody(protocol.CmdTxPublishBatchRequest, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdTxPublishBatchRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, req) {
@@ -162,12 +163,12 @@ func TestFetchResponseTransactionMetadataBinaryRoundTrip(t *testing.T) {
 		}},
 		NextOffset: 8,
 	}
-	data, err := protocol.EncodeBody(protocol.CmdFetchResponse, resp)
+	data, err := protocolbinary.EncodeBody(protocol.CmdFetchResponse, resp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.FetchResponse
-	if err := protocol.DecodeBody(protocol.CmdFetchResponse, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdFetchResponse, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, resp) {
@@ -180,12 +181,12 @@ func TestFetchIsolationBinaryRoundTrip(t *testing.T) {
 		Consumer: "c1", Topic: "orders", Partition: 0,
 		MaxRecords: 10, Isolation: protocol.FetchIsolationReadCommitted,
 	}
-	data, err := protocol.EncodeBody(protocol.CmdFetchRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdFetchRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.FetchRequest
-	if err := protocol.DecodeBody(protocol.CmdFetchRequest, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdFetchRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, req) {
@@ -197,12 +198,12 @@ func TestCommitOffsetMetadataBinaryRoundTrip(t *testing.T) {
 	req := protocol.CommitOffsetRequest{
 		Consumer: "c1", Topic: "orders", Partition: 0, NextOffset: 7, Metadata: "checkpoint=42",
 	}
-	data, err := protocol.EncodeBody(protocol.CmdCommitOffsetRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdCommitOffsetRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.CommitOffsetRequest
-	if err := protocol.DecodeBody(protocol.CmdCommitOffsetRequest, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdCommitOffsetRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if got != req {
@@ -215,12 +216,12 @@ func TestCommitConsumerGroupOffsetMetadataBinaryRoundTrip(t *testing.T) {
 		Group: "workers", MemberID: "member-1", Generation: 2,
 		Topic: "orders", Partition: 0, NextOffset: 7, Metadata: "checkpoint=42",
 	}
-	data, err := protocol.EncodeBody(protocol.CmdCommitConsumerGroupOffsetRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdCommitConsumerGroupOffsetRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.CommitConsumerGroupOffsetRequest
-	if err := protocol.DecodeBody(protocol.CmdCommitConsumerGroupOffsetRequest, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdCommitConsumerGroupOffsetRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if got != req {
@@ -233,12 +234,12 @@ func TestTransactionCommitOffsetMetadataBinaryRoundTrip(t *testing.T) {
 		Identity: protocol.TransactionIdentity{TxID: 10, ProducerID: 20, ProducerEpoch: 2},
 		Consumer: "c1", Topic: "orders", Partition: 0, NextOffset: 7, Metadata: "checkpoint=42",
 	}
-	data, err := protocol.EncodeBody(protocol.CmdTxCommitOffsetRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdTxCommitOffsetRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.TxCommitOffsetRequest
-	if err := protocol.DecodeBody(protocol.CmdTxCommitOffsetRequest, data, &got); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdTxCommitOffsetRequest, data, &got); err != nil {
 		t.Fatal(err)
 	}
 	if got != req {
@@ -247,7 +248,7 @@ func TestTransactionCommitOffsetMetadataBinaryRoundTrip(t *testing.T) {
 }
 
 func TestCommandIDsAreUnique(t *testing.T) {
-	commands := protocol.CommandIDs()
+	commands := protocolbinary.CommandIDs()
 	seen := collectionset.NewSet[uint16]()
 	for _, command := range commands {
 		if seen.Contains(command) {

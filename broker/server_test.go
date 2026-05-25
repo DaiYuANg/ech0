@@ -9,6 +9,7 @@ import (
 
 	broker "github.com/lyonbrown4d/ech0/broker"
 	"github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 	"github.com/lyonbrown4d/ech0/store"
 	"github.com/lyonbrown4d/ech0/transport"
 )
@@ -164,7 +165,7 @@ func TestTCPServerAcceptsConnectionsAfterStartContextCanceled(t *testing.T) {
 		requireNoError(t, conn.Close())
 	}()
 
-	body, err := protocol.EncodeBody(protocol.CmdPingRequest, protocol.PingRequest{Nonce: 42})
+	body, err := protocolbinary.EncodeBody(protocol.CmdPingRequest, protocol.PingRequest{Nonce: 42})
 	requireNoError(t, err)
 	frame, err := transport.NewFrame(protocol.Version, protocol.CmdPingRequest, body)
 	requireNoError(t, err)
@@ -249,16 +250,9 @@ func awaitReplyViaProtocol(ctx context.Context, t *testing.T, server *broker.TCP
 	)
 }
 
-func handleProtocolFrame[T any](
-	ctx context.Context,
-	t *testing.T,
-	server *broker.TCPServer,
-	requestCommand uint16,
-	responseCommand uint16,
-	req any,
-) T {
+func handleProtocolFrame[T any](ctx context.Context, t *testing.T, server *broker.TCPServer, requestCommand, responseCommand uint16, req any) T {
 	t.Helper()
-	body, err := protocol.EncodeBody(requestCommand, req)
+	body, err := protocolbinary.EncodeBody(requestCommand, req)
 	requireNoError(t, err)
 	frame, err := transport.NewFrame(protocol.Version, requestCommand, body)
 	requireNoError(t, err)
@@ -266,14 +260,14 @@ func handleProtocolFrame[T any](
 	requireNoError(t, err)
 	if response.Header.Command == protocol.CmdErrorResponse {
 		var out protocol.ErrorResponse
-		requireNoError(t, protocol.DecodeBody(protocol.CmdErrorResponse, response.Body, &out))
+		requireNoError(t, protocolbinary.DecodeBody(protocol.CmdErrorResponse, response.Body, &out))
 		t.Fatalf("protocol error %s: %s", out.Code, out.Message)
 	}
 	if response.Header.Command != responseCommand {
 		t.Fatalf("unexpected response command %d, want %d", response.Header.Command, responseCommand)
 	}
 	var out T
-	err = protocol.DecodeBody(responseCommand, response.Body, &out)
+	err = protocolbinary.DecodeBody(responseCommand, response.Body, &out)
 	requireNoError(t, err)
 	return out
 }

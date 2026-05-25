@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	protocol "github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 )
 
 func TestProduceFanoutBinaryRoundTrip(t *testing.T) {
@@ -17,12 +18,12 @@ func TestProduceFanoutBinaryRoundTrip(t *testing.T) {
 		ExpiresAtMS: &expiresAt,
 		Payload:     []byte("broadcast"),
 	}
-	data, err := protocol.EncodeBody(protocol.CmdProduceFanoutRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdProduceFanoutRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.ProduceFanoutRequest
-	if decodeErr := protocol.DecodeBody(protocol.CmdProduceFanoutRequest, data, &got); decodeErr != nil {
+	if decodeErr := protocolbinary.DecodeBody(protocol.CmdProduceFanoutRequest, data, &got); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	if !reflect.DeepEqual(got, req) {
@@ -30,12 +31,12 @@ func TestProduceFanoutBinaryRoundTrip(t *testing.T) {
 	}
 
 	resp := protocol.ProduceFanoutResponse{Records: []protocol.ProduceFanoutRecordResponse{{Partition: 1, Offset: 2, NextOffset: 3}}}
-	encoded, err := protocol.EncodeBody(protocol.CmdProduceFanoutResponse, resp)
+	encoded, err := protocolbinary.EncodeBody(protocol.CmdProduceFanoutResponse, resp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded protocol.ProduceFanoutResponse
-	if err := protocol.DecodeBody(protocol.CmdProduceFanoutResponse, encoded, &decoded); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdProduceFanoutResponse, encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(decoded, resp) {
@@ -50,12 +51,12 @@ func TestFetchSubjectPatternBinaryRoundTrip(t *testing.T) {
 		MaxRecords: 10,
 		Isolation:  protocol.FetchIsolationReadCommitted,
 	}
-	data, err := protocol.EncodeBody(protocol.CmdFetchSubjectPatternRequest, req)
+	data, err := protocolbinary.EncodeBody(protocol.CmdFetchSubjectPatternRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got protocol.FetchSubjectPatternRequest
-	if decodeErr := protocol.DecodeBody(protocol.CmdFetchSubjectPatternRequest, data, &got); decodeErr != nil {
+	if decodeErr := protocolbinary.DecodeBody(protocol.CmdFetchSubjectPatternRequest, data, &got); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	if !reflect.DeepEqual(got, req) {
@@ -71,12 +72,12 @@ func TestFetchSubjectPatternBinaryRoundTrip(t *testing.T) {
 			NextOffset: 2,
 		}},
 	}
-	encoded, err := protocol.EncodeBody(protocol.CmdFetchSubjectPatternResponse, resp)
+	encoded, err := protocolbinary.EncodeBody(protocol.CmdFetchSubjectPatternResponse, resp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded protocol.FetchSubjectPatternResponse
-	if err := protocol.DecodeBody(protocol.CmdFetchSubjectPatternResponse, encoded, &decoded); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdFetchSubjectPatternResponse, encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(decoded, resp) {

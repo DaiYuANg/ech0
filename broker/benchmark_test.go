@@ -8,6 +8,7 @@ import (
 
 	broker "github.com/lyonbrown4d/ech0/broker"
 	"github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 	"github.com/lyonbrown4d/ech0/store"
 	"github.com/lyonbrown4d/ech0/transport"
 )
@@ -71,7 +72,7 @@ func BenchmarkBrokerTCPProduceFrameMemory1KB(b *testing.B) {
 		Headers:      []protocol.MessageHeader{{Key: "trace_id", Value: []byte("trace-1")}},
 		Payload:      benchmarkBrokerPayload(1024),
 	}
-	body, err := protocol.EncodeBody(protocol.CmdProduceRequest, req)
+	body, err := protocolbinary.EncodeBody(protocol.CmdProduceRequest, req)
 	mustBenchmarkNoError(b, err)
 	frame, err := transport.NewFrame(protocol.Version, protocol.CmdProduceRequest, body)
 	mustBenchmarkNoError(b, err)

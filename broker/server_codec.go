@@ -9,6 +9,7 @@ import (
 	"github.com/arcgolabs/mapper"
 	"github.com/lyonbrown4d/ech0/direct"
 	"github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 	"github.com/lyonbrown4d/ech0/store"
 	"github.com/lyonbrown4d/ech0/transport"
 	"github.com/samber/oops"
@@ -21,7 +22,7 @@ func (s *TCPServer) recordCommandError(ctx context.Context, frame transport.Fram
 		return
 	}
 	var out protocol.ErrorResponse
-	if err := protocol.DecodeBody(frame.Header.Command, frame.Body, &out); err != nil || out.Code == "" {
+	if err := protocolbinary.DecodeBody(frame.Header.Command, frame.Body, &out); err != nil || out.Code == "" {
 		s.metrics.RecordCommandError(ctx, "internal_error")
 		return
 	}
@@ -29,11 +30,11 @@ func (s *TCPServer) recordCommandError(ctx context.Context, frame transport.Fram
 }
 
 func decode(frame transport.Frame, target any) error {
-	return wrapBroker("frame_decode_failed", protocol.DecodeBody(frame.Header.Command, frame.Body, target), "decode request frame")
+	return wrapBroker("frame_decode_failed", protocolbinary.DecodeBody(frame.Header.Command, frame.Body, target), "decode request frame")
 }
 
 func okFrame(command uint16, value any) (transport.Frame, error) {
-	body, err := protocol.EncodeBody(command, value)
+	body, err := protocolbinary.EncodeBody(command, value)
 	if err != nil {
 		return transport.Frame{}, wrapBroker("response_encode_failed", err, "encode response frame")
 	}
@@ -45,7 +46,7 @@ func okFrame(command uint16, value any) (transport.Frame, error) {
 }
 
 func errorFrame(code, message string) transport.Frame {
-	body, err := protocol.EncodeBody(protocol.CmdErrorResponse, protocol.ErrorResponse{Code: code, Message: message})
+	body, err := protocolbinary.EncodeBody(protocol.CmdErrorResponse, protocol.ErrorResponse{Code: code, Message: message})
 	if err != nil {
 		body = nil
 	}

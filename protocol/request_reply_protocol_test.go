@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 )
 
 func TestRequestReplyModeBinaryRoundTrip(t *testing.T) {
@@ -20,13 +21,13 @@ func TestRequestReplyModeBinaryRoundTrip(t *testing.T) {
 		ReplyMode:      protocol.RequestReplyModeMultiReplier,
 		Payload:        []byte("ping"),
 	}
-	body, err := protocol.EncodeBody(protocol.CmdStartRequestRequest, req)
+	body, err := protocolbinary.EncodeBody(protocol.CmdStartRequestRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var got protocol.StartRequestRequest
-	err = protocol.DecodeBody(protocol.CmdStartRequestRequest, body, &got)
+	err = protocolbinary.DecodeBody(protocol.CmdStartRequestRequest, body, &got)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,13 +45,13 @@ func TestAwaitRepliesBinaryRoundTrip(t *testing.T) {
 		PollIntervalMS: &pollMS,
 		MaxReplies:     2,
 	}
-	body, err := protocol.EncodeBody(protocol.CmdAwaitRepliesRequest, req)
+	body, err := protocolbinary.EncodeBody(protocol.CmdAwaitRepliesRequest, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var got protocol.AwaitRepliesRequest
-	err = protocol.DecodeBody(protocol.CmdAwaitRepliesRequest, body, &got)
+	err = protocolbinary.DecodeBody(protocol.CmdAwaitRepliesRequest, body, &got)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,13 +63,13 @@ func TestAwaitRepliesBinaryRoundTrip(t *testing.T) {
 		{Offset: 1, MessageID: "m1", Subject: "svc.echo", CorrelationID: "corr-1", ResponderID: "B1", Payload: []byte("one")},
 		{Offset: 2, MessageID: "m2", Subject: "svc.echo", CorrelationID: "corr-1", ResponderID: "B2", Payload: []byte("two")},
 	}}
-	body, err = protocol.EncodeBody(protocol.CmdAwaitRepliesResponse, resp)
+	body, err = protocolbinary.EncodeBody(protocol.CmdAwaitRepliesResponse, resp)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded protocol.AwaitRepliesResponse
-	err = protocol.DecodeBody(protocol.CmdAwaitRepliesResponse, body, &decoded)
+	err = protocolbinary.DecodeBody(protocol.CmdAwaitRepliesResponse, body, &decoded)
 	if err != nil {
 		t.Fatal(err)
 	}

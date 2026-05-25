@@ -93,7 +93,7 @@ Current capability strings:
 
 ## Codec Registry
 
-`protocol.EncodeBody` and `protocol.DecodeBody` dispatch through a collectionx-backed registry:
+`protocol/binary.EncodeBody` and `protocol/binary.DecodeBody` dispatch through a collectionx-backed registry:
 
 - Commands are defined in `protocol/protocol.go`.
 - Codec entries are listed in `protocol/binary_registry_entries.go`.
@@ -138,7 +138,7 @@ Future changes should follow these rules:
 - Field order may still change before the first stable release when it makes the client contract simpler.
 - Keep `protocol.Version` at `1` until there is a released compatibility promise.
 - Keep `HeaderLen` stable unless transport framing itself changes.
-- Update `protocol.CommandIDs()` tests when adding commands.
+- Update `protocol/binary.CommandIDs()` tests when adding commands.
 
 ## Client Implementation Notes
 

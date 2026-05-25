@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lyonbrown4d/ech0/protocol"
+	protocolbinary "github.com/lyonbrown4d/ech0/protocol/binary"
 	"github.com/lyonbrown4d/ech0/transport"
 )
 
@@ -175,7 +176,7 @@ func (b *tcpBenchBroker) roundTrip(ctx context.Context, requestCommand, response
 }
 
 func newTCPBenchFrame(command uint16, request any) (transport.Frame, error) {
-	body, err := protocol.EncodeBody(command, request)
+	body, err := protocolbinary.EncodeBody(command, request)
 	if err != nil {
 		return transport.Frame{}, fmt.Errorf("encode tcp benchmark request: %w", err)
 	}
@@ -196,7 +197,7 @@ func decodeTCPBenchResponse(frame transport.Frame, expectedCommand uint16, respo
 	if response == nil {
 		return nil
 	}
-	if err := protocol.DecodeBody(frame.Header.Command, frame.Body, response); err != nil {
+	if err := protocolbinary.DecodeBody(frame.Header.Command, frame.Body, response); err != nil {
 		return fmt.Errorf("decode tcp benchmark response: %w", err)
 	}
 	return nil
@@ -257,7 +258,7 @@ func setTCPBenchDeadline(ctx context.Context, conn net.Conn) error {
 
 func decodeTCPBenchError(frame transport.Frame) error {
 	var out protocol.ErrorResponse
-	if err := protocol.DecodeBody(protocol.CmdErrorResponse, frame.Body, &out); err != nil {
+	if err := protocolbinary.DecodeBody(protocol.CmdErrorResponse, frame.Body, &out); err != nil {
 		return fmt.Errorf("decode tcp benchmark error response: %w", err)
 	}
 	return fmt.Errorf("tcp broker error %s: %s", out.Code, out.Message)

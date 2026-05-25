@@ -7,6 +7,7 @@ The public root package keeps the mental model intentionally small: configure a 
 ## Features
 
 - Library-first embedded broker API in the root `ech0` package.
+- Remote Go TCP SDK in `client`, using `arcgolabs/clientx/tcp` plus ech0 binary framing for pooling, handshake, auth metadata, capability negotiation, and role-focused helpers.
 - Single binary entry point in `cmd/ech0`.
 - Persistent segment-log storage with shard-local binary indexes.
 - Dependency injection, logging, events, and helpers using `arcgolabs/dix`, `logx`, `eventx`, and `collectionx`.
