@@ -181,12 +181,13 @@ func (s *TCPServer) handleConnFrame(ctx context.Context, conn net.Conn) bool {
 		}
 		return false
 	}
-	frame, err := transport.ReadFrameWithLimit(conn, s.limits.MaxFrameBodyBytes)
+	frame, err := transport.ReadFrameWithLimitPooled(conn, s.limits.MaxFrameBodyBytes)
 	if err != nil {
 		s.logReadFrameError(err)
 		return false
 	}
-	frameCtx, authResponse := s.contextForConnectionFrame(ctx, conn, frame)
+	defer frame.Release()
+	frameCtx, authResponse := s.contextForConnectionFrame(ctx, conn, frame.Frame)
 	if authResponse != nil {
 		return s.writeResponseFrame(conn, *authResponse)
 	}
@@ -196,11 +197,11 @@ func (s *TCPServer) handleConnFrame(ctx context.Context, conn net.Conn) bool {
 	}
 	defer releaseInflight()
 	handleStart := time.Now()
-	response, err := s.HandleFrame(frameCtx, frame)
+	response, err := s.HandleFrame(frameCtx, frame.Frame)
 	if err != nil {
 		response = errorFrame("internal_error", err.Error())
 	}
-	s.metrics.RecordCommandDuration(frameCtx, frame.Header.Command, time.Since(handleStart), commandStatus(response))
+	s.metrics.RecordCommandDuration(frameCtx, frame.Frame.Header.Command, time.Since(handleStart), commandStatus(response))
 	s.recordCommandError(frameCtx, response)
 	return s.writeResponseFrame(conn, response)
 }

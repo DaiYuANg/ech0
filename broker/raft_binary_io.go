@@ -4,9 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
-	"math"
-	"strconv"
 
+	"github.com/samber/oops"
 	"github.com/lyonbrown4d/ech0/store"
 )
 
@@ -190,31 +189,23 @@ func (r *raftBinaryReader) ensureEOF() error {
 }
 
 func checkedRaftUint16(value int, label string) (uint16, error) {
-	if value < 0 || value > math.MaxUint16 {
+	if value < 0 || uint64(value) > uint64(^uint16(0)) {
 		return 0, brokerStoreError(store.CodeCodec, "raft binary %s length %d exceeds u16", label, value)
 	}
-	parsed, err := strconv.ParseUint(strconv.Itoa(value), 10, 16)
-	if err != nil {
-		return 0, wrapBroker("raft_binary_length_convert_failed", err, "convert %s length to u16", label)
-	}
-	return uint16(parsed), nil
+	return uint16(value), nil
 }
 
 func checkedRaftUint32(value int, label string) (uint32, error) {
-	if value < 0 || value > math.MaxUint32 {
+	if value < 0 || uint64(value) > uint64(^uint32(0)) {
 		return 0, brokerStoreError(store.CodeCodec, "raft binary %s length %d exceeds u32", label, value)
 	}
-	parsed, err := strconv.ParseUint(strconv.Itoa(value), 10, 32)
-	if err != nil {
-		return 0, wrapBroker("raft_binary_length_convert_failed", err, "convert %s length to u32", label)
-	}
-	return uint32(parsed), nil
+	return uint32(value), nil
 }
 
 func intFromRaftUint32(value uint32) (int, error) {
-	out, err := strconv.Atoi(strconv.FormatUint(uint64(value), 10))
-	if err != nil {
-		return 0, wrapBroker("raft_binary_length_convert_failed", err, "convert u32 length to int")
+	maxInt := int(^uint(0) >> 1)
+	if value > uint32(maxInt) {
+		return 0, oops.In("broker").Code("raft_binary_length_convert_failed").With("value", value, "max", maxInt).New("u32 value exceeds int")
 	}
-	return out, nil
+	return int(value), nil
 }

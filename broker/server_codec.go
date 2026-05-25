@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/mapper"
@@ -12,6 +11,7 @@ import (
 	"github.com/lyonbrown4d/ech0/protocol"
 	"github.com/lyonbrown4d/ech0/store"
 	"github.com/lyonbrown4d/ech0/transport"
+	"github.com/samber/oops"
 )
 
 var controlPlaneMapper = mapper.New()
@@ -74,11 +74,10 @@ func errorFrameBodyLen(length int) (uint32, error) {
 	if length < 0 {
 		return 0, errors.New("negative frame body length")
 	}
-	var out uint32
-	if _, err := fmt.Sscan(strconv.Itoa(length), &out); err != nil {
-		return 0, wrapBroker("frame_body_len_failed", err, "parse frame body length")
+	if uint64(length) > uint64(^uint32(0)) {
+		return 0, oops.In("broker").Code("frame_body_len_failed").With("body_len", length).New("frame body length exceeds uint32")
 	}
-	return out, nil
+	return uint32(length), nil
 }
 
 func errorFromErr(err error) transport.Frame {

@@ -1,9 +1,6 @@
 package protocol
 
 import (
-	"fmt"
-	"strconv"
-
 	"github.com/samber/oops"
 )
 
@@ -11,26 +8,24 @@ func checkedUint16(value int, label string) (uint16, error) {
 	if value < 0 {
 		return 0, binaryNegativeValue(label, value)
 	}
-	var out uint16
-	if _, err := fmt.Sscan(strconv.Itoa(value), &out); err != nil {
-		return 0, binaryValueTooLarge(label, value, err)
+	if uint64(value) > uint64(^uint16(0)) {
+		return 0, binaryValueTooLarge(label, value)
 	}
-	return out, nil
+	return uint16(value), nil
 }
 
 func checkedUint32(value int, label string) (uint32, error) {
 	if value < 0 {
 		return 0, binaryNegativeValue(label, value)
 	}
-	var out uint32
-	if _, err := fmt.Sscan(strconv.Itoa(value), &out); err != nil {
-		return 0, binaryValueTooLarge(label, value, err)
+	if uint64(value) > uint64(^uint32(0)) {
+		return 0, binaryValueTooLarge(label, value)
 	}
-	return out, nil
+	return uint32(value), nil
 }
 
-func binaryValueTooLarge(label string, value int, err error) error {
-	return oops.In("protocol").Code("binary_value_too_large").With("field", label, "value", value).Wrapf(err, "value exceeds binary integer")
+func binaryValueTooLarge(label string, value int) error {
+	return oops.In("protocol").Code("binary_value_too_large").With("field", label, "value", value).New("value exceeds binary integer")
 }
 
 func binaryNegativeValue(label string, value int) error {
@@ -38,9 +33,9 @@ func binaryNegativeValue(label string, value int) error {
 }
 
 func intFromUint32(value uint32) (int, error) {
-	out, err := strconv.Atoi(strconv.FormatUint(uint64(value), 10))
-	if err != nil {
-		return 0, oops.In("protocol").Code("binary_value_too_large").Wrapf(err, "convert u32 to int")
+	maxInt := int(^uint(0) >> 1)
+	if value > uint32(maxInt) {
+		return 0, oops.In("protocol").Code("binary_value_too_large").With("value", value, "max", maxInt).New("u32 value exceeds int")
 	}
-	return out, nil
+	return int(value), nil
 }

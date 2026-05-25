@@ -3,10 +3,9 @@ package transport
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
-	"strconv"
 
+	"github.com/lyonbrown4d/ech0/internal/bufferpool"
 	"github.com/samber/oops"
 )
 
@@ -74,6 +73,20 @@ type Frame struct {
 	Body   []byte
 }
 
+type PooledFrame struct {
+	Frame
+	release func()
+}
+
+func (f *PooledFrame) Release() {
+	if f == nil || f.release == nil {
+		return
+	}
+	release := f.release
+	f.release = nil
+	release()
+}
+
 func NewFrame(version uint8, command uint16, body []byte) (Frame, error) {
 	bodyLen, err := frameBodyLen(body)
 	if err != nil {
@@ -81,16 +94,15 @@ func NewFrame(version uint8, command uint16, body []byte) (Frame, error) {
 	}
 	return Frame{
 		Header: NewFrameHeader(version, command, bodyLen),
-		Body:   append([]byte(nil), body...),
+		Body:   body,
 	}, nil
 }
 
 func frameBodyLen(body []byte) (uint32, error) {
-	var out uint32
-	if _, err := fmt.Sscan(strconv.Itoa(len(body)), &out); err != nil {
+	if uint64(len(body)) > uint64(^uint32(0)) {
 		return 0, oops.In("transport").Code("frame_body_too_large").With("body_len", len(body)).New("frame body too large")
 	}
-	return out, nil
+	return uint32(len(body)), nil
 }
 
 func ReadFrame(r io.Reader) (Frame, error) {
@@ -98,24 +110,54 @@ func ReadFrame(r io.Reader) (Frame, error) {
 }
 
 func ReadFrameWithLimit(r io.Reader, maxBodyBytes uint32) (Frame, error) {
+	out, err := ReadFrameWithLimitPooled(r, maxBodyBytes)
+	if err != nil {
+		return Frame{}, err
+	}
+	frame := out.Frame
+	out.Release()
+	return frame, nil
+}
+
+func ReadFrameWithLimitPooled(r io.Reader, maxBodyBytes uint32) (PooledFrame, error) {
 	var headerBytes [HeaderLen]byte
 	if _, err := io.ReadFull(r, headerBytes[:]); err != nil {
-		return Frame{}, oops.In("transport").Code("frame_header_read_failed").Wrapf(err, "read frame header")
+		return PooledFrame{}, oops.In("transport").Code("frame_header_read_failed").Wrapf(err, "read frame header")
 	}
 	header := DecodeHeader(headerBytes)
 	if err := validateHeader(header); err != nil {
-		return Frame{}, err
+		return PooledFrame{}, err
 	}
 	if maxBodyBytes > 0 && header.BodyLen > maxBodyBytes {
-		return Frame{}, oops.In("transport").Code("frame_body_too_large").With("body_len", header.BodyLen, "max_body_bytes", maxBodyBytes).New("frame body exceeds limit")
+		return PooledFrame{}, oops.In("transport").Code("frame_body_too_large").With("body_len", header.BodyLen, "max_body_bytes", maxBodyBytes).New("frame body exceeds limit")
 	}
-	body := make([]byte, header.BodyLen)
-	if header.BodyLen > 0 {
-		if _, err := io.ReadFull(r, body); err != nil {
-			return Frame{}, oops.In("transport").Code("frame_body_read_failed").Wrapf(err, "read frame body")
-		}
+	maxBodyLen := int64(^uint(0) >> 1)
+	if int64(header.BodyLen) > maxBodyLen {
+		return PooledFrame{}, oops.In("transport").Code("frame_body_too_large").With("body_len", header.BodyLen).New("frame body exceeds in-memory limit")
 	}
-	return Frame{Header: header, Body: body}, nil
+
+	if header.BodyLen == 0 {
+		return PooledFrame{Frame: Frame{Header: header}}, nil
+	}
+	buffer := bufferpool.Get()
+	if cap(buffer.B) < int(header.BodyLen) {
+		buffer.B = make([]byte, int(header.BodyLen))
+	} else {
+		buffer.B = buffer.B[:int(header.BodyLen)]
+	}
+	if _, err := io.ReadFull(r, buffer.B); err != nil {
+		bufferpool.Put(buffer)
+		return PooledFrame{}, oops.In("transport").Code("frame_body_read_failed").Wrapf(err, "read frame body")
+	}
+	return PooledFrame{
+		Frame: Frame{
+			Header: header,
+			Body:   buffer.B,
+		},
+		release: func() {
+			bufferpool.Put(buffer)
+		},
+	}, nil
 }
 
 func validateHeader(header FrameHeader) error {
