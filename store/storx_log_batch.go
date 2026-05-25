@@ -8,6 +8,8 @@ import (
 	collectionlist "github.com/arcgolabs/collectionx/list"
 )
 
+const segmentBatchFrameMaxRecords = 128
+
 type appendBatchPlan struct {
 	records []Record
 	writes  []segmentBatchWrite
@@ -178,7 +180,7 @@ func appendBatchSegmentWrite(writes []segmentBatchWrite, segmentID uint64, index
 		return append(writes, segmentBatchWrite{segmentID: segmentID, indexes: []int{index}})
 	}
 	last := len(writes) - 1
-	if writes[last].segmentID != segmentID {
+	if writes[last].segmentID != segmentID || len(writes[last].indexes) >= segmentBatchFrameMaxRecords {
 		return append(writes, segmentBatchWrite{segmentID: segmentID, indexes: []int{index}})
 	}
 	writes[last].indexes = append(writes[last].indexes, index)

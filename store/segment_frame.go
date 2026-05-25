@@ -234,6 +234,7 @@ type segmentFrameRecordCache struct {
 	key     segmentFrameReadKey
 	loaded  bool
 	records []Record
+	next    int
 }
 
 func (c *segmentFrameRecordCache) record(
@@ -249,6 +250,12 @@ func (c *segmentFrameRecordCache) record(
 		c.key = key
 		c.loaded = true
 		c.records = records
+		c.next = 0
+	}
+	if c.next < len(c.records) && c.records[c.next].Offset == pointer.Offset {
+		record := c.records[c.next]
+		c.next++
+		return record, nil
 	}
 	return findSegmentPointerRecord(pointer, c.records)
 }

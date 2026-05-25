@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 
 	"github.com/lyonbrown4d/ech0/internal/bufferpool"
@@ -214,22 +213,14 @@ func nonNegativeInt64ToUint64(value int64, name string) (uint64, error) {
 	if value < 0 {
 		return 0, E(CodeCodec, "%s is negative: %d", name, value)
 	}
-	out, err := strconv.ParseUint(strconv.FormatInt(value, 10), 10, 64)
-	if err != nil {
-		return 0, E(CodeCodec, "invalid %s %d: %v", name, value, err)
-	}
-	return out, nil
+	return uint64(value), nil
 }
 
 func nonNegativeIntToUint64(value int, name string) (uint64, error) {
 	if value < 0 {
 		return 0, E(CodeCodec, "%s is negative: %d", name, value)
 	}
-	out, err := strconv.ParseUint(strconv.Itoa(value), 10, 64)
-	if err != nil {
-		return 0, E(CodeCodec, "invalid %s %d: %v", name, value, err)
-	}
-	return out, nil
+	return uint64(value), nil
 }
 
 func (s *StorxLogStore) segmentIDForAppend(

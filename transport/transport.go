@@ -179,6 +179,8 @@ func WriteFrame(w io.Writer, frame Frame) error {
 	if len(frame.Body) == 0 {
 		return nil
 	}
-	_, err := w.Write(frame.Body)
-	return oops.In("transport").Code("frame_body_write_failed").Wrapf(err, "write frame body")
+	if _, err := w.Write(frame.Body); err != nil {
+		return oops.In("transport").Code("frame_body_write_failed").Wrapf(err, "write frame body")
+	}
+	return nil
 }

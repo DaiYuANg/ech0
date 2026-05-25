@@ -1,7 +1,7 @@
 package store
 
 import (
-	"fmt"
+	"encoding/binary"
 	"strconv"
 )
 
@@ -9,17 +9,17 @@ func segmentIntToU32(value int, field string) (uint32, error) {
 	if value < 0 {
 		return 0, E(CodeCodec, "%s %d is negative", field, value)
 	}
-	var out uint32
-	if _, err := fmt.Sscan(strconv.Itoa(value), &out); err != nil {
+	if strconv.IntSize > 32 && value > int(^uint32(0)) {
 		return 0, E(CodeCodec, "%s %d exceeds uint32", field, value)
 	}
-	return out, nil
+	var raw [8]byte
+	binary.BigEndian.PutUint64(raw[:], uint64(value))
+	return binary.BigEndian.Uint32(raw[4:]), nil
 }
 
 func segmentU32ToInt(value uint32, field string) (int, error) {
-	out, err := strconv.Atoi(strconv.FormatUint(uint64(value), 10))
-	if err != nil {
+	if strconv.IntSize == 32 && value > 1<<31-1 {
 		return 0, E(CodeCodec, "%s %d exceeds int", field, value)
 	}
-	return out, nil
+	return int(value), nil
 }
