@@ -3,6 +3,8 @@ package broker
 import (
 	"fmt"
 	"reflect"
+
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 )
 
 func eventKind(event any) string {
@@ -19,7 +21,7 @@ func eventKind(event any) string {
 	return fmt.Sprintf("%T", event)
 }
 
-func eventFields(event any) map[string]string {
+func eventFields(event any) *collectionmapping.Map[string, string] {
 	value, ok := eventStructValue(event)
 	if !ok {
 		return nil
@@ -44,9 +46,9 @@ func eventStructValue(event any) (reflect.Value, bool) {
 	return value, true
 }
 
-func eventStructFields(value reflect.Value) map[string]string {
+func eventStructFields(value reflect.Value) *collectionmapping.Map[string, string] {
 	typ := value.Type()
-	fields := make(map[string]string, value.NumField())
+	fields := collectionmapping.NewMap[string, string]()
 	for i := range value.NumField() {
 		field := typ.Field(i)
 		if field.PkgPath != "" {
@@ -54,10 +56,10 @@ func eventStructFields(value reflect.Value) map[string]string {
 		}
 		text, ok := eventFieldString(value.Field(i))
 		if ok {
-			fields[field.Name] = text
+			fields.Set(field.Name, text)
 		}
 	}
-	if len(fields) == 0 {
+	if fields.IsEmpty() {
 		return nil
 	}
 	return fields

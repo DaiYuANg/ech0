@@ -228,11 +228,9 @@ func gatewayFetchOffset(value string) (uint64, bool, error) {
 }
 
 func gatewayRecords(records []store.Record) []gatewayRecordResponse {
-	out := collectionlist.NewListWithCapacity[gatewayRecordResponse](len(records))
-	for index := range records {
-		out.Add(gatewayRecord(records[index]))
-	}
-	return out.Values()
+	return collectionlist.MapList(collectionlist.NewList(records...), func(_ int, record store.Record) gatewayRecordResponse {
+		return gatewayRecord(record)
+	}).Values()
 }
 
 func gatewayRecord(record store.Record) gatewayRecordResponse {
@@ -251,16 +249,13 @@ func gatewayRecord(record store.Record) gatewayRecordResponse {
 }
 
 func gatewayHeadersFromStore(headers []store.RecordHeader) []gatewayHeader {
-	out := collectionlist.NewListWithCapacity[gatewayHeader](len(headers))
-	for index := range headers {
-		value := headers[index].Value
-		out.Add(gatewayHeader{
-			Key:         headers[index].Key,
-			Value:       gatewayUTF8(value),
-			ValueBase64: base64.StdEncoding.EncodeToString(value),
-		})
-	}
-	return out.Values()
+	return collectionlist.MapList(collectionlist.NewList(headers...), func(_ int, header store.RecordHeader) gatewayHeader {
+		return gatewayHeader{
+			Key:         header.Key,
+			Value:       gatewayUTF8(header.Value),
+			ValueBase64: base64.StdEncoding.EncodeToString(header.Value),
+		}
+	}).Values()
 }
 
 func gatewayUTF8(value []byte) string {

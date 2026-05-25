@@ -7,6 +7,7 @@ import (
 	"github.com/arcgolabs/authx"
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/lyonbrown4d/ech0/store"
+	"github.com/samber/lo"
 )
 
 const (
@@ -100,12 +101,9 @@ func aclActionMatches(actions []string, action string) bool {
 	if len(actions) == 0 {
 		return true
 	}
-	for _, candidate := range actions {
-		if aclFieldMatches(candidate, action) {
-			return true
-		}
-	}
-	return false
+	return lo.SomeBy(actions, func(candidate string) bool {
+		return aclFieldMatches(candidate, action)
+	})
 }
 
 func parseAuthResourceType(resource string) ACLResourceType {

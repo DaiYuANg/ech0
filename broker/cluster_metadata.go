@@ -4,6 +4,7 @@ import (
 	"cmp"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 )
 
 type ClusterMetadata struct {
@@ -84,7 +85,8 @@ func clusterLeaderDistribution(health *RaftHealth) ClusterLeaderDistribution {
 		return distribution
 	}
 	leaderGroups := collectionlist.NewList[uint64]()
-	leaderCounts := map[uint64]int{}
+	leaderCounts := collectionmapping.NewMap[uint64, int]()
+	localLeaderGroups := collectionlist.NewList[uint64]()
 	for _, group := range health.Groups {
 		distribution.GroupCount++
 		if !group.Ready || group.LeaderID == 0 {
@@ -92,24 +94,25 @@ func clusterLeaderDistribution(health *RaftHealth) ClusterLeaderDistribution {
 			continue
 		}
 		distribution.ReadyGroups++
-		leaderCounts[group.LeaderID]++
+		leaderCounts.Set(group.LeaderID, leaderCounts.GetOrDefault(group.LeaderID, 0)+1)
 		if group.LocalIsLeader {
-			distribution.LocalLeaderGroups = append(distribution.LocalLeaderGroups, group.GroupID)
+			localLeaderGroups.Add(group.GroupID)
 		}
 	}
 	distribution.LeaderlessGroups = leaderGroups.Sort(cmp.Compare[uint64]).Values()
-	distribution.LocalLeaderGroups = collectionlist.NewList(distribution.LocalLeaderGroups...).
+	distribution.LocalLeaderGroups = localLeaderGroups.
 		Sort(cmp.Compare[uint64]).
 		Values()
 	distribution.Leaders = clusterLeaderSummaries(leaderCounts)
 	return distribution
 }
 
-func clusterLeaderSummaries(counts map[uint64]int) []ClusterLeaderSummary {
-	leaders := collectionlist.NewListWithCapacity[ClusterLeaderSummary](len(counts))
-	for nodeID, groupCount := range counts {
+func clusterLeaderSummaries(counts *collectionmapping.Map[uint64, int]) []ClusterLeaderSummary {
+	leaders := collectionlist.NewList[ClusterLeaderSummary]()
+	counts.Range(func(nodeID uint64, groupCount int) bool {
 		leaders.Add(ClusterLeaderSummary{NodeID: nodeID, GroupCount: groupCount})
-	}
+		return true
+	})
 	return leaders.Sort(func(left, right ClusterLeaderSummary) int {
 		return cmp.Compare(left.NodeID, right.NodeID)
 	}).Values()

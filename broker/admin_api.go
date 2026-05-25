@@ -125,7 +125,7 @@ func runtimeEventSummaries(recorder *dix.EventRecorder) []runtimeEventSummary {
 			events = append(events, runtimeEventSummary{
 				At:     record.At,
 				Kind:   eventKind(record.Event),
-				Fields: eventFields(record.Event),
+				Fields: eventFieldsMap(eventFields(record.Event)),
 			})
 		}
 	})

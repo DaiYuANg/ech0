@@ -6,6 +6,7 @@ import (
 	"time"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/arcgolabs/eventx"
 	"github.com/arcgolabs/observabilityx"
 )
@@ -147,11 +148,19 @@ func (r *BrokerEventRecorder) Record(ctx context.Context, event eventx.Event) {
 	if r == nil || r.events == nil || event == nil {
 		return
 	}
+	fields := eventFieldsMap(eventFields(event))
 	r.events.Push(BrokerEventSummary{
 		At:     time.Now(),
 		Name:   event.Name(),
-		Fields: eventFields(event),
+		Fields: fields,
 	})
+}
+
+func eventFieldsMap(fields *collectionmapping.Map[string, string]) map[string]string {
+	if fields == nil {
+		return nil
+	}
+	return fields.All()
 }
 
 func (r *BrokerEventRecorder) Events() []BrokerEventSummary {

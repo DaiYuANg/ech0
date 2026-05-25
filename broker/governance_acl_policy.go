@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionset "github.com/arcgolabs/collectionx/set"
 	"github.com/lyonbrown4d/ech0/store"
 )
 
@@ -43,13 +44,13 @@ func normalizeACLActions(actions []ACLAction) []ACLAction {
 		return []ACLAction{ACLAction(aclPolicyWildcard)}
 	}
 	out := collectionlist.NewList[ACLAction]()
-	seen := map[ACLAction]struct{}{}
+	seen := collectionset.NewSet[ACLAction]()
 	for _, action := range actions {
 		action = ACLAction(normalizeACLWildcard(string(action)))
-		if _, ok := seen[action]; ok {
+		if seen.Contains(action) {
 			continue
 		}
-		seen[action] = struct{}{}
+		seen.Add(action)
 		out.Add(action)
 	}
 	return out.Values()

@@ -45,10 +45,19 @@ func (s *StorxLogStore) snapshotLogOffsets() *collectionmapping.Map[string, uint
 func (s *StorxLogStore) snapshotRecords() (*collectionmapping.Map[string, []Record], error) {
 	records := collectionmapping.NewMap[string, []Record]()
 	pointers := s.snapshotPointers()
-	for tp, topicPointers := range pointers {
+	if pointers == nil {
+		return records, nil
+	}
+	var snapshotErr error
+	pointers.Range(func(tp TopicPartition, topicPointers []segmentRecordPointer) bool {
 		if err := s.snapshotPartitionRecords(tp, topicPointers, records); err != nil {
-			return nil, err
+			snapshotErr = err
+			return false
 		}
+		return true
+	})
+	if snapshotErr != nil {
+		return nil, snapshotErr
 	}
 	records.Range(func(key string, topicRecords []Record) bool {
 		records.Set(key, sortedRecords(topicRecords))
@@ -57,12 +66,12 @@ func (s *StorxLogStore) snapshotRecords() (*collectionmapping.Map[string, []Reco
 	return records, nil
 }
 
-func (s *StorxLogStore) snapshotPointers() map[TopicPartition][]segmentRecordPointer {
+func (s *StorxLogStore) snapshotPointers() *collectionmapping.Map[TopicPartition, []segmentRecordPointer] {
 	s.indexMu.RLock()
 	defer s.indexMu.RUnlock()
-	out := make(map[TopicPartition][]segmentRecordPointer, s.records.Len())
+	out := collectionmapping.NewMapWithCapacity[TopicPartition, []segmentRecordPointer](s.records.Len())
 	s.records.Range(func(tp TopicPartition, pointers []segmentRecordPointer) bool {
-		out[tp] = cloneSegmentPointers(pointers)
+		out.Set(tp, cloneSegmentPointers(pointers))
 		return true
 	})
 	return out

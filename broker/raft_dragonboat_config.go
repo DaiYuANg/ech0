@@ -3,6 +3,7 @@ package broker
 import (
 	"path/filepath"
 
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/cespare/xxhash/v2"
 	dragonboat "github.com/lni/dragonboat/v4"
 	"github.com/lni/dragonboat/v4/config"
@@ -44,13 +45,13 @@ func dataRaftEnabled(cfg Config) bool {
 	return len(cfg.Raft.Cluster) > 1
 }
 
-func dragonboatInitialMembers(cfg Config) map[uint64]dragonboat.Target {
-	members := make(map[uint64]dragonboat.Target, len(cfg.Raft.Cluster))
+func dragonboatInitialMembers(cfg Config) *collectionmapping.Map[uint64, dragonboat.Target] {
+	members := collectionmapping.NewMapWithCapacity[uint64, dragonboat.Target](len(cfg.Raft.Cluster))
 	for _, peer := range cfg.Raft.Cluster {
 		if peer.NodeID == 0 || peer.Addr == "" {
 			continue
 		}
-		members[peer.NodeID] = peer.Addr
+		members.Set(peer.NodeID, peer.Addr)
 	}
 	return members
 }

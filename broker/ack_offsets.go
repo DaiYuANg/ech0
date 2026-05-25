@@ -2,6 +2,7 @@ package broker
 
 import (
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionset "github.com/arcgolabs/collectionx/set"
 	"github.com/lyonbrown4d/ech0/store"
 )
 
@@ -81,13 +82,10 @@ func (b *Broker) removePendingAckedRecords(consumer string, tp store.TopicPartit
 }
 
 func recordsWithoutPendingOffsets(records []store.Record, pendingOffsets []uint64) []store.Record {
-	pending := make(map[uint64]struct{}, len(pendingOffsets))
-	for _, offset := range pendingOffsets {
-		pending[offset] = struct{}{}
-	}
+	pending := collectionset.NewSet[uint64](pendingOffsets...)
 	out := collectionlist.NewListWithCapacity[store.Record](len(records))
 	for _, record := range records {
-		if _, ok := pending[record.Offset]; ok {
+		if pending.Contains(record.Offset) {
 			continue
 		}
 		out.Add(record)

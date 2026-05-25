@@ -7,25 +7,21 @@ import (
 )
 
 func storeHeadersFromProtocol(headers []protocol.MessageHeader) []store.RecordHeader {
-	out := collectionlist.NewListWithCapacity[store.RecordHeader](len(headers))
-	for _, header := range headers {
-		out.Add(store.RecordHeader{
+	return collectionlist.MapList(collectionlist.NewList(headers...), func(_ int, header protocol.MessageHeader) store.RecordHeader {
+		return store.RecordHeader{
 			Key:   header.Key,
 			Value: append([]byte(nil), header.Value...),
-		})
-	}
-	return out.Values()
+		}
+	}).Values()
 }
 
 func protocolHeadersFromStore(headers []store.RecordHeader) []protocol.MessageHeader {
-	out := collectionlist.NewListWithCapacity[protocol.MessageHeader](len(headers))
-	for _, header := range headers {
-		out.Add(protocol.MessageHeader{
+	return collectionlist.MapList(collectionlist.NewList(headers...), func(_ int, header store.RecordHeader) protocol.MessageHeader {
+		return protocol.MessageHeader{
 			Key:   header.Key,
 			Value: append([]byte(nil), header.Value...),
-		})
-	}
-	return out.Values()
+		}
+	}).Values()
 }
 
 func isolationFromProtocol(value protocol.FetchIsolation) FetchIsolation {

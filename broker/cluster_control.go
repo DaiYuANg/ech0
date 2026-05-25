@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/lyonbrown4d/ech0/store"
 )
 
@@ -160,15 +161,15 @@ func (n *raftNode) balanceLeadership() []ClusterLeadershipTransferResult {
 		transfer := n.transferLeadership(group.GroupID, target)
 		transfers.Add(transfer)
 		if transfer.Requested {
-			leaders[group.LeaderID]--
-			leaders[target]++
+			leaders.Set(group.LeaderID, max(leaders.GetOrDefault(group.LeaderID, 0)-1, 0))
+			leaders.Set(target, leaders.GetOrDefault(target, 0)+1)
 		}
 	}
 	return transfers.Values()
 }
 
-func leaderLoadFromHealth(health *RaftHealth) map[uint64]int {
-	load := map[uint64]int{}
+func leaderLoadFromHealth(health *RaftHealth) *collectionmapping.Map[uint64, int] {
+	load := collectionmapping.NewMap[uint64, int]()
 	if health == nil {
 		return load
 	}
@@ -176,24 +177,30 @@ func leaderLoadFromHealth(health *RaftHealth) map[uint64]int {
 		if !group.Ready || group.LeaderID == 0 {
 			continue
 		}
-		load[group.LeaderID]++
+		load.Set(group.LeaderID, load.GetOrDefault(group.LeaderID, 0)+1)
 	}
 	return load
 }
 
-func leastLoadedLeaderTarget(load map[uint64]int, current uint64) (uint64, bool) {
-	if len(load) < 2 {
+func leastLoadedLeaderTarget(load *collectionmapping.Map[uint64, int], current uint64) (uint64, bool) {
+	if load == nil {
 		return 0, false
 	}
+	found := false
 	target := uint64(0)
 	targetLoad := 0
-	for nodeID, count := range load {
-		if target == 0 || count < targetLoad || count == targetLoad && nodeID < target {
+	load.Range(func(nodeID uint64, count int) bool {
+		if !found || count < targetLoad || (count == targetLoad && nodeID < target) {
 			target = nodeID
 			targetLoad = count
+			found = true
 		}
+		return true
+	})
+	if !found {
+		return 0, false
 	}
-	if current == 0 || load[current]-targetLoad < 2 {
+	if current == 0 || load.GetOrDefault(current, 0)-targetLoad < 2 {
 		return 0, false
 	}
 	return target, true
