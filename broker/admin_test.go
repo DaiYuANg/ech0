@@ -162,6 +162,24 @@ func TestAdminClusterAPIReportsClusterMetadata(t *testing.T) {
 	}
 }
 
+func TestAdminClusterUIRendersControlSurface(t *testing.T) {
+	ctx := context.Background()
+	cfg := broker.DefaultConfig()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BindAddr = freeTCPAddr(t)
+	b := newTestBroker(t)
+	createTopic(ctx, t, b, store.NewTopicConfig("orders"))
+	server := broker.NewAdminServer(cfg, b, nil, nil)
+
+	requireNoError(t, server.Start(ctx))
+	defer stopAdminServer(t, server)
+
+	body := getAdminPage(t, cfg.Admin.BindAddr, "/ui/cluster")
+	if !strings.Contains(body, "Balance Leadership") || !strings.Contains(body, "Partition Reassignment") || !strings.Contains(body, "orders") {
+		t.Fatalf("admin cluster ui did not render control surface: %s", body)
+	}
+}
+
 func TestAdminOperationsUIRendersConfiguredIntegrations(t *testing.T) {
 	ctx := context.Background()
 	cfg := broker.DefaultConfig()

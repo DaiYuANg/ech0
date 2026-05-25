@@ -11,9 +11,6 @@ import (
 
 	"github.com/arcgolabs/dix"
 	"github.com/arcgolabs/httpx"
-	"github.com/arcgolabs/httpx/adapter"
-	httpxfiber "github.com/arcgolabs/httpx/adapter/fiber"
-	"github.com/felixge/fgprof"
 	"github.com/gofiber/fiber/v2"
 	fiberadaptor "github.com/gofiber/fiber/v2/middleware/adaptor"
 )
@@ -86,64 +83,6 @@ func (s *AdminServer) Stop(ctx context.Context) error {
 		return nil
 	}
 	return wrapBroker("admin_shutdown_failed", s.app.ShutdownWithContext(ctx), "shutdown admin server")
-}
-
-func (s *AdminServer) registerRoutes() {
-	adminAdapter := httpxfiber.New(s.app, adapter.HumaOptions{
-		Title:       "ech0 Admin API",
-		Version:     "0.1.0",
-		Description: "Operational API for ech0 broker nodes.",
-		DocsPath:    "/docs",
-		OpenAPIPath: "/openapi.json",
-	})
-	server := httpx.New(
-		httpx.WithAdapter(adminAdapter),
-		httpx.WithBasePath("/api"),
-		httpx.WithValidation(),
-	)
-	httpx.MustGet(server, "/healthz", s.apiHealth)
-	httpx.MustGet(server, "/topics", s.apiTopics)
-	httpx.MustGet(server, "/metrics", s.apiMetrics)
-	httpx.MustGet(server, "/quota", s.apiQuota)
-	httpx.MustGet(server, "/cluster", s.apiCluster)
-	httpx.MustPost(server, "/gateway/topics/{topic}/records", s.apiGatewayProduce)
-	httpx.MustGet(server, "/gateway/topics/{topic}/partitions/{partition}/records", s.apiGatewayFetch)
-	httpx.MustPost(server, "/gateway/topics/{topic}/partitions/{partition}/commit", s.apiGatewayCommit)
-	if s.cfg.Admin.DebugEnabled {
-		httpx.MustGet(server, "/runtime/events", s.apiRuntimeEvents)
-		httpx.MustGetSSE(server, "/runtime/events/stream", map[string]any{
-			"runtime_events": runtimeEventsStreamEvent{},
-		}, s.apiRuntimeEventsStream)
-	}
-
-	s.app.Get("/", s.redirectRoot)
-	s.app.Get("/ui", s.uiDashboard)
-	s.app.Get("/ui/topics", s.uiTopics)
-	s.app.Get("/ui/acls", s.uiACLPolicies)
-	s.app.Get("/ui/ops", s.uiOperations)
-	s.app.Get("/ui/topics/:topic/messages", s.uiTopicMessages)
-	s.app.Get("/ui/groups/:group", s.uiGroup)
-
-	s.app.Get("/healthz", s.legacyHealth)
-	s.app.Get("/metrics", s.prometheusMetrics)
-	if s.cfg.Admin.DebugEnabled {
-		s.app.Get("/debug/fgprof", fiberadaptor.HTTPHandler(fgprof.Handler()))
-	}
-	s.app.Get("/api/groups/:group/members", s.apiGroupMembers)
-	s.app.Get("/api/groups/:group/health", s.apiGroupHealth)
-	s.app.Get("/api/groups/:group/assignment", s.apiGroupAssignment)
-	s.app.Get("/api/groups/:group/lag", s.apiGroupLag)
-	s.app.Post("/api/groups/:group/rebalance", s.apiGroupRebalance)
-	s.app.Get("/api/groups/:group/rebalance-explain", s.apiGroupRebalanceExplain)
-	s.app.Get("/api/acl/policies", s.apiACLPolicies)
-	s.app.Post("/api/acl/policies", s.apiACLPolicyUpsert)
-	s.app.Post("/api/acl/policies/delete", s.apiACLPolicyDelete)
-	s.app.Post("/api/ops/webhook-sinks/run", s.apiRunWebhookSink)
-	s.app.Post("/api/ops/file-sinks/run", s.apiRunFileSink)
-	s.app.Post("/api/ops/mirror-sinks/run", s.apiRunMirrorSink)
-	s.app.Post("/api/ops/s3-sinks/run", s.apiRunS3Sink)
-	s.app.Post("/api/ops/database-outboxes/run", s.apiRunDatabaseOutbox)
-	s.registerClusterControlRoutes()
 }
 
 func (s *AdminServer) apiRuntimeEventsStream(ctx context.Context, _ *struct{}, send httpx.SSESender) {

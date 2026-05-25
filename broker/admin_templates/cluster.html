@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ech0 Cluster</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
+  <header class="border-b border-zinc-200 bg-white">
+    <div class="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      <strong class="text-sm font-semibold tracking-normal">ech0</strong>
+      <nav class="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm text-zinc-500">
+        <a class="hover:text-emerald-700" href="/ui">Dashboard</a>
+        <a class="hover:text-emerald-700" href="/ui/topics">Topics</a>
+        <a class="font-medium text-emerald-700" href="/ui/cluster">Cluster</a>
+        <a class="hover:text-emerald-700" href="/ui/governance">Governance</a>
+        <a class="hover:text-emerald-700" href="/ui/acls">ACL</a>
+        <a class="hover:text-emerald-700" href="/ui/ops">Ops</a>
+        <a class="hover:text-emerald-700" href="/docs">OpenAPI</a>
+        <a class="hover:text-emerald-700" href="/metrics">Metrics</a>
+      </nav>
+    </div>
+  </header>
+  <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+    <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <h1 class="text-2xl font-semibold tracking-normal">Cluster</h1>
+      <form method="post" action="/ui/cluster/leadership/balance">
+        <button class="h-9 rounded-md bg-emerald-700 px-3 text-sm font-medium text-white hover:bg-emerald-800" type="submit">Balance Leadership</button>
+      </form>
+    </div>
+    {{if .Result}}<p class="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">{{.Result}}</p>{{end}}
+    {{if .Error}}<p class="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">{{.Error}}</p>{{end}}
+    <section class="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Runtime</div><div class="mt-1 text-xl font-bold">{{.Cluster.RuntimeMode}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Cluster</div><div class="mt-1 text-xl font-bold">{{.Cluster.ClusterName}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Node</div><div class="mt-1 text-xl font-bold">{{.Cluster.NodeID}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Known Nodes</div><div class="mt-1 text-xl font-bold">{{.Cluster.Raft.KnownNodes}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Engine</div><div class="mt-1 text-xl font-bold">{{.Cluster.Raft.Engine}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Raft Bind</div><div class="mt-1 break-all text-sm font-semibold">{{.Cluster.Raft.BindAddr}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Advertise</div><div class="mt-1 break-all text-sm font-semibold">{{.Cluster.Raft.AdvertiseAddr}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Ready Groups</div><div class="mt-1 text-xl font-bold">{{.Cluster.Raft.LeaderDistribution.ReadyGroups}} / {{.Cluster.Raft.LeaderDistribution.GroupCount}}</div></div>
+    </section>
+    <section class="mb-6 grid gap-3 lg:grid-cols-2">
+      <form class="rounded-md border border-zinc-200 bg-white p-4" method="post" action="/ui/cluster/nodes/join">
+        <h2 class="mb-3 text-base font-semibold tracking-normal">Join Node</h2>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <input class="h-9 rounded-md border border-zinc-300 px-3 text-sm" name="node_id" placeholder="node id">
+          <input class="h-9 rounded-md border border-zinc-300 px-3 text-sm" name="addr" placeholder="raft address">
+        </div>
+        <button class="mt-3 h-9 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800" type="submit">Join</button>
+      </form>
+      <form class="rounded-md border border-zinc-200 bg-white p-4" method="post" action="/ui/cluster/partitions/reassign">
+        <h2 class="mb-3 text-base font-semibold tracking-normal">Partition Reassignment</h2>
+        <div class="grid gap-3 sm:grid-cols-3">
+          <input class="h-9 rounded-md border border-zinc-300 px-3 text-sm" name="topic" list="cluster-topics" placeholder="topic">
+          <input class="h-9 rounded-md border border-zinc-300 px-3 text-sm" name="partition" placeholder="partition">
+          <input class="h-9 rounded-md border border-zinc-300 px-3 text-sm" name="shard_id" placeholder="shard id">
+        </div>
+        <datalist id="cluster-topics">{{range .Topics}}<option value="{{.Name}}"></option>{{end}}</datalist>
+        {{if .TopicsError}}<p class="mt-2 text-sm font-semibold text-amber-700">{{.TopicsError}}</p>{{end}}
+        <button class="mt-3 h-9 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800" type="submit">Reassign</button>
+      </form>
+    </section>
+    <section class="mb-6">
+      <h2 class="mb-3 text-base font-semibold tracking-normal">Peers</h2>
+      <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+        <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+          <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Node</th><th class="px-3 py-2">Address</th><th class="px-3 py-2">Local</th><th class="px-3 py-2">Action</th></tr></thead>
+          <tbody class="divide-y divide-zinc-200">
+          {{range .Cluster.Raft.Peers}}
+            <tr>
+              <td class="px-3 py-2 font-medium">{{.NodeID}}</td>
+              <td class="px-3 py-2">{{.Addr}}</td>
+              <td class="px-3 py-2">{{.Local}}</td>
+              <td class="px-3 py-2">
+                <form method="post" action="/ui/cluster/nodes/leave">
+                  <input type="hidden" name="node_id" value="{{.NodeID}}">
+                  <button class="font-medium text-rose-700 hover:text-rose-800" type="submit">Leave</button>
+                </form>
+              </td>
+            </tr>
+          {{else}}
+            <tr><td colspan="4" class="px-3 py-4 text-zinc-500">No configured peers</td></tr>
+          {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="mb-6">
+      <h2 class="mb-3 text-base font-semibold tracking-normal">Raft Groups</h2>
+      <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+        <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+          <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Group</th><th class="px-3 py-2">Leader</th><th class="px-3 py-2">Local Leader</th><th class="px-3 py-2">Ready</th><th class="px-3 py-2">Transfer</th></tr></thead>
+          <tbody class="divide-y divide-zinc-200">
+          {{if .Cluster.Raft.Health}}
+            {{range .Cluster.Raft.Health.Groups}}
+              <tr>
+                <td class="px-3 py-2 font-medium">{{.GroupID}}</td>
+                <td class="px-3 py-2">{{.LeaderID}}</td>
+                <td class="px-3 py-2">{{.LocalIsLeader}}</td>
+                <td class="px-3 py-2">{{.Ready}}</td>
+                <td class="px-3 py-2">
+                  <form class="flex flex-wrap items-center gap-2" method="post" action="/ui/cluster/leadership/transfer">
+                    <input type="hidden" name="group_id" value="{{.GroupID}}">
+                    <select class="h-8 rounded-md border border-zinc-300 px-2 text-sm" name="target_node">
+                    {{range $.Cluster.Raft.Peers}}<option value="{{.NodeID}}">{{.NodeID}}</option>{{end}}
+                    </select>
+                    <button class="h-8 rounded-md bg-emerald-700 px-3 text-sm font-medium text-white hover:bg-emerald-800" type="submit">Transfer</button>
+                  </form>
+                </td>
+              </tr>
+            {{else}}
+              <tr><td colspan="5" class="px-3 py-4 text-zinc-500">No raft groups</td></tr>
+            {{end}}
+          {{else}}
+            <tr><td colspan="5" class="px-3 py-4 text-zinc-500">Raft health unavailable</td></tr>
+          {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="mb-6 grid gap-6 lg:grid-cols-2">
+      <div>
+        <h2 class="mb-3 text-base font-semibold tracking-normal">Leader Distribution</h2>
+        <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+          <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+            <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Node</th><th class="px-3 py-2">Groups</th></tr></thead>
+            <tbody class="divide-y divide-zinc-200">
+            {{range .Cluster.Raft.LeaderDistribution.Leaders}}
+              <tr><td class="px-3 py-2">{{.NodeID}}</td><td class="px-3 py-2">{{.GroupCount}}</td></tr>
+            {{else}}
+              <tr><td colspan="2" class="px-3 py-4 text-zinc-500">No elected leaders</td></tr>
+            {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h2 class="mb-3 text-base font-semibold tracking-normal">Data Shards</h2>
+        <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+          <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+            <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Shard</th><th class="px-3 py-2">Runtime</th></tr></thead>
+            <tbody class="divide-y divide-zinc-200">
+            {{range .Cluster.DataShards}}
+              <tr><td class="px-3 py-2">{{.ShardID}}</td><td class="px-3 py-2">{{.RuntimeMode}}</td></tr>
+            {{else}}
+              <tr><td colspan="2" class="px-3 py-4 text-zinc-500">No data shards</td></tr>
+            {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    {{if .Cluster.Discovery}}
+    <section class="mb-6">
+      <h2 class="mb-3 text-base font-semibold tracking-normal">Discovery</h2>
+      <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+        <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+          <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Node</th><th class="px-3 py-2">Name</th><th class="px-3 py-2">Cluster</th><th class="px-3 py-2">Raft</th><th class="px-3 py-2">Status</th></tr></thead>
+          <tbody class="divide-y divide-zinc-200">
+          {{range .Cluster.Discovery.Nodes}}
+            <tr><td class="px-3 py-2">{{.ID}}</td><td class="px-3 py-2">{{.Name}}</td><td class="px-3 py-2">{{.ClusterName}}</td><td class="px-3 py-2">{{.RaftAddr}}</td><td class="px-3 py-2">{{.Status}}</td></tr>
+          {{else}}
+            <tr><td colspan="5" class="px-3 py-4 text-zinc-500">No discovered nodes</td></tr>
+          {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {{end}}
+  </main>
+</body>
+</html>

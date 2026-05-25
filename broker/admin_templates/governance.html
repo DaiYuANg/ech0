@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ech0 Governance</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
+  <header class="border-b border-zinc-200 bg-white">
+    <div class="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      <strong class="text-sm font-semibold tracking-normal">ech0</strong>
+      <nav class="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm text-zinc-500">
+        <a class="hover:text-emerald-700" href="/ui">Dashboard</a>
+        <a class="hover:text-emerald-700" href="/ui/topics">Topics</a>
+        <a class="hover:text-emerald-700" href="/ui/cluster">Cluster</a>
+        <a class="font-medium text-emerald-700" href="/ui/governance">Governance</a>
+        <a class="hover:text-emerald-700" href="/ui/acls">ACL</a>
+        <a class="hover:text-emerald-700" href="/ui/ops">Ops</a>
+        <a class="hover:text-emerald-700" href="/docs">OpenAPI</a>
+        <a class="hover:text-emerald-700" href="/metrics">Metrics</a>
+      </nav>
+    </div>
+  </header>
+  <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+    <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <h1 class="text-2xl font-semibold tracking-normal">Governance</h1>
+      <a class="h-9 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800" href="/ui/acls">Manage ACL</a>
+    </div>
+    <form class="mb-5 grid gap-3 rounded-md border border-zinc-200 bg-white p-4 sm:grid-cols-4" method="get" action="/ui/governance">
+      <input class="h-9 rounded-md border border-zinc-300 px-3 text-sm" name="tenant" placeholder="tenant" value="{{.Identity.Tenant}}">
+      <input class="h-9 rounded-md border border-zinc-300 px-3 text-sm" name="namespace" placeholder="namespace" value="{{.Identity.Namespace}}">
+      <input class="h-9 rounded-md border border-zinc-300 px-3 text-sm" name="principal" placeholder="principal" value="{{.Identity.Principal}}">
+      <input class="h-9 rounded-md border border-zinc-300 px-3 text-sm" name="client_id" placeholder="client id" value="{{.Identity.ClientID}}">
+      <div class="sm:col-span-4">
+        <button class="h-9 rounded-md bg-emerald-700 px-3 text-sm font-medium text-white hover:bg-emerald-800" type="submit">Apply Scope</button>
+      </div>
+    </form>
+    <section class="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Tenant</div><div class="mt-1 break-all text-xl font-bold">{{.Identity.Tenant}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Namespace</div><div class="mt-1 break-all text-xl font-bold">{{.Identity.Namespace}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Principal</div><div class="mt-1 break-all text-xl font-bold">{{.Identity.Principal}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Auth Enabled</div><div class="mt-1 text-xl font-bold">{{.Auth.Enabled}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Anonymous</div><div class="mt-1 text-xl font-bold">{{.Auth.AllowAnonymous}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Static Tokens</div><div class="mt-1 text-xl font-bold">{{.Auth.StaticTokenCount}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">ACL Policies</div><div class="mt-1 text-xl font-bold">{{.ACLPolicyCount}}</div></div>
+      <div class="rounded-md border border-zinc-200 bg-white p-4"><div class="text-xs text-zinc-500">Connections</div><div class="mt-1 text-xl font-bold">{{.Quota.CurrentConnections}} / {{.Quota.Limits.MaxConnections}}</div></div>
+    </section>
+    {{if .QuotaError}}<p class="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">{{.QuotaError}}</p>{{end}}
+    {{if .ACLError}}<p class="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">{{.ACLError}}</p>{{end}}
+    <section class="mb-6">
+      <h2 class="mb-3 text-base font-semibold tracking-normal">Quota</h2>
+      <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+        <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+          <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Resource</th><th class="px-3 py-2">Current</th><th class="px-3 py-2">Limit</th></tr></thead>
+          <tbody class="divide-y divide-zinc-200">
+            <tr><td class="px-3 py-2 font-medium">Topics</td><td class="px-3 py-2">{{.Quota.CurrentTopics}}</td><td class="px-3 py-2">{{.Quota.Limits.MaxTopics}}</td></tr>
+            <tr><td class="px-3 py-2 font-medium">Partitions</td><td class="px-3 py-2">{{.Quota.CurrentPartitions}}</td><td class="px-3 py-2">{{.Quota.Limits.MaxPartitions}}</td></tr>
+            <tr><td class="px-3 py-2 font-medium">Storage Bytes</td><td class="px-3 py-2">{{.Quota.CurrentStorageBytes}}</td><td class="px-3 py-2">{{.Quota.Limits.MaxStorageBytes}}</td></tr>
+            <tr><td class="px-3 py-2 font-medium">Connections</td><td class="px-3 py-2">{{.Quota.CurrentConnections}}</td><td class="px-3 py-2">{{.Quota.Limits.MaxConnections}}</td></tr>
+            <tr><td class="px-3 py-2 font-medium">In-flight Requests</td><td class="px-3 py-2">{{.Quota.CurrentInflightRequests}}</td><td class="px-3 py-2">{{.Quota.Limits.MaxInflightRequests}}</td></tr>
+            <tr><td class="px-3 py-2 font-medium">Message Bytes</td><td class="px-3 py-2">-</td><td class="px-3 py-2">{{.Quota.Limits.MaxMessageBytes}}</td></tr>
+            <tr><td class="px-3 py-2 font-medium">Batch Bytes</td><td class="px-3 py-2">-</td><td class="px-3 py-2">{{.Quota.Limits.MaxBatchBytes}}</td></tr>
+            <tr><td class="px-3 py-2 font-medium">Produce Rate</td><td class="px-3 py-2">-</td><td class="px-3 py-2">{{.Quota.Limits.ProduceRateLimitPerSecond}}/s</td></tr>
+            <tr><td class="px-3 py-2 font-medium">Consume Rate</td><td class="px-3 py-2">-</td><td class="px-3 py-2">{{.Quota.Limits.ConsumeRateLimitPerSecond}}/s</td></tr>
+            <tr><td class="px-3 py-2 font-medium">Request Rate</td><td class="px-3 py-2">-</td><td class="px-3 py-2">{{.Quota.Limits.RequestRateLimitPerSecond}}/s</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="mb-6 grid gap-6 lg:grid-cols-2">
+      <div>
+        <h2 class="mb-3 text-base font-semibold tracking-normal">Static Token Principals</h2>
+        <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+          <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+            <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Principal</th><th class="px-3 py-2">Scope</th><th class="px-3 py-2">Client</th></tr></thead>
+            <tbody class="divide-y divide-zinc-200">
+            {{range .Auth.StaticTokens}}
+              <tr><td class="px-3 py-2">{{.Principal}}</td><td class="px-3 py-2">{{.Tenant}}/{{.Namespace}}</td><td class="px-3 py-2">{{.ClientID}}</td></tr>
+            {{else}}
+              <tr><td colspan="3" class="px-3 py-4 text-zinc-500">No static token principals</td></tr>
+            {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h2 class="mb-3 text-base font-semibold tracking-normal">ACL Preview</h2>
+        <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+          <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+            <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Principal</th><th class="px-3 py-2">Resource</th><th class="px-3 py-2">Actions</th><th class="px-3 py-2">Effect</th></tr></thead>
+            <tbody class="divide-y divide-zinc-200">
+            {{range .ACLPolicies}}
+              <tr><td class="px-3 py-2">{{.Principal}}</td><td class="px-3 py-2">{{.ResourceType}} {{.ResourceName}}</td><td class="px-3 py-2">{{aclActions .Actions}}</td><td class="px-3 py-2">{{.Effect}}</td></tr>
+            {{else}}
+              <tr><td colspan="4" class="px-3 py-4 text-zinc-500">No ACL policies in this scope</td></tr>
+            {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    <section class="mb-6">
+      <h2 class="mb-3 text-base font-semibold tracking-normal">Tenant Defaults</h2>
+      <div class="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+        <table class="min-w-full divide-y divide-zinc-200 text-left text-sm">
+          <thead class="bg-zinc-50 text-xs font-semibold uppercase text-zinc-500"><tr><th class="px-3 py-2">Scope</th><th class="px-3 py-2">Retention Bytes</th><th class="px-3 py-2">Retention MS</th><th class="px-3 py-2">TTL MS</th><th class="px-3 py-2">Expiry</th><th class="px-3 py-2">Delay</th><th class="px-3 py-2">Retry</th><th class="px-3 py-2">DLQ</th></tr></thead>
+          <tbody class="divide-y divide-zinc-200">
+          {{range .TenantDefaults}}
+            <tr>
+              <td class="px-3 py-2 font-medium">{{.Tenant}}/{{.Namespace}}</td>
+              <td class="px-3 py-2">{{.RetentionMaxBytes}}</td>
+              <td class="px-3 py-2">{{.RetentionMS}}</td>
+              <td class="px-3 py-2">{{.MessageTTLMS}}</td>
+              <td class="px-3 py-2">{{.MessageExpiryAction}}</td>
+              <td class="px-3 py-2">{{.DelayEnabled}}</td>
+              <td class="px-3 py-2">{{.RetryMaxAttempts}}</td>
+              <td class="px-3 py-2">{{.DeadLetterTopic}}</td>
+            </tr>
+          {{else}}
+            <tr><td colspan="8" class="px-3 py-4 text-zinc-500">No tenant defaults configured</td></tr>
+          {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
