@@ -1,10 +1,7 @@
 package broker
 
 import (
-	"bytes"
 	"context"
-	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -78,8 +75,11 @@ func (b *Broker) ProcessS3SinkOnce(ctx context.Context, sink S3SinkConfig) (S3Si
 		return S3SinkResult{}, err
 	}
 	consumer := s3SinkConsumer(sink)
-	client := &http.Client{Timeout: s3SinkTimeout(sink)}
-	return b.processRecordSinkOnce(ctx, recordSinkRun{
+	client, err := newHTTPSinkClient("s3", s3SinkTimeout(sink))
+	if err != nil {
+		return S3SinkResult{}, err
+	}
+	result, processErr := b.processRecordSinkOnce(ctx, recordSinkRun{
 		Identity:   s3SinkIdentity(b.cfg, sink),
 		Consumer:   consumer,
 		Topic:      sink.Topic,
@@ -89,44 +89,43 @@ func (b *Broker) ProcessS3SinkOnce(ctx context.Context, sink S3SinkConfig) (S3Si
 	}, func(ctx context.Context, record store.Record) error {
 		return deliverS3SinkRecord(ctx, client, sink, consumer, record)
 	})
+	closeErr := closeHTTPSinkClient("s3", client)
+	if processErr != nil {
+		return result, processErr
+	}
+	return result, closeErr
 }
 
-func deliverS3SinkRecord(ctx context.Context, client *http.Client, sink S3SinkConfig, consumer string, record store.Record) (err error) {
+func deliverS3SinkRecord(ctx context.Context, client httpSinkClient, sink S3SinkConfig, consumer string, record store.Record) error {
 	payload, err := marshalJSON(s3SinkRecordEnvelope(sink, consumer, record))
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, s3SinkObjectURL(sink, record), bytes.NewReader(payload))
+	objectURL := s3SinkObjectURL(sink, record)
+	headers, err := signedS3SinkHeaders(ctx, sink, payload, objectURL, time.Now().UTC())
 	if err != nil {
-		return wrapBroker("s3_sink_request_create_failed", err, "create s3 sink request")
+		return err
 	}
-	configureS3SinkRequest(request, sink, payload)
-	response, err := client.Do(request)
-	if err != nil {
-		return wrapBroker("s3_sink_request_failed", err, "deliver s3 sink record")
-	}
-	defer func() {
-		_, drainErr := io.Copy(io.Discard, response.Body)
-		closeErr := response.Body.Close()
-		if err == nil {
-			err = wrapBroker("s3_sink_response_close_failed", errors.Join(drainErr, closeErr), "close s3 sink response")
-		}
-	}()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return brokerStoreError(store.CodeUnavailable, "s3 sink %q returned status %d", s3SinkName(sink), response.StatusCode)
-	}
-	return nil
+	return deliverHTTPSink(ctx, client, httpSinkDelivery{
+		Kind:    "s3",
+		Name:    s3SinkName(sink),
+		Method:  http.MethodPut,
+		URL:     objectURL,
+		Headers: headers,
+		Payload: payload,
+	})
 }
 
-func configureS3SinkRequest(request *http.Request, sink S3SinkConfig, payload []byte) {
-	request.Header.Set("Content-Type", "application/json")
-	for index := range sink.Headers {
-		header := sink.Headers[index]
-		if strings.TrimSpace(header.Key) != "" {
-			request.Header.Set(header.Key, header.Value)
-		}
+func signedS3SinkHeaders(ctx context.Context, sink S3SinkConfig, payload []byte, objectURL string, now time.Time) (http.Header, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, objectURL, http.NoBody)
+	if err != nil {
+		return nil, wrapBroker("s3_sink_request_create_failed", err, "create s3 sink request")
 	}
-	signS3SinkRequest(request, sink, payload, time.Now().UTC())
+	request.Header = sinkHeaders("application/json", sink.Headers)
+	if err := signS3SinkRequest(ctx, request, sink, payload, now); err != nil {
+		return nil, err
+	}
+	return request.Header, nil
 }
 
 func s3SinkRecordEnvelope(sink S3SinkConfig, consumer string, record store.Record) s3SinkEnvelope {
@@ -140,7 +139,7 @@ func s3SinkRecordEnvelope(sink S3SinkConfig, consumer string, record store.Recor
 }
 
 func validateS3SinkConfig(sink S3SinkConfig) error {
-	if strings.TrimSpace(sink.Topic) == "" || s3SinkEndpoint(sink) == "" || strings.TrimSpace(sink.Bucket) == "" {
+	if !validRequiredString(sink.Topic) || !validRequiredString(s3SinkEndpoint(sink)) || !validRequiredString(sink.Bucket) {
 		return brokerStoreError(store.CodeInvalidArgument, "s3 sink requires topic, endpoint_url, and bucket")
 	}
 	parsed, err := url.ParseRequestURI(s3SinkEndpoint(sink))
@@ -150,7 +149,7 @@ func validateS3SinkConfig(sink S3SinkConfig) error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return brokerStoreError(store.CodeInvalidArgument, "s3 sink %q requires http or https endpoint_url", s3SinkName(sink))
 	}
-	if sink.MaxRecords < 0 {
+	if !validNonNegativeInt(sink.MaxRecords) {
 		return brokerStoreError(store.CodeInvalidArgument, "s3 sink %q max_records cannot be negative", s3SinkName(sink))
 	}
 	return nil

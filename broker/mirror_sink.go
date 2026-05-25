@@ -1,10 +1,7 @@
 package broker
 
 import (
-	"bytes"
 	"context"
-	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -79,9 +76,9 @@ func registerMirrorSinkJob(
 	return wrapBroker("mirror_sink_job_register_failed", err, "register mirror sink job")
 }
 
-func (b *Broker) ProcessMirrorSinkOnce(ctx context.Context, sink MirrorSinkConfig) (MirrorSinkResult, error) {
-	if err := validateMirrorSinkConfig(sink); err != nil {
-		return MirrorSinkResult{}, err
+func (b *Broker) ProcessMirrorSinkOnce(ctx context.Context, sink MirrorSinkConfig) (result MirrorSinkResult, err error) {
+	if validateErr := validateMirrorSinkConfig(sink); validateErr != nil {
+		return MirrorSinkResult{}, validateErr
 	}
 	identity := mirrorSinkIdentity(b.cfg, sink)
 	runCtx := WithIdentity(ctx, identity)
@@ -90,8 +87,16 @@ func (b *Broker) ProcessMirrorSinkOnce(ctx context.Context, sink MirrorSinkConfi
 	if err != nil {
 		return MirrorSinkResult{}, err
 	}
-	client := &http.Client{Timeout: mirrorSinkTimeout(sink)}
-	result := MirrorSinkResult{}
+	client, err := newHTTPSinkClient("mirror", mirrorSinkTimeout(sink))
+	if err != nil {
+		return MirrorSinkResult{}, err
+	}
+	defer func() {
+		closeErr := closeHTTPSinkClient("mirror", client)
+		if err == nil {
+			err = closeErr
+		}
+	}()
 	for index := range poll.Records {
 		record := poll.Records[index]
 		if err := deliverMirrorSinkRecord(ctx, client, sink, record); err != nil {
@@ -107,52 +112,35 @@ func (b *Broker) ProcessMirrorSinkOnce(ctx context.Context, sink MirrorSinkConfi
 	return result, nil
 }
 
-func deliverMirrorSinkRecord(ctx context.Context, client *http.Client, sink MirrorSinkConfig, record store.Record) (err error) {
+func deliverMirrorSinkRecord(ctx context.Context, client httpSinkClient, sink MirrorSinkConfig, record store.Record) error {
 	payload, err := marshalJSON(mirrorProduceRecord(sink, record))
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, mirrorSinkProduceURL(sink), bytes.NewReader(payload))
-	if err != nil {
-		return wrapBroker("mirror_sink_request_create_failed", err, "create mirror sink request")
-	}
-	configureMirrorSinkRequest(request, sink)
-	response, err := client.Do(request)
-	if err != nil {
-		return wrapBroker("mirror_sink_request_failed", err, "deliver mirror sink record")
-	}
-	defer func() {
-		_, drainErr := io.Copy(io.Discard, response.Body)
-		closeErr := response.Body.Close()
-		if err == nil {
-			err = wrapBroker("mirror_sink_response_close_failed", errors.Join(drainErr, closeErr), "close mirror sink response")
-		}
-	}()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return brokerStoreError(store.CodeUnavailable, "mirror sink %q returned status %d", mirrorSinkName(sink), response.StatusCode)
-	}
-	return nil
+	return deliverHTTPSink(ctx, client, httpSinkDelivery{
+		Kind:    "mirror",
+		Name:    mirrorSinkName(sink),
+		Method:  http.MethodPost,
+		URL:     mirrorSinkProduceURL(sink),
+		Headers: mirrorSinkHeaders(sink),
+		Payload: payload,
+	})
 }
 
-func configureMirrorSinkRequest(request *http.Request, sink MirrorSinkConfig) {
-	request.Header.Set("Content-Type", "application/json")
+func mirrorSinkHeaders(sink MirrorSinkConfig) http.Header {
+	headers := sinkHeaders("application/json", sink.Headers)
 	if strings.TrimSpace(sink.AuthToken) != "" {
-		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(sink.AuthToken))
+		headers.Set("Authorization", "Bearer "+strings.TrimSpace(sink.AuthToken))
 	}
-	setMirrorIdentityHeader(request, "X-Ech0-Tenant", sink.TargetTenant)
-	setMirrorIdentityHeader(request, "X-Ech0-Namespace", sink.TargetNamespace)
-	setMirrorIdentityHeader(request, "X-Ech0-Principal", sink.TargetPrincipal)
-	for index := range sink.Headers {
-		header := sink.Headers[index]
-		if strings.TrimSpace(header.Key) != "" {
-			request.Header.Set(header.Key, header.Value)
-		}
-	}
+	setMirrorIdentityHeader(headers, "X-Ech0-Tenant", sink.TargetTenant)
+	setMirrorIdentityHeader(headers, "X-Ech0-Namespace", sink.TargetNamespace)
+	setMirrorIdentityHeader(headers, "X-Ech0-Principal", sink.TargetPrincipal)
+	return headers
 }
 
-func setMirrorIdentityHeader(request *http.Request, key, value string) {
+func setMirrorIdentityHeader(headers http.Header, key, value string) {
 	if strings.TrimSpace(value) != "" {
-		request.Header.Set(key, strings.TrimSpace(value))
+		headers.Set(key, strings.TrimSpace(value))
 	}
 }
 
@@ -178,7 +166,7 @@ func mirrorRecordHeaders(sink MirrorSinkConfig, record store.Record) []gatewayHe
 }
 
 func validateMirrorSinkConfig(sink MirrorSinkConfig) error {
-	if strings.TrimSpace(sink.Topic) == "" || mirrorSinkAdminURL(sink) == "" {
+	if !validRequiredString(sink.Topic) || !validRequiredString(mirrorSinkAdminURL(sink)) {
 		return brokerStoreError(store.CodeInvalidArgument, "mirror sink requires topic and target_admin_url")
 	}
 	parsed, err := url.ParseRequestURI(mirrorSinkAdminURL(sink))
@@ -188,7 +176,7 @@ func validateMirrorSinkConfig(sink MirrorSinkConfig) error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return brokerStoreError(store.CodeInvalidArgument, "mirror sink %q requires http or https target_admin_url", mirrorSinkName(sink))
 	}
-	if sink.MaxRecords < 0 {
+	if !validNonNegativeInt(sink.MaxRecords) {
 		return brokerStoreError(store.CodeInvalidArgument, "mirror sink %q max_records cannot be negative", mirrorSinkName(sink))
 	}
 	return nil

@@ -1,10 +1,7 @@
 package broker
 
 import (
-	"bytes"
 	"context"
-	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -77,8 +74,11 @@ func (b *Broker) ProcessWebhookSinkOnce(ctx context.Context, sink WebhookSinkCon
 		return WebhookSinkResult{}, err
 	}
 	consumer := webhookSinkConsumer(sink)
-	client := &http.Client{Timeout: webhookSinkTimeout(sink)}
-	return b.processRecordSinkOnce(ctx, recordSinkRun{
+	client, err := newHTTPSinkClient("webhook", webhookSinkTimeout(sink))
+	if err != nil {
+		return WebhookSinkResult{}, err
+	}
+	result, processErr := b.processRecordSinkOnce(ctx, recordSinkRun{
 		Identity:   webhookSinkIdentity(b.cfg, sink),
 		Consumer:   consumer,
 		Topic:      sink.Topic,
@@ -88,6 +88,11 @@ func (b *Broker) ProcessWebhookSinkOnce(ctx context.Context, sink WebhookSinkCon
 	}, func(ctx context.Context, record store.Record) error {
 		return deliverWebhookSinkRecord(ctx, client, sink, consumer, record)
 	})
+	closeErr := closeHTTPSinkClient("webhook", client)
+	if processErr != nil {
+		return result, processErr
+	}
+	return result, closeErr
 }
 
 func (r *ScheduledRuntime) ScheduleWebhookSink(ctx context.Context, sink WebhookSinkConfig) error {
@@ -100,7 +105,7 @@ func (r *ScheduledRuntime) ScheduleWebhookSink(ctx context.Context, sink Webhook
 	return registerWebhookSinkJob(r.scheduler, r.broker, r.logger, sink)
 }
 
-func deliverWebhookSinkRecord(ctx context.Context, client *http.Client, sink WebhookSinkConfig, consumer string, record store.Record) (err error) {
+func deliverWebhookSinkRecord(ctx context.Context, client httpSinkClient, sink WebhookSinkConfig, consumer string, record store.Record) error {
 	payload, err := marshalJSON(webhookSinkEnvelope{
 		Sink:      webhookSinkName(sink),
 		Consumer:  consumer,
@@ -111,36 +116,18 @@ func deliverWebhookSinkRecord(ctx context.Context, client *http.Client, sink Web
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, webhookSinkMethod(sink), webhookSinkURL(sink), bytes.NewReader(payload))
-	if err != nil {
-		return wrapBroker("webhook_sink_request_create_failed", err, "create webhook sink request")
-	}
-	request.Header.Set("Content-Type", "application/json")
-	for index := range sink.Headers {
-		header := sink.Headers[index]
-		if strings.TrimSpace(header.Key) != "" {
-			request.Header.Set(header.Key, header.Value)
-		}
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return wrapBroker("webhook_sink_request_failed", err, "deliver webhook sink record")
-	}
-	defer func() {
-		_, drainErr := io.Copy(io.Discard, response.Body)
-		closeErr := response.Body.Close()
-		if err == nil {
-			err = wrapBroker("webhook_sink_response_close_failed", errors.Join(drainErr, closeErr), "close webhook sink response")
-		}
-	}()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return brokerStoreError(store.CodeUnavailable, "webhook sink %q returned status %d", webhookSinkName(sink), response.StatusCode)
-	}
-	return nil
+	return deliverHTTPSink(ctx, client, httpSinkDelivery{
+		Kind:    "webhook",
+		Name:    webhookSinkName(sink),
+		Method:  webhookSinkMethod(sink),
+		URL:     webhookSinkURL(sink),
+		Headers: sinkHeaders("application/json", sink.Headers),
+		Payload: payload,
+	})
 }
 
 func validateWebhookSinkConfig(sink WebhookSinkConfig) error {
-	if strings.TrimSpace(sink.Topic) == "" || webhookSinkURL(sink) == "" {
+	if !validRequiredString(sink.Topic) || !validRequiredString(webhookSinkURL(sink)) {
 		return brokerStoreError(store.CodeInvalidArgument, "webhook sink requires topic and url")
 	}
 	parsed, err := url.ParseRequestURI(webhookSinkURL(sink))
@@ -150,7 +137,7 @@ func validateWebhookSinkConfig(sink WebhookSinkConfig) error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return brokerStoreError(store.CodeInvalidArgument, "webhook sink %q requires http or https url", webhookSinkName(sink))
 	}
-	if sink.MaxRecords < 0 {
+	if !validNonNegativeInt(sink.MaxRecords) {
 		return brokerStoreError(store.CodeInvalidArgument, "webhook sink %q max_records cannot be negative", webhookSinkName(sink))
 	}
 	return nil

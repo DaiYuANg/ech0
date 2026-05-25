@@ -157,13 +157,13 @@ func databaseOutboxPartitioning(row DatabaseOutboxRow) PublishPartitioning {
 }
 
 func validateDatabaseOutboxConfig(outbox DatabaseOutboxConfig, requireSQL bool) error {
-	if requireSQL && (strings.TrimSpace(outbox.DriverName) == "" || strings.TrimSpace(outbox.Query) == "") {
+	if requireSQL && (!validRequiredString(outbox.DriverName) || !validRequiredString(outbox.Query)) {
 		return brokerStoreError(store.CodeInvalidArgument, "database outbox requires driver_name and query")
 	}
-	if strings.TrimSpace(outbox.Topic) == "" && strings.TrimSpace(outbox.Query) == "" {
+	if !validRequiredString(outbox.Topic) && !validRequiredString(outbox.Query) {
 		return brokerStoreError(store.CodeInvalidArgument, "database outbox requires topic or query-provided topic")
 	}
-	if outbox.MaxRecords < 0 {
+	if !validNonNegativeInt(outbox.MaxRecords) {
 		return brokerStoreError(store.CodeInvalidArgument, "database outbox %q max_records cannot be negative", databaseOutboxName(outbox))
 	}
 	return nil

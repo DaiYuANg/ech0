@@ -167,10 +167,10 @@ func fileSinkRecordEnvelope(sink FileSinkConfig, consumer string, record store.R
 }
 
 func validateFileSinkConfig(sink FileSinkConfig) error {
-	if strings.TrimSpace(sink.Topic) == "" || fileSinkPath(sink) == "" {
+	if !validRequiredString(sink.Topic) || !validRequiredString(fileSinkPath(sink)) {
 		return brokerStoreError(store.CodeInvalidArgument, "file sink requires topic and path")
 	}
-	if sink.MaxRecords < 0 {
+	if !validNonNegativeInt(sink.MaxRecords) {
 		return brokerStoreError(store.CodeInvalidArgument, "file sink %q max_records cannot be negative", fileSinkName(sink))
 	}
 	return nil

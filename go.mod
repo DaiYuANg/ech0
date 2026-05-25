@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/HdrHistogram/hdrhistogram-go v1.2.0
 	github.com/arcgolabs/authx v0.3.0
+	github.com/arcgolabs/clientx v0.1.2
 	github.com/arcgolabs/collectionx/list v0.8.0
 	github.com/arcgolabs/collectionx/mapping v0.8.0
 	github.com/arcgolabs/collectionx/set v0.8.0
@@ -19,12 +20,14 @@ require (
 	github.com/arcgolabs/storx/bboltx v0.5.0
 	github.com/arcgolabs/storx/codec v0.1.0
 	github.com/arcgolabs/storx/keycodec v0.2.0
+	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/bytedance/sonic v1.15.0
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/dgraph-io/ristretto/v2 v2.2.0
 	github.com/felixge/fgprof v0.9.5
 	github.com/go-co-op/gocron/v2 v2.21.1
+	github.com/go-playground/validator/v10 v10.30.2
 	github.com/goccy/go-json v0.10.6
 	github.com/gofiber/fiber/v2 v2.52.13
 	github.com/gofiber/template/html/v2 v2.1.3
@@ -33,10 +36,13 @@ require (
 	github.com/lni/dragonboat/v4 v4.0.0-20250723143628-076c7f6497dc
 	github.com/panjf2000/ants/v2 v2.12.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/samber/lo v1.53.0
 	github.com/samber/oops v1.21.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/valyala/bytebufferpool v1.0.0
+	go.opentelemetry.io/otel v1.43.0
+	go.opentelemetry.io/otel/trace v1.43.0
 	golang.org/x/sync v0.20.0
 	golang.org/x/sys v0.43.0
 	golang.org/x/time v0.15.0
@@ -52,6 +58,7 @@ require (
 	github.com/arcgolabs/storx v0.3.0 // indirect
 	github.com/arcgolabs/storx/observer v0.1.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
+	github.com/aws/smithy-go v1.25.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic/loader v0.5.1 // indirect
@@ -69,7 +76,6 @@ require (
 	github.com/go-chi/chi/v5 v5.2.5 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.30.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gofiber/template v1.8.3 // indirect
 	github.com/gofiber/utils v1.1.0 // indirect
@@ -121,7 +127,6 @@ require (
 	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/samber/do/v2 v2.0.0 // indirect
 	github.com/samber/go-type-to-string v1.8.0 // indirect
-	github.com/samber/lo v1.53.0 // indirect
 	github.com/samber/mo v1.16.0 // indirect
 	github.com/samber/oops/loggers/zerolog v0.0.0-20260412154111-1460827f264f // indirect
 	github.com/samber/slog-common v0.22.0 // indirect
@@ -132,8 +137,6 @@ require (
 	github.com/valyala/fastrand v1.1.0 // indirect
 	github.com/valyala/histogram v1.2.0 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
-	go.opentelemetry.io/otel v1.43.0 // indirect
-	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.25.0 // indirect
@@ -143,4 +146,5 @@ require (
 	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
+	resty.dev/v3 v3.0.0-beta.6 // indirect
 )
