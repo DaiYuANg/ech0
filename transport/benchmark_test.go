@@ -40,6 +40,25 @@ func BenchmarkReadFrame1KB(b *testing.B) {
 	}
 }
 
+func BenchmarkReadFrame1KBPooled(b *testing.B) {
+	frame := mustBenchmarkFrame(b, 1024)
+	var encoded bytes.Buffer
+	if err := transport.WriteFrame(&encoded, frame); err != nil {
+		b.Fatal(err)
+	}
+	raw := encoded.Bytes()
+	b.ReportAllocs()
+	b.SetBytes(int64(len(frame.Body)))
+	for b.Loop() {
+		read, err := transport.ReadFrameWithLimitPooled(bytes.NewReader(raw), 0)
+		if err != nil {
+			b.Fatal(err)
+		}
+		transportBenchmarkSink = read.Frame
+		read.Release()
+	}
+}
+
 func BenchmarkReadFrame64KB(b *testing.B) {
 	frame := mustBenchmarkFrame(b, 64*1024)
 	var encoded bytes.Buffer
@@ -55,6 +74,25 @@ func BenchmarkReadFrame64KB(b *testing.B) {
 			b.Fatal(err)
 		}
 		transportBenchmarkSink = read
+	}
+}
+
+func BenchmarkReadFrame64KBPooled(b *testing.B) {
+	frame := mustBenchmarkFrame(b, 64*1024)
+	var encoded bytes.Buffer
+	if err := transport.WriteFrame(&encoded, frame); err != nil {
+		b.Fatal(err)
+	}
+	raw := encoded.Bytes()
+	b.ReportAllocs()
+	b.SetBytes(int64(len(frame.Body)))
+	for b.Loop() {
+		read, err := transport.ReadFrameWithLimitPooled(bytes.NewReader(raw), 0)
+		if err != nil {
+			b.Fatal(err)
+		}
+		transportBenchmarkSink = read.Frame
+		read.Release()
 	}
 }
 
