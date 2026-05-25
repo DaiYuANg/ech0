@@ -201,7 +201,7 @@ func (s *TCPServer) handleConnFrame(ctx context.Context, conn net.Conn) bool {
 	if err != nil {
 		response = errorFrame("internal_error", err.Error())
 	}
-	s.metrics.RecordCommandDuration(frameCtx, frame.Frame.Header.Command, time.Since(handleStart), commandStatus(response))
+	s.metrics.RecordCommandDuration(frameCtx, frame.Header.Command, time.Since(handleStart), commandStatus(response))
 	s.recordCommandError(frameCtx, response)
 	return s.writeResponseFrame(conn, response)
 }

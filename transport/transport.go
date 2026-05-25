@@ -99,10 +99,11 @@ func NewFrame(version uint8, command uint16, body []byte) (Frame, error) {
 }
 
 func frameBodyLen(body []byte) (uint32, error) {
-	if uint64(len(body)) > uint64(^uint32(0)) {
+	bodyLen := len(body)
+	if bodyLen > int(^uint32(0)) {
 		return 0, oops.In("transport").Code("frame_body_too_large").With("body_len", len(body)).New("frame body too large")
 	}
-	return uint32(len(body)), nil
+	return uint32(bodyLen), nil
 }
 
 func ReadFrame(r io.Reader) (Frame, error) {

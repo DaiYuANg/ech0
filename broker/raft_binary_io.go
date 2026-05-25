@@ -189,14 +189,14 @@ func (r *raftBinaryReader) ensureEOF() error {
 }
 
 func checkedRaftUint16(value int, label string) (uint16, error) {
-	if value < 0 || uint64(value) > uint64(^uint16(0)) {
+	if value < 0 || value > int(^uint16(0)) {
 		return 0, brokerStoreError(store.CodeCodec, "raft binary %s length %d exceeds u16", label, value)
 	}
 	return uint16(value), nil
 }
 
 func checkedRaftUint32(value int, label string) (uint32, error) {
-	if value < 0 || uint64(value) > uint64(^uint32(0)) {
+	if value < 0 || value > int(^uint32(0)) {
 		return 0, brokerStoreError(store.CodeCodec, "raft binary %s length %d exceeds u32", label, value)
 	}
 	return uint32(value), nil
@@ -204,7 +204,7 @@ func checkedRaftUint32(value int, label string) (uint32, error) {
 
 func intFromRaftUint32(value uint32) (int, error) {
 	maxInt := int(^uint(0) >> 1)
-	if value > uint32(maxInt) {
+	if int64(value) > int64(maxInt) {
 		return 0, oops.In("broker").Code("raft_binary_length_convert_failed").With("value", value, "max", maxInt).New("u32 value exceeds int")
 	}
 	return int(value), nil
