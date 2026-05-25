@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
+	json "github.com/goccy/go-json"
 	"strings"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	"github.com/lyonbrown4d/ech0/internal/bufferpool"
 	"github.com/lyonbrown4d/ech0/store"
 )
 
@@ -127,11 +128,14 @@ func compactJSONPreview(payload []byte) *string {
 	if !json.Valid(payload) {
 		return nil
 	}
-	var compacted bytes.Buffer
-	if err := json.Compact(&compacted, payload); err != nil {
+	buffer := bufferpool.Get()
+	defer bufferpool.Put(buffer)
+	tmp := bytes.NewBuffer(buffer.B[:0])
+	if err := json.Compact(tmp, payload); err != nil {
 		return nil
 	}
-	value := compacted.String()
+	buffer.B = tmp.Bytes()
+	value := tmp.String()
 	if len(value) > 160 {
 		value = value[:160]
 	}

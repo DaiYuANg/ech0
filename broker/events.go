@@ -38,7 +38,7 @@ func (DirectMessageSentEvent) Name() string { return "ech0.direct.sent" }
 type BrokerEventSummary struct {
 	At     time.Time         `json:"at"`
 	Name   string            `json:"name"`
-	Fields map[string]string `json:"fields,omitempty"`
+	Fields *collectionmapping.Map[string, string] `json:"fields,omitempty"`
 }
 
 type BrokerEventRecorder struct {
@@ -156,11 +156,11 @@ func (r *BrokerEventRecorder) Record(ctx context.Context, event eventx.Event) {
 	})
 }
 
-func eventFieldsMap(fields *collectionmapping.Map[string, string]) map[string]string {
+func eventFieldsMap(fields *collectionmapping.Map[string, string]) *collectionmapping.Map[string, string] {
 	if fields == nil {
 		return nil
 	}
-	return fields.All()
+	return fields
 }
 
 func (r *BrokerEventRecorder) Events() []BrokerEventSummary {

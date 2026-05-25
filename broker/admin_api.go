@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	collectionmapping "github.com/arcgolabs/collectionx/mapping"
 	"github.com/arcgolabs/dix"
 	"github.com/samber/oops"
 )
@@ -52,7 +53,7 @@ type runtimeEventsStreamEvent struct {
 type runtimeEventSummary struct {
 	At     time.Time         `json:"at"`
 	Kind   string            `json:"kind"`
-	Fields map[string]string `json:"fields,omitempty"`
+	Fields *collectionmapping.Map[string, string] `json:"fields,omitempty"`
 }
 
 func (s *AdminServer) apiHealth(ctx context.Context, _ *struct{}) (*healthOutput, error) {

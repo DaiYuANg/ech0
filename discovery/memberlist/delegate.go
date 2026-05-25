@@ -1,7 +1,7 @@
 package memberlist
 
 import (
-	"encoding/json"
+	json "github.com/goccy/go-json"
 
 	hashimemberlist "github.com/hashicorp/memberlist"
 	"github.com/lyonbrown4d/ech0/discovery"
