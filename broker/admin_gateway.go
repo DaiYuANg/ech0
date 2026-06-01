@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
+	"github.com/gofiber/fiber/v3"
 	"github.com/lyonbrown4d/ech0/store"
 )
 
@@ -96,7 +97,19 @@ type gatewayCommitOutput struct {
 	} `json:"body"`
 }
 
-func (s *AdminServer) apiGatewayProduce(ctx context.Context, in *gatewayProduceInput) (*gatewayProduceOutput, error) {
+func (s *AdminServer) apiGatewayProduce(c fiber.Ctx) error {
+	in := &gatewayProduceInput{Topic: c.Params("topic")}
+	if err := parseAdminPayload(c, &in.Body); err != nil {
+		return adminJSONError(c, err)
+	}
+	out, err := s.gatewayProduce(c.Context(), in)
+	if err != nil {
+		return adminJSONError(c, err)
+	}
+	return adminJSON(c, out.Body)
+}
+
+func (s *AdminServer) gatewayProduce(ctx context.Context, in *gatewayProduceInput) (*gatewayProduceOutput, error) {
 	record, err := gatewayRecordAppend(in.Body.Payload, in.Body.PayloadBase64, in.Body.Key, in.Body.KeyBase64, in.Body.Headers)
 	if err != nil {
 		return nil, err
@@ -120,7 +133,30 @@ func (s *AdminServer) apiGatewayProduce(ctx context.Context, in *gatewayProduceI
 	return out, nil
 }
 
-func (s *AdminServer) apiGatewayFetch(ctx context.Context, in *gatewayFetchInput) (*gatewayFetchOutput, error) {
+func (s *AdminServer) apiGatewayFetch(c fiber.Ctx) error {
+	partition, err := strconv.ParseUint(c.Params("partition"), 10, 32)
+	if err != nil {
+		return adminJSONError(c, brokerStoreError(store.CodeInvalidArgument, "invalid partition %q", c.Params("partition")))
+	}
+	in := &gatewayFetchInput{
+		Topic:      c.Params("topic"),
+		Partition:  uint32(partition),
+		Consumer:   c.Query("consumer"),
+		Offset:     c.Query("offset"),
+		MaxRecords: parseIntQuery(c, "max_records", 0),
+		Isolation:  c.Query("isolation"),
+	}
+	out, err := s.gatewayFetch(c.Context(), in)
+	if err != nil {
+		return adminJSONError(c, err)
+	}
+	return adminJSON(c, out.Body)
+}
+
+func (s *AdminServer) gatewayFetch(ctx context.Context, in *gatewayFetchInput) (*gatewayFetchOutput, error) {
+	if strings.TrimSpace(in.Consumer) == "" {
+		return nil, brokerStoreError(store.CodeInvalidArgument, "consumer is required")
+	}
 	offsetValue, hasOffset, err := gatewayFetchOffset(in.Offset)
 	if err != nil {
 		return nil, err
@@ -144,7 +180,29 @@ func (s *AdminServer) apiGatewayFetch(ctx context.Context, in *gatewayFetchInput
 	return out, nil
 }
 
-func (s *AdminServer) apiGatewayCommit(ctx context.Context, in *gatewayCommitInput) (*gatewayCommitOutput, error) {
+func (s *AdminServer) apiGatewayCommit(c fiber.Ctx) error {
+	partition, err := strconv.ParseUint(c.Params("partition"), 10, 32)
+	if err != nil {
+		return adminJSONError(c, brokerStoreError(store.CodeInvalidArgument, "invalid partition %q", c.Params("partition")))
+	}
+	in := &gatewayCommitInput{
+		Topic:     c.Params("topic"),
+		Partition: uint32(partition),
+	}
+	if err := parseAdminPayload(c, &in.Body); err != nil {
+		return adminJSONError(c, err)
+	}
+	out, err := s.gatewayCommit(c.Context(), in)
+	if err != nil {
+		return adminJSONError(c, err)
+	}
+	return adminJSON(c, out.Body)
+}
+
+func (s *AdminServer) gatewayCommit(ctx context.Context, in *gatewayCommitInput) (*gatewayCommitOutput, error) {
+	if strings.TrimSpace(in.Body.Consumer) == "" {
+		return nil, brokerStoreError(store.CodeInvalidArgument, "consumer is required")
+	}
 	err := s.broker.CommitOffsetWithMetadata(ctx, in.Body.Consumer, in.Topic, in.Partition, in.Body.NextOffset, in.Body.Metadata)
 	if err != nil {
 		return nil, err

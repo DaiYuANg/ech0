@@ -1,24 +1,13 @@
 package broker
 
 import (
-	"github.com/arcgolabs/httpx"
-	"github.com/arcgolabs/httpx/adapter"
-	httpxfiber "github.com/arcgolabs/httpx/adapter/fiber"
 	"github.com/felixge/fgprof"
-	fiberadaptor "github.com/gofiber/fiber/v2/middleware/adaptor"
+	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
 )
 
 func (s *AdminServer) registerRoutes() {
-	server := s.newAdminAPIServer()
-	httpx.MustGet(server, "/healthz", s.apiHealth)
-	httpx.MustGet(server, "/topics", s.apiTopics)
-	httpx.MustGet(server, "/metrics", s.apiMetrics)
-	httpx.MustGet(server, "/quota", s.apiQuota)
-	httpx.MustGet(server, "/cluster", s.apiCluster)
-	httpx.MustPost(server, "/gateway/topics/{topic}/records", s.apiGatewayProduce)
-	httpx.MustGet(server, "/gateway/topics/{topic}/partitions/{partition}/records", s.apiGatewayFetch)
-	httpx.MustPost(server, "/gateway/topics/{topic}/partitions/{partition}/commit", s.apiGatewayCommit)
-	s.registerDebugAPIRoutes(server)
+	s.registerAPIRoutes()
+	s.registerDebugAPIRoutes()
 	s.registerUIRoutes()
 	s.registerLegacyRoutes()
 	s.registerConsumerGroupRoutes()
@@ -28,29 +17,25 @@ func (s *AdminServer) registerRoutes() {
 	s.registerClusterControlRoutes()
 }
 
-func (s *AdminServer) newAdminAPIServer() httpx.ServerRuntime {
-	adminAdapter := httpxfiber.New(s.app, adapter.HumaOptions{
-		Title:       "ech0 Admin API",
-		Version:     "0.1.0",
-		Description: "Operational API for ech0 broker nodes.",
-		DocsPath:    "/docs",
-		OpenAPIPath: "/openapi.json",
-	})
-	return httpx.New(
-		httpx.WithAdapter(adminAdapter),
-		httpx.WithBasePath("/api"),
-		httpx.WithValidation(),
-	)
+func (s *AdminServer) registerAPIRoutes() {
+	s.app.Get("/docs", s.apiDocs)
+	s.app.Get("/openapi.json", s.apiOpenAPI)
+	s.app.Get("/api/healthz", s.apiHealth)
+	s.app.Get("/api/topics", s.apiTopics)
+	s.app.Get("/api/metrics", s.apiMetrics)
+	s.app.Get("/api/quota", s.apiQuota)
+	s.app.Get("/api/cluster", s.apiCluster)
+	s.app.Post("/api/gateway/topics/:topic/records", s.apiGatewayProduce)
+	s.app.Get("/api/gateway/topics/:topic/partitions/:partition/records", s.apiGatewayFetch)
+	s.app.Post("/api/gateway/topics/:topic/partitions/:partition/commit", s.apiGatewayCommit)
 }
 
-func (s *AdminServer) registerDebugAPIRoutes(server httpx.ServerRuntime) {
+func (s *AdminServer) registerDebugAPIRoutes() {
 	if !s.cfg.Admin.DebugEnabled {
 		return
 	}
-	httpx.MustGet(server, "/runtime/events", s.apiRuntimeEvents)
-	httpx.MustGetSSE(server, "/runtime/events/stream", map[string]any{
-		"runtime_events": runtimeEventsStreamEvent{},
-	}, s.apiRuntimeEventsStream)
+	s.app.Get("/api/runtime/events", s.apiRuntimeEvents)
+	s.app.Get("/api/runtime/events/stream", s.apiRuntimeEventsStream)
 }
 
 func (s *AdminServer) registerUIRoutes() {

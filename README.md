@@ -11,7 +11,7 @@ The public root package keeps the mental model intentionally small: configure a 
 - Single binary entry point in `cmd/ech0`.
 - Persistent segment-log storage with shard-local binary indexes.
 - Dependency injection, logging, events, and helpers using `arcgolabs/dix`, `logx`, `eventx`, and `collectionx`.
-- Admin and OpenAPI HTTP surface built with `arcgolabs/httpx` on Fiber.
+- Admin HTTP surface built directly on Fiber v3.
 - Dragonboat Raft for metadata coordination; multiple configured peers also enable replicated data shard groups.
 - Optional memberlist-based discovery for easier Dragonboat cluster bootstrap.
 - Retry, delay, nack, scheduled workers, webhook/file/S3/mirror sinks, and database outbox polling using `go-co-op/gocron`, gated by Raft leadership.

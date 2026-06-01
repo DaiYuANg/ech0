@@ -6,6 +6,7 @@ import (
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
 	"github.com/arcgolabs/configx"
+	configxtoml "github.com/arcgolabs/configx/format/toml"
 	"github.com/lyonbrown4d/ech0/store"
 	"github.com/spf13/pflag"
 )
@@ -263,6 +264,7 @@ func loadConfig(paths []string, flags *pflag.FlagSet) (Config, error) {
 	}
 	cfg, err := configx.LoadTErr[Config](
 		configx.WithTypedDefaults(DefaultConfig()),
+		configxtoml.WithTomlSupport(),
 		configx.WithFiles(files.Values()...),
 		configx.WithEnvPrefix("ECH0"),
 		configx.WithEnvSeparator("__"),

@@ -135,7 +135,7 @@ The first implementation cut should keep the public mental model small: existing
 ## Phase 10: Ecosystem Integrations
 
 - Done: continuous Kafka and NATS comparison benchmark harness through `scripts/bench-compare.ps1` and Docker Compose benchmark services.
-- Done: HTTP gateway for JSON produce, fetch, and commit through the Admin/httpx surface.
+- Done: HTTP gateway for JSON produce, fetch, and commit through the native Fiber v3 Admin surface.
 - Done: webhook sink with configured topic-partition polling, JSON delivery, and commit-on-2xx semantics.
 - Done: file sink with JSONL append, fsync, and commit-after-durable-write semantics.
 - Done: S3-compatible sink with path-style object PUT, optional SigV4 signing, and commit-after-2xx semantics.

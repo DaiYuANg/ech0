@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 type operationsView struct {
@@ -28,7 +28,7 @@ type operationSinkView struct {
 	Action    string
 }
 
-func (s *AdminServer) uiOperations(c *fiber.Ctx) error {
+func (s *AdminServer) uiOperations(c fiber.Ctx) error {
 	return adminRender(c, "admin_templates/ops", operationsView{
 		Cluster:          s.broker.ClusterMetadata(),
 		Result:           c.Query("result"),
@@ -41,48 +41,48 @@ func (s *AdminServer) uiOperations(c *fiber.Ctx) error {
 	})
 }
 
-func (s *AdminServer) apiRunWebhookSink(c *fiber.Ctx) error {
+func (s *AdminServer) apiRunWebhookSink(c fiber.Ctx) error {
 	sink, ok := findWebhookSink(s.cfg.Broker.WebhookSinks, c.FormValue("name"))
 	if !ok {
 		return redirectOpsError(c, "webhook sink not found")
 	}
-	result, err := s.broker.ProcessWebhookSinkOnce(c.UserContext(), sink)
+	result, err := s.broker.ProcessWebhookSinkOnce(c.Context(), sink)
 	return redirectOpsResult(c, "webhook delivered "+strconv.Itoa(result.Delivered), err)
 }
 
-func (s *AdminServer) apiRunFileSink(c *fiber.Ctx) error {
+func (s *AdminServer) apiRunFileSink(c fiber.Ctx) error {
 	sink, ok := findFileSink(s.cfg.Broker.FileSinks, c.FormValue("name"))
 	if !ok {
 		return redirectOpsError(c, "file sink not found")
 	}
-	result, err := s.broker.ProcessFileSinkOnce(c.UserContext(), sink)
+	result, err := s.broker.ProcessFileSinkOnce(c.Context(), sink)
 	return redirectOpsResult(c, "file wrote "+strconv.Itoa(result.Delivered), err)
 }
 
-func (s *AdminServer) apiRunMirrorSink(c *fiber.Ctx) error {
+func (s *AdminServer) apiRunMirrorSink(c fiber.Ctx) error {
 	sink, ok := findMirrorSink(s.cfg.Broker.MirrorSinks, c.FormValue("name"))
 	if !ok {
 		return redirectOpsError(c, "mirror sink not found")
 	}
-	result, err := s.broker.ProcessMirrorSinkOnce(c.UserContext(), sink)
+	result, err := s.broker.ProcessMirrorSinkOnce(c.Context(), sink)
 	return redirectOpsResult(c, "mirror replicated "+strconv.Itoa(result.Delivered), err)
 }
 
-func (s *AdminServer) apiRunS3Sink(c *fiber.Ctx) error {
+func (s *AdminServer) apiRunS3Sink(c fiber.Ctx) error {
 	sink, ok := findS3Sink(s.cfg.Broker.S3Sinks, c.FormValue("name"))
 	if !ok {
 		return redirectOpsError(c, "s3 sink not found")
 	}
-	result, err := s.broker.ProcessS3SinkOnce(c.UserContext(), sink)
+	result, err := s.broker.ProcessS3SinkOnce(c.Context(), sink)
 	return redirectOpsResult(c, "s3 wrote "+strconv.Itoa(result.Delivered), err)
 }
 
-func (s *AdminServer) apiRunDatabaseOutbox(c *fiber.Ctx) error {
+func (s *AdminServer) apiRunDatabaseOutbox(c fiber.Ctx) error {
 	outbox, ok := findDatabaseOutbox(s.cfg.Broker.DatabaseOutboxes, c.FormValue("name"))
 	if !ok {
 		return redirectOpsError(c, "database outbox not found")
 	}
-	result, err := s.broker.ProcessDatabaseOutboxOnce(c.UserContext(), outbox)
+	result, err := s.broker.ProcessDatabaseOutboxOnce(c.Context(), outbox)
 	return redirectOpsResult(c, "outbox published "+strconv.Itoa(result.Published), err)
 }
 
@@ -176,21 +176,21 @@ func findDatabaseOutbox(outboxes []DatabaseOutboxConfig, name string) (DatabaseO
 	return DatabaseOutboxConfig{}, false
 }
 
-func redirectOpsResult(c *fiber.Ctx, result string, err error) error {
+func redirectOpsResult(c fiber.Ctx, result string, err error) error {
 	if err != nil {
 		return redirectOpsError(c, err.Error())
 	}
 	return redirectOps(c, "result", result)
 }
 
-func redirectOpsError(c *fiber.Ctx, message string) error {
+func redirectOpsError(c fiber.Ctx, message string) error {
 	return redirectOps(c, "error", message)
 }
 
-func redirectOps(c *fiber.Ctx, key, value string) error {
+func redirectOps(c fiber.Ctx, key, value string) error {
 	target := "/ui/ops"
 	if strings.TrimSpace(value) != "" {
 		target += "?" + key + "=" + url.QueryEscape(value)
 	}
-	return wrapBroker("admin_ops_redirect_failed", c.Redirect(target, fiber.StatusSeeOther), "redirect operations")
+	return wrapBroker("admin_ops_redirect_failed", c.Redirect().Status(fiber.StatusSeeOther).To(target), "redirect operations")
 }

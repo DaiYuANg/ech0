@@ -211,7 +211,7 @@ Admin is served from the broker package on Fiber. It provides:
 - Operations UI for manually triggering configured webhook, file, mirror, S3, and database outbox jobs.
 - Embedded HTML templates styled with Tailwind CDN.
 
-Admin and OpenAPI use `arcgolabs/httpx` for the HTTP surface while the default server is Fiber.
+Admin HTTP and operator UI routes are served directly by Fiber v3.
 
 `GET /api/cluster` reports the configured Dragonboat peers, local advertise address, raft group health, data shard runtime modes, discovery state, and a leader distribution summary.
 

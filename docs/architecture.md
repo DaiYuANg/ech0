@@ -227,7 +227,7 @@ The implementation favors arcgolabs libraries where they match the responsibilit
 - `eventx` for broker control-plane events with bounded `ants` dispatch.
 - `collectionx` for collection operations, protocol codec registries, recent event buffers, shard metadata caches, and group assignment views.
 - `configx` for binary configuration loading through a `dix` provider.
-- `httpx` on Fiber for Admin/OpenAPI surfaces.
+- Native Fiber v3 for Admin HTTP and operator UI surfaces.
 - `observabilityx` for metrics wiring.
 - OpenTelemetry `trace.TracerProvider` injection for library-safe tracing.
 - `dragonboat` for clustered multi-group Raft.

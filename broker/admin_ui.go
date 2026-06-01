@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
-	"github.com/gofiber/fiber/v2"
-	fiberhtml "github.com/gofiber/template/html/v2"
+	"github.com/gofiber/fiber/v3"
+	fiberhtml "github.com/gofiber/template/html/v3"
 )
 
 func adminTemplateEngine() *fiberhtml.Engine {
@@ -20,11 +20,11 @@ func adminTemplateEngine() *fiberhtml.Engine {
 	return engine
 }
 
-func (s *AdminServer) uiDashboard(c *fiber.Ctx) error {
-	if err := s.metrics.RefreshStream(c.UserContext(), s.broker); err != nil && s.logger != nil {
+func (s *AdminServer) uiDashboard(c fiber.Ctx) error {
+	if err := s.metrics.RefreshStream(c.Context(), s.broker); err != nil && s.logger != nil {
 		s.logger.Warn("refresh metrics failed", "error", err)
 	}
-	topics, err := s.broker.TopicSummariesFor(c.UserContext())
+	topics, err := s.broker.TopicSummariesFor(c.Context())
 	view := dashboardView{
 		Health:  s.broker.RuntimeHealth(),
 		Metrics: s.metrics.Snapshot(),
@@ -34,7 +34,7 @@ func (s *AdminServer) uiDashboard(c *fiber.Ctx) error {
 	} else {
 		view.Topics = topics
 	}
-	quota, quotaErr := s.broker.QuotaSummaryFor(c.UserContext())
+	quota, quotaErr := s.broker.QuotaSummaryFor(c.Context())
 	if quotaErr != nil {
 		view.QuotaError = quotaErr.Error()
 	} else {
@@ -52,8 +52,8 @@ func commandErrorRate(metrics MetricsSnapshot) string {
 	return strconv.FormatFloat(rate, 'f', 2, 64)
 }
 
-func (s *AdminServer) uiTopics(c *fiber.Ctx) error {
-	topics, err := s.broker.TopicSummariesFor(c.UserContext())
+func (s *AdminServer) uiTopics(c fiber.Ctx) error {
+	topics, err := s.broker.TopicSummariesFor(c.Context())
 	view := topicsView{Topics: topics}
 	if err != nil {
 		view.Error = err.Error()
@@ -61,9 +61,9 @@ func (s *AdminServer) uiTopics(c *fiber.Ctx) error {
 	return adminRender(c, "admin_templates/topics", view)
 }
 
-func (s *AdminServer) uiACLPolicies(c *fiber.Ctx) error {
+func (s *AdminServer) uiACLPolicies(c fiber.Ctx) error {
 	filter := aclPolicyFilterFromQuery(c)
-	policies, err := s.broker.ListACLPolicies(c.UserContext(), filter)
+	policies, err := s.broker.ListACLPolicies(c.Context(), filter)
 	view := aclPoliciesView{
 		Policies:  policies,
 		Error:     c.Query("error"),
@@ -77,15 +77,15 @@ func (s *AdminServer) uiACLPolicies(c *fiber.Ctx) error {
 	return adminRender(c, "admin_templates/acl_policies", view)
 }
 
-func (s *AdminServer) uiTopicMessages(c *fiber.Ctx) error {
+func (s *AdminServer) uiTopicMessages(c fiber.Ctx) error {
 	topic := c.Params("topic")
 	partition := parseUint32Query(c, "partition")
 	offset := parseUint64Query(c, "offset")
-	limit := c.QueryInt("limit", 50)
+	limit := parseIntQuery(c, "limit", 50)
 	cursor := c.Query("cursor")
-	page, err := s.broker.TopicMessagesSnapshotFor(c.UserContext(), topic, partition, offset, limit)
+	page, err := s.broker.TopicMessagesSnapshotFor(c.Context(), topic, partition, offset, limit)
 	if cursor != "" || offset == 0 {
-		page, err = s.broker.TopicMessagesCursorSnapshotFor(c.UserContext(), topic, partition, cursor, limit)
+		page, err = s.broker.TopicMessagesCursorSnapshotFor(c.Context(), topic, partition, cursor, limit)
 	}
 	view := topicMessagesView{
 		Page:       page,
@@ -105,9 +105,9 @@ func previousOffset(offset uint64, limit int) uint64 {
 	return 0
 }
 
-func (s *AdminServer) uiGroup(c *fiber.Ctx) error {
+func (s *AdminServer) uiGroup(c fiber.Ctx) error {
 	group := c.Params("group")
-	health, err := s.broker.GroupHealthSnapshotFor(c.UserContext(), group)
+	health, err := s.broker.GroupHealthSnapshotFor(c.Context(), group)
 	view := groupView{Group: group, Health: health}
 	if health != nil {
 		view.Explain = health.RebalanceExplain
@@ -121,88 +121,88 @@ func (s *AdminServer) uiGroup(c *fiber.Ctx) error {
 	return adminRender(c, "admin_templates/group", view)
 }
 
-func (s *AdminServer) apiGroupHealth(c *fiber.Ctx) error {
-	health, err := s.broker.GroupHealthSnapshotFor(c.UserContext(), c.Params("group"))
+func (s *AdminServer) apiGroupHealth(c fiber.Ctx) error {
+	health, err := s.broker.GroupHealthSnapshotFor(c.Context(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
 	return adminJSON(c, health)
 }
 
-func (s *AdminServer) apiGroupMembers(c *fiber.Ctx) error {
-	members, err := s.broker.GroupMembersSnapshotFor(c.UserContext(), c.Params("group"))
+func (s *AdminServer) apiGroupMembers(c fiber.Ctx) error {
+	members, err := s.broker.GroupMembersSnapshotFor(c.Context(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
 	return adminJSON(c, members)
 }
 
-func (s *AdminServer) apiGroupAssignment(c *fiber.Ctx) error {
-	assignment, err := s.broker.GroupAssignmentSnapshotFor(c.UserContext(), c.Params("group"))
+func (s *AdminServer) apiGroupAssignment(c fiber.Ctx) error {
+	assignment, err := s.broker.GroupAssignmentSnapshotFor(c.Context(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
 	return adminJSON(c, assignment)
 }
 
-func (s *AdminServer) apiGroupLag(c *fiber.Ctx) error {
-	lag, err := s.broker.GroupLagSnapshotFor(c.UserContext(), c.Params("group"))
+func (s *AdminServer) apiGroupLag(c fiber.Ctx) error {
+	lag, err := s.broker.GroupLagSnapshotFor(c.Context(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
 	return adminJSON(c, lag)
 }
 
-func (s *AdminServer) apiGroupRebalance(c *fiber.Ctx) error {
-	assignment, err := s.broker.RebalanceConsumerGroup(c.UserContext(), c.Params("group"))
+func (s *AdminServer) apiGroupRebalance(c fiber.Ctx) error {
+	assignment, err := s.broker.RebalanceConsumerGroup(c.Context(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
 	return adminJSON(c, groupAssignmentSummary(assignment))
 }
 
-func (s *AdminServer) apiGroupRebalanceExplain(c *fiber.Ctx) error {
-	explain, err := s.broker.GroupRebalanceExplainFor(c.UserContext(), c.Params("group"))
+func (s *AdminServer) apiGroupRebalanceExplain(c fiber.Ctx) error {
+	explain, err := s.broker.GroupRebalanceExplainFor(c.Context(), c.Params("group"))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
 	return adminJSON(c, explain)
 }
 
-func (s *AdminServer) apiACLPolicies(c *fiber.Ctx) error {
-	policies, err := s.broker.ListACLPolicies(c.UserContext(), aclPolicyFilterFromQuery(c))
+func (s *AdminServer) apiACLPolicies(c fiber.Ctx) error {
+	policies, err := s.broker.ListACLPolicies(c.Context(), aclPolicyFilterFromQuery(c))
 	if err != nil {
 		return adminJSONError(c, err)
 	}
 	return adminJSON(c, policies)
 }
 
-func (s *AdminServer) apiACLPolicyUpsert(c *fiber.Ctx) error {
+func (s *AdminServer) apiACLPolicyUpsert(c fiber.Ctx) error {
 	policy := aclPolicyFromForm(c)
-	created, err := s.broker.UpsertACLPolicy(c.UserContext(), policy)
+	created, err := s.broker.UpsertACLPolicy(c.Context(), policy)
 	if err != nil {
 		return redirectACLPolicyError(c, err)
 	}
 	return redirectACLPolicies(c, created.Tenant, created.Namespace)
 }
 
-func (s *AdminServer) apiACLPolicyDelete(c *fiber.Ctx) error {
-	if err := s.broker.DeleteACLPolicy(c.UserContext(), c.FormValue("policy_id")); err != nil {
+func (s *AdminServer) apiACLPolicyDelete(c fiber.Ctx) error {
+	if err := s.broker.DeleteACLPolicy(c.Context(), c.FormValue("policy_id")); err != nil {
 		return redirectACLPolicyError(c, err)
 	}
 	return redirectACLPolicies(c, c.FormValue("tenant"), c.FormValue("namespace"))
 }
 
-func adminJSONError(c *fiber.Ctx, err error) error {
+func adminJSONError(c fiber.Ctx, err error) error {
 	response := adminErrorResponse{Error: err.Error()}
 	return wrapBroker("admin_json_error_failed", c.Status(fiber.StatusInternalServerError).JSON(response), "write admin json error")
 }
 
-func adminRender(c *fiber.Ctx, name string, view any) error {
+func adminRender(c fiber.Ctx, name string, view any) error {
 	return wrapBroker("admin_render_failed", c.Render(name, view), "render admin template %s", name)
 }
 
-func adminJSON(c *fiber.Ctx, value any) error {
+func adminJSON(c fiber.Ctx, value any) error {
 	return wrapBroker("admin_json_failed", c.JSON(value), "write admin json")
 }
 
@@ -210,7 +210,7 @@ type adminErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func parseUint32Query(c *fiber.Ctx, key string) uint32 {
+func parseUint32Query(c fiber.Ctx, key string) uint32 {
 	value, err := strconv.ParseUint(c.Query(key, "0"), 10, 32)
 	if err != nil {
 		return 0
@@ -218,7 +218,7 @@ func parseUint32Query(c *fiber.Ctx, key string) uint32 {
 	return uint32(value)
 }
 
-func parseUint64Query(c *fiber.Ctx, key string) uint64 {
+func parseUint64Query(c fiber.Ctx, key string) uint64 {
 	value, err := strconv.ParseUint(c.Query(key, "0"), 10, 64)
 	if err != nil {
 		return 0
@@ -226,7 +226,15 @@ func parseUint64Query(c *fiber.Ctx, key string) uint64 {
 	return value
 }
 
-func parseIntForm(c *fiber.Ctx, key string) int {
+func parseIntQuery(c fiber.Ctx, key string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(c.Query(key)))
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func parseIntForm(c fiber.Ctx, key string) int {
 	value, err := strconv.Atoi(strings.TrimSpace(c.FormValue(key)))
 	if err != nil {
 		return 0
@@ -234,7 +242,7 @@ func parseIntForm(c *fiber.Ctx, key string) int {
 	return value
 }
 
-func aclPolicyFilterFromQuery(c *fiber.Ctx) ACLPolicyFilter {
+func aclPolicyFilterFromQuery(c fiber.Ctx) ACLPolicyFilter {
 	return ACLPolicyFilter{
 		Tenant:       strings.TrimSpace(c.Query("tenant")),
 		Namespace:    strings.TrimSpace(c.Query("namespace")),
@@ -244,7 +252,7 @@ func aclPolicyFilterFromQuery(c *fiber.Ctx) ACLPolicyFilter {
 	}
 }
 
-func aclPolicyFromForm(c *fiber.Ctx) ACLPolicy {
+func aclPolicyFromForm(c fiber.Ctx) ACLPolicy {
 	return ACLPolicy{
 		PolicyID:     strings.TrimSpace(c.FormValue("policy_id")),
 		Tenant:       strings.TrimSpace(c.FormValue("tenant")),
@@ -278,7 +286,7 @@ func aclActionList(actions []ACLAction) string {
 	return strings.Join(values.Values(), ",")
 }
 
-func redirectACLPolicies(c *fiber.Ctx, tenant, namespace string) error {
+func redirectACLPolicies(c fiber.Ctx, tenant, namespace string) error {
 	target := "/ui/acls"
 	query := url.Values{}
 	if tenant != "" {
@@ -290,10 +298,10 @@ func redirectACLPolicies(c *fiber.Ctx, tenant, namespace string) error {
 	if encoded := query.Encode(); encoded != "" {
 		target += "?" + encoded
 	}
-	return wrapBroker("admin_acl_redirect_failed", c.Redirect(target, fiber.StatusSeeOther), "redirect acl policies")
+	return wrapBroker("admin_acl_redirect_failed", c.Redirect().Status(fiber.StatusSeeOther).To(target), "redirect acl policies")
 }
 
-func redirectACLPolicyError(c *fiber.Ctx, err error) error {
+func redirectACLPolicyError(c fiber.Ctx, err error) error {
 	target := "/ui/acls?error=" + url.QueryEscape(err.Error())
-	return wrapBroker("admin_acl_error_redirect_failed", c.Redirect(target, fiber.StatusSeeOther), "redirect acl policy error")
+	return wrapBroker("admin_acl_error_redirect_failed", c.Redirect().Status(fiber.StatusSeeOther).To(target), "redirect acl policy error")
 }

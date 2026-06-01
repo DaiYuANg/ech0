@@ -10,9 +10,8 @@ import (
 	"time"
 
 	"github.com/arcgolabs/dix"
-	"github.com/arcgolabs/httpx"
-	"github.com/gofiber/fiber/v2"
-	fiberadaptor "github.com/gofiber/fiber/v2/middleware/adaptor"
+	"github.com/gofiber/fiber/v3"
+	fiberadaptor "github.com/gofiber/fiber/v3/middleware/adaptor"
 )
 
 //go:embed admin_templates/*.html
@@ -85,57 +84,29 @@ func (s *AdminServer) Stop(ctx context.Context) error {
 	return wrapBroker("admin_shutdown_failed", s.app.ShutdownWithContext(ctx), "shutdown admin server")
 }
 
-func (s *AdminServer) apiRuntimeEventsStream(ctx context.Context, _ *struct{}, send httpx.SSESender) {
-	if !s.sendRuntimeEventsSnapshot(send) {
-		return
-	}
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if !s.sendRuntimeEventsSnapshot(send) {
-				return
-			}
-		}
-	}
+func (s *AdminServer) redirectRoot(c fiber.Ctx) error {
+	return wrapBroker("admin_redirect_failed", c.Redirect().Status(fiber.StatusTemporaryRedirect).To("/ui"), "redirect admin root")
 }
 
-func (s *AdminServer) sendRuntimeEventsSnapshot(send httpx.SSESender) bool {
-	if err := send.Data(s.runtimeEventStreamSnapshot()); err != nil {
-		if s.logger != nil {
-			s.logger.Debug("send runtime event stream snapshot failed", "error", err)
-		}
-		return false
-	}
-	return true
-}
-
-func (s *AdminServer) redirectRoot(c *fiber.Ctx) error {
-	return wrapBroker("admin_redirect_failed", c.Redirect("/ui", fiber.StatusTemporaryRedirect), "redirect admin root")
-}
-
-func (s *AdminServer) legacyHealth(c *fiber.Ctx) error {
+func (s *AdminServer) legacyHealth(c fiber.Ctx) error {
 	return adminJSON(c, s.broker.RuntimeHealth())
 }
 
-func (s *AdminServer) prometheusMetrics(c *fiber.Ctx) error {
-	if err := s.metrics.RefreshStream(c.UserContext(), s.broker); err != nil {
+func (s *AdminServer) prometheusMetrics(c fiber.Ctx) error {
+	if err := s.metrics.RefreshStream(c.Context(), s.broker); err != nil {
 		return wrapBroker("admin_metrics_refresh_failed", c.Status(fiber.StatusInternalServerError).SendString(err.Error()), "write metrics refresh error")
 	}
 	return wrapBroker("admin_metrics_write_failed", fiberadaptor.HTTPHandler(s.metrics.Handler())(c), "write prometheus metrics")
 }
 
-func (s *AdminServer) adminIdentityMiddleware(c *fiber.Ctx) error {
-	identity := identityFromContext(c.UserContext())
+func (s *AdminServer) adminIdentityMiddleware(c fiber.Ctx) error {
+	identity := identityFromContext(c.Context())
 	identity.Tenant = adminIdentityValue(c, "X-Ech0-Tenant", "tenant", identity.Tenant)
 	identity.Namespace = adminIdentityValue(c, "X-Ech0-Namespace", "namespace", identity.Namespace)
 	identity.Principal = adminIdentityValue(c, "X-Ech0-Principal", "principal", identity.Principal)
 	identity.ClientID = adminIdentityValue(c, "X-Ech0-Client-Id", "client_id", identity.ClientID)
 	if s.broker != nil && s.broker.cfg.Governance.Auth.Enabled {
-		authenticated, err := s.broker.authenticate(c.UserContext(), AuthRequest{
+		authenticated, err := s.broker.authenticate(c.Context(), AuthRequest{
 			ClientID:  identity.ClientID,
 			Principal: identity.Principal,
 			Tenant:    identity.Tenant,
@@ -147,11 +118,11 @@ func (s *AdminServer) adminIdentityMiddleware(c *fiber.Ctx) error {
 		}
 		identity = authenticated
 	}
-	c.SetUserContext(WithIdentity(c.UserContext(), identity))
+	c.SetContext(WithIdentity(c.Context(), identity))
 	return wrapBroker("admin_identity_middleware_failed", c.Next(), "run admin identity middleware")
 }
 
-func adminAuthToken(c *fiber.Ctx) string {
+func adminAuthToken(c fiber.Ctx) string {
 	token := strings.TrimSpace(c.Get("X-Ech0-Auth-Token"))
 	if token != "" {
 		return token
@@ -166,12 +137,12 @@ func adminAuthToken(c *fiber.Ctx) string {
 	return strings.TrimSpace(c.Query("auth_token"))
 }
 
-func adminAuthError(c *fiber.Ctx, err error) error {
+func adminAuthError(c fiber.Ctx, err error) error {
 	response := adminErrorResponse{Error: "unauthorized"}
 	return wrapBroker("admin_auth_failed", c.Status(fiber.StatusUnauthorized).JSON(response), "authenticate admin request: %v", err)
 }
 
-func adminIdentityValue(c *fiber.Ctx, header, query, fallback string) string {
+func adminIdentityValue(c fiber.Ctx, header, query, fallback string) string {
 	value := strings.TrimSpace(c.Get(header))
 	if value != "" {
 		return value

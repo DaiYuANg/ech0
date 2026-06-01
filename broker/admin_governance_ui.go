@@ -4,7 +4,7 @@ import (
 	"strconv"
 
 	collectionlist "github.com/arcgolabs/collectionx/list"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 const governanceACLPreviewLimit = 5
@@ -47,20 +47,20 @@ type governanceTenantDefaultView struct {
 	DeadLetterTopic     string
 }
 
-func (s *AdminServer) uiGovernance(c *fiber.Ctx) error {
-	identity := identityFromContext(c.UserContext())
+func (s *AdminServer) uiGovernance(c fiber.Ctx) error {
+	identity := identityFromContext(c.Context())
 	view := governanceView{
 		Identity:       identity,
 		Auth:           governanceAuthFromConfig(s.effectiveGovernanceConfig().Auth),
 		TenantDefaults: governanceTenantDefaultsFromConfig(s.effectiveGovernanceConfig().TenantDefaults),
 	}
-	quota, err := s.broker.QuotaSummaryFor(c.UserContext())
+	quota, err := s.broker.QuotaSummaryFor(c.Context())
 	if err != nil {
 		view.QuotaError = err.Error()
 	} else {
 		view.Quota = quota
 	}
-	policies, err := s.broker.ListACLPolicies(c.UserContext(), ACLPolicyFilter{
+	policies, err := s.broker.ListACLPolicies(c.Context(), ACLPolicyFilter{
 		Tenant:    identity.Tenant,
 		Namespace: identity.Namespace,
 	})
